@@ -51,6 +51,7 @@ class SearchFilters(BaseModel):
     skills: Optional[List[str]] = Field(default=[], description="Skills requeridas")
     country: Optional[str] = Field(None, description="País do cliente")
     max_results: int = Field(default=20, ge=1, le=100, description="Máximo de resultados")
+    page: int = Field(default=1, ge=1, description="Página inicial da busca")
 
 
 class SavedFilter(BaseModel):
@@ -75,6 +76,10 @@ class Project(BaseModel):
     skills: List[str] = Field(default=[], description="Skills requeridas")
     client_name: Optional[str] = Field(None, description="Nome do cliente")
     client_country: Optional[str] = Field(None, description="País do cliente")
+    client_rating: Optional[float] = Field(None, description="Avaliação do cliente")
+    client_projects_posted: Optional[int] = Field(None, description="Projetos publicados pelo cliente")
+    client_projects_paid: Optional[int] = Field(None, description="Projetos pagos pelo cliente")
+    client_member_since: Optional[str] = Field(None, description="Membro desde")
     proposals_count: Optional[int] = Field(None, description="Número de propostas")
     posted_at: Optional[str] = Field(None, description="Quando foi postado")
     url: str = Field(..., description="URL do projeto")

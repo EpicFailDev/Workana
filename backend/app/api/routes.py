@@ -176,15 +176,8 @@ async def clear_session():
 async def search_projects(filters: SearchFilters):
     """Busca projetos no Workana com os filtros especificados."""
     try:
-        if not automation.is_logged_in:
-            if automation.has_saved_session():
-                logger.info("Tentando restaurar sessão automaticamente...")
-                if not await automation.login_with_session():
-                    raise HTTPException(status_code=401, detail="Sessão expirada. Faça login novamente.")
-            else:
-                raise HTTPException(status_code=401, detail="Faça login primeiro")
-        
-        projects = await automation.search_projects(filters)
+        # Busca sempre anônima (Fast Search) conforme solicitado pelo usuário
+        projects = await automation.search_projects(filters, anonymous=True)
         return ProjectList(projects=projects, total=len(projects))
     except HTTPException:
         raise
@@ -197,10 +190,8 @@ async def search_projects(filters: SearchFilters):
 async def get_project_details(project_id: str):
     """Obtém detalhes de um projeto específico."""
     try:
-        if not automation.is_logged_in:
-            raise HTTPException(status_code=401, detail="Faça login primeiro")
-        
-        project = await automation.get_project_details(project_id)
+        # Busca anônima de detalhes (conforme solicitado pelo usuário, para não exigir login na "busca/filtro")
+        project = await automation.get_project_details(project_id, anonymous=True)
         if not project:
             raise HTTPException(status_code=404, detail="Projeto não encontrado")
         return project
@@ -269,7 +260,13 @@ async def send_proposal(proposal: ProposalSubmit):
     """Envia uma proposta para um projeto."""
     try:
         if not automation.is_logged_in:
-            raise HTTPException(status_code=401, detail="Faça login primeiro")
+            # Tenta auto-login se houver sessão (solicitação do usuário: "login quando necessario")
+            if automation.has_saved_session():
+                logger.info("Login necessário para proposta. Tentando restaurar sessão...")
+                if not await automation.login_with_session():
+                     raise HTTPException(status_code=401, detail="Sessão expirada. Faça login novamente.")
+            else:
+                raise HTTPException(status_code=401, detail="Faça login primeiro para enviar propostas")
         
         # Verificar limite diário
         stats = await crud.get_daily_stats()

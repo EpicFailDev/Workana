@@ -45,11 +45,14 @@ export default function ProjectsPage() {
 
     const [projects, setProjects] = useState<Project[]>([]);
     const [isSearching, setIsSearching] = useState(false);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [hasSearched, setHasSearched] = useState(false);
+    const [page, setPage] = useState(1);
+    const [hasMore, setHasMore] = useState(true);
 
-    const handleSearch = async () => {
-        setIsSearching(true);
-        setHasSearched(true);
+    const executeSearch = async (pageNum: number, append: boolean = false) => {
+        const loadingState = append ? setIsLoadingMore : setIsSearching;
+        loadingState(true);
 
         try {
             const result = await api.searchProjects({
@@ -58,14 +61,36 @@ export default function ProjectsPage() {
                 min_budget: filters.min_budget ? Number(filters.min_budget) : undefined,
                 max_budget: filters.max_budget ? Number(filters.max_budget) : undefined,
                 project_type: filters.project_type !== "any" ? filters.project_type : undefined,
+                page: pageNum,
             });
-            setProjects(result.projects);
+
+            if (append) {
+                setProjects(prev => [...prev, ...result.projects]);
+            } else {
+                setProjects(result.projects);
+            }
+
+            setHasMore(result.projects.length > 0);
+
         } catch (error) {
             console.error("Erro na busca:", error);
-            alert("Erro ao buscar projetos. Verifique se a automação está conectada.");
+            // alert("Erro ao buscar projetos. Verifique se a automação está conectada.");
         } finally {
-            setIsSearching(false);
+            loadingState(false);
         }
+    };
+
+    const handleSearch = () => {
+        setHasSearched(true);
+        setPage(1);
+        setHasMore(true);
+        executeSearch(1, false);
+    };
+
+    const handleLoadMore = () => {
+        const nextPage = page + 1;
+        setPage(nextPage);
+        executeSearch(nextPage, true);
     };
 
     const handleSendProposal = (projectId: string) => {
@@ -258,6 +283,26 @@ export default function ProjectsPage() {
                             </div>
                         ))}
                     </div>
+
+                    {/* Botão Carregar Mais */}
+                    {hasMore && (
+                        <div style={{ textAlign: 'center', marginTop: '2rem' }}>
+                            <button
+                                className="btn btn-secondary btn-lg"
+                                onClick={handleLoadMore}
+                                disabled={isLoadingMore}
+                            >
+                                {isLoadingMore ? (
+                                    <>
+                                        <span className="spinner"></span>
+                                        Carregando...
+                                    </>
+                                ) : (
+                                    "Carregar Mais Projetos"
+                                )}
+                            </button>
+                        </div>
+                    )}
                 </div>
             ) : (
                 <div className="card">

@@ -328,3 +328,56 @@ Call log:
 2025-12-24 16:24:21.478 | INFO     | app.automation.browser:search_projects:523 - Buscando projetos em: https://www.workana.com/jobs?category=it-programming
 2025-12-24 16:24:23.847 | DEBUG    | app.automation.antiban:random_delay:134 - Aguardando 3115ms...
 2025-12-24 16:24:28.527 | INFO     | app.automation.browser:search_projects:539 - Encontrados 20 projetos
+2025-12-24 16:29:19.744 | INFO     | app.main:lifespan:39 - 🚀 Iniciando Workana Automation API...
+2025-12-24 16:29:19.761 | INFO     | app.main:lifespan:43 - ✅ Banco de dados inicializado
+2025-12-24 16:29:19.762 | INFO     | app.main:lifespan:47 - 👋 Encerrando aplicação...
+2025-12-24 16:29:33.701 | INFO     | app.automation.browser:search_projects:523 - Buscando projetos em: https://www.workana.com/jobs?category=it-programming
+2025-12-24 16:29:33.812 | ERROR    | app.automation.browser:search_projects:544 - Erro na busca: Page.goto: Page crashed
+Call log:
+  - navigating to "https://www.workana.com/jobs?category=it-programming", waiting until "networkidle"
+
+2025-12-24 16:29:35.620 | INFO     | app.automation.browser:search_projects:523 - Buscando projetos em: https://www.workana.com/jobs?category=it-programming
+2025-12-24 16:29:35.732 | ERROR    | app.automation.browser:search_projects:544 - Erro na busca: Page.goto: Page crashed
+Call log:
+  - navigating to "https://www.workana.com/jobs?category=it-programming", waiting until "networkidle"
+
+2025-12-24 16:39:12.828 | INFO     | app.main:lifespan:39 - 🚀 Iniciando Workana Automation API...
+2025-12-24 16:39:12.844 | INFO     | app.main:lifespan:43 - ✅ Banco de dados inicializado
+2025-12-24 16:39:21.962 | INFO     | app.automation.components.browser_driver:init_browser:40 - Inicializando navegador Playwright (Componente)...
+2025-12-24 16:39:22.748 | INFO     | app.automation.components.auth_handler:load_session_to_context:41 - Cookies carregados no contexto.
+2025-12-24 16:39:22.821 | INFO     | app.automation.components.browser_driver:init_browser:82 - Navegador inicializado com sucesso!
+2025-12-24 16:39:52.937 | ERROR    | app.automation.components.auth_handler:login_with_session:97 - Erro ao logar com sessão: Page.goto: Timeout 30000ms exceeded.
+Call log:
+  - navigating to "https://www.workana.com/", waiting until "networkidle"
+
+2025-12-24 16:40:28.741 | INFO     | app.api.routes:search_projects:181 - Tentando restaurar sessão automaticamente...
+2025-12-24 16:40:52.644 | ERROR    | app.automation.components.auth_handler:login_with_session:97 - Erro ao logar com sessão: Page.goto: Page crashed
+Call log:
+  - navigating to "https://www.workana.com/", waiting until "networkidle"
+
+2025-12-24 16:40:52.969 | INFO     | app.main:lifespan:39 - 🚀 Iniciando Workana Automation API...
+2025-12-24 16:40:52.985 | INFO     | app.main:lifespan:43 - ✅ Banco de dados inicializado
+2025-12-24 16:40:52.986 | INFO     | app.main:lifespan:47 - 👋 Encerrando aplicação...
+2025-12-24 16:41:29.200 | INFO     | app.main:lifespan:39 - 🚀 Iniciando Workana Automation API...
+2025-12-24 16:41:29.214 | INFO     | app.main:lifespan:43 - ✅ Banco de dados inicializado
+2025-12-24 16:41:41.237 | INFO     | app.api.routes:search_projects:181 - Tentando restaurar sessão automaticamente...
+2025-12-24 16:41:41.237 | INFO     | app.automation.components.browser_driver:init_browser:40 - Inicializando navegador Playwright (Componente)...
+2025-12-24 16:41:41.890 | INFO     | app.automation.components.auth_handler:load_session_to_context:41 - Cookies carregados no contexto.
+2025-12-24 16:41:41.953 | INFO     | app.automation.components.browser_driver:init_browser:82 - Navegador inicializado com sucesso!
+2025-12-24 16:42:12.074 | ERROR    | app.automation.components.auth_handler:login_with_session:97 - Erro ao logar com sessão: Page.goto: Timeout 30000ms exceeded.
+Call log:
+  - navigating to "https://www.workana.com/", waiting until "networkidle"
+
+2025-12-24 16:48:45.719 | INFO     | app.main:lifespan:39 - 🚀 Iniciando Workana Automation API...
+2025-12-24 16:48:45.736 | INFO     | app.main:lifespan:43 - ✅ Banco de dados inicializado
+2025-12-24 16:48:45.737 | INFO     | app.main:lifespan:47 - 👋 Encerrando aplicação...
+2025-12-24 16:50:57.700 | INFO     | app.main:lifespan:39 - 🚀 Iniciando Workana Automation API...
+2025-12-24 16:50:57.715 | INFO     | app.main:lifespan:43 - ✅ Banco de dados inicializado
+2025-12-24 16:51:08.895 | ERROR    | app.automation.browser:search_projects:138 - Erro no Fast Search: No module named 'bs4', caindo para Browser.
+2025-12-24 16:51:08.895 | INFO     | app.automation.components.browser_driver:init_browser:40 - Inicializando navegador Playwright (Componente)...
+2025-12-24 16:51:09.656 | INFO     | app.automation.components.browser_driver:init_browser:82 - Navegador inicializado com sucesso!
+2025-12-24 16:51:09.657 | INFO     | app.automation.components.project_scraper:search_projects:46 - Scraping página 1: https://www.workana.com/jobs?category=it-programming
+2025-12-24 16:51:13.380 | INFO     | app.automation.components.project_scraper:search_projects:70 - Extraídos 9 projetos da página 1
+2025-12-24 16:53:56.508 | INFO     | app.main:lifespan:39 - 🚀 Iniciando Workana Automation API...
+2025-12-24 16:53:56.525 | INFO     | app.main:lifespan:43 - ✅ Banco de dados inicializado
+2025-12-24 16:53:56.526 | INFO     | app.main:lifespan:47 - 👋 Encerrando aplicação...

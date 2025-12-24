@@ -97,6 +97,7 @@ class ApiService {
         max_budget?: number;
         project_type?: string;
         max_results?: number;
+        page?: number;
     }) {
         return this.request<{
             projects: Array<{
