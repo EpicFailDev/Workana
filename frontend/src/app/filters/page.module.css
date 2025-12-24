@@ -1,0 +1,81 @@
+.container {
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+/* Filters List */
+.filtersList {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+/* Filter Card */
+.filterCard {
+    transition: all var(--transition-normal);
+}
+
+.filterCard:hover {
+    border-color: var(--color-primary);
+    transform: translateX(4px);
+}
+
+.filterHeader {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: var(--spacing-md);
+}
+
+.filterName {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin-bottom: var(--spacing-xs);
+}
+
+.filterDate {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+}
+
+.filterActions {
+    display: flex;
+    gap: var(--spacing-sm);
+}
+
+.filterDetails {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md);
+    background: var(--color-bg-tertiary);
+    border-radius: var(--radius-md);
+}
+
+.filterDetail {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: 0.875rem;
+}
+
+.detailLabel {
+    color: var(--color-text-muted);
+}
+
+@media (max-width: 640px) {
+    .filterHeader {
+        flex-direction: column;
+        gap: var(--spacing-md);
+    }
+
+    .filterActions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .filterDetails {
+        flex-direction: column;
+        gap: var(--spacing-sm);
+    }
+}

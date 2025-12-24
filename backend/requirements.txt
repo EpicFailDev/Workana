@@ -1,0 +1,26 @@
+# FastAPI e servidor
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# Automação de navegador
+playwright==1.41.0
+
+# Validação e configuração
+pydantic>=2.5.3
+pydantic-settings>=2.1.0
+python-dotenv>=1.0.0
+email-validator>=2.0.0
+
+# Banco de dados
+sqlalchemy>=2.0.25
+aiosqlite>=0.19.0
+
+# Segurança
+cryptography>=41.0.7
+python-jose[cryptography]>=3.3.0
+
+# Utilitários
+httpx>=0.26.0
+loguru>=0.7.2
+
