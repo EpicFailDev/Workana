@@ -1,6 +1,7 @@
+
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import styles from "./page.module.css";
 
 interface ProposalHistory {
@@ -13,54 +14,6 @@ interface ProposalHistory {
     sent_at: string;
 }
 
-const mockHistory: ProposalHistory[] = [
-    {
-        id: 1,
-        project_id: "123456",
-        project_title: "Desenvolvimento de Aplicativo Mobile React Native",
-        budget: 4500,
-        deadline_days: 20,
-        status: "accepted",
-        sent_at: "2024-12-22T10:30:00Z",
-    },
-    {
-        id: 2,
-        project_id: "123457",
-        project_title: "Sistema Web em Python/Django para E-commerce",
-        budget: 12000,
-        deadline_days: 45,
-        status: "viewed",
-        sent_at: "2024-12-21T15:45:00Z",
-    },
-    {
-        id: 3,
-        project_id: "123458",
-        project_title: "Landing Page para Startup de Tecnologia",
-        budget: 1200,
-        deadline_days: 7,
-        status: "sent",
-        sent_at: "2024-12-21T09:15:00Z",
-    },
-    {
-        id: 4,
-        project_id: "123459",
-        project_title: "API REST para Aplicativo de Delivery",
-        budget: 8000,
-        deadline_days: 30,
-        status: "rejected",
-        sent_at: "2024-12-20T14:20:00Z",
-    },
-    {
-        id: 5,
-        project_id: "123460",
-        project_title: "Redesign de Interface para SaaS",
-        budget: 3500,
-        deadline_days: 15,
-        status: "sent",
-        sent_at: "2024-12-19T11:00:00Z",
-    },
-];
-
 const statusLabels: Record<string, { label: string; class: string }> = {
     sent: { label: "Enviada", class: "badge-neutral" },
     viewed: { label: "Visualizada", class: "badge-info" },
@@ -69,14 +22,36 @@ const statusLabels: Record<string, { label: string; class: string }> = {
 };
 
 export default function HistoryPage() {
-    const [history] = useState<ProposalHistory[]>(mockHistory);
+    const [history, setHistory] = useState<ProposalHistory[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
     const [filter, setFilter] = useState<string>("all");
+
+    const API_BASE = "http://localhost:8000/api";
+
+    useEffect(() => {
+        fetchHistory();
+    }, []);
+
+    const fetchHistory = async () => {
+        try {
+            const response = await fetch(`${API_BASE}/proposals/history?limit=100`);
+            if (response.ok) {
+                const data = await response.json();
+                setHistory(data);
+            }
+        } catch (error) {
+            console.error("Erro ao carregar histórico:", error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
     const filteredHistory = filter === "all"
         ? history
         : history.filter(h => h.status === filter);
 
     const formatDate = (dateString: string) => {
+        if (!dateString) return "-";
         const date = new Date(dateString);
         return date.toLocaleDateString("pt-BR", {
             day: "2-digit",
@@ -93,6 +68,15 @@ export default function HistoryPage() {
             currency: "BRL",
         });
     };
+
+    if (isLoading) {
+        return (
+            <div className={styles.loadingContainer}>
+                <div className="spinner spinner-lg"></div>
+                <p className="mt-md text-muted">Carregando histórico...</p>
+            </div>
+        );
+    }
 
     return (
         <div className={styles.container}>
@@ -199,8 +183,8 @@ export default function HistoryPage() {
                                     </td>
                                     <td>{item.deadline_days} dias</td>
                                     <td>
-                                        <span className={`badge ${statusLabels[item.status].class}`}>
-                                            {statusLabels[item.status].label}
+                                        <span className={`badge ${statusLabels[item.status]?.class || 'badge-neutral'}`}>
+                                            {statusLabels[item.status]?.label || item.status}
                                         </span>
                                     </td>
                                     <td className={styles.dateCell}>{formatDate(item.sent_at)}</td>
@@ -230,7 +214,7 @@ export default function HistoryPage() {
                         <p className="empty-state-description">
                             {filter === "all"
                                 ? "Você ainda não enviou nenhuma proposta."
-                                : `Não há propostas com o status "${statusLabels[filter]?.label}".`}
+                                : `Não há propostas com o status "${statusLabels[filter]?.label || filter}".`}
                         </p>
                     </div>
                 </div>

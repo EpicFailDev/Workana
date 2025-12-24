@@ -16,7 +16,7 @@ $rootDir = $PSScriptRoot
 # ----------------------------------------
 Write-Host "-> Iniciando Backend (FastAPI)..." -ForegroundColor Yellow
 
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$rootDir\backend'; .\venv\Scripts\Activate.ps1; uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$rootDir\backend'; .\venv\Scripts\Activate.ps1; python run.py"
 
 Start-Sleep -Seconds 3
 

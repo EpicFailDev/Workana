@@ -290,6 +290,88 @@ Veja o status das suas propostas no **Histórico**.
 |--------|----------|-----------|
 | `GET` | `/api/dashboard/stats` | Estatísticas gerais |
 
+### Projetos Salvos
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| `GET` | `/api/saved-projects` | Listar projetos salvos |
+| `GET` | `/api/saved-projects/{id}` | Detalhes de um projeto salvo |
+| `POST` | `/api/saved-projects` | Salvar um projeto |
+| `POST` | `/api/saved-projects/{id}/favorite` | Favoritar/desfavoritar |
+| `POST` | `/api/saved-projects/{id}/applied` | Marcar como aplicado |
+| `POST` | `/api/saved-projects/{id}/ignore` | Ignorar projeto |
+| `PUT` | `/api/saved-projects/{id}/notes` | Atualizar notas |
+
+### Logs de Atividade
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| `GET` | `/api/logs` | Listar logs de atividade |
+| `POST` | `/api/logs` | Criar log manual |
+
+### Estatísticas
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| `GET` | `/api/statistics` | Estatísticas dos últimos N dias |
+| `GET` | `/api/statistics/summary` | Resumo (hoje/semana/mês) |
+
+### Clientes Bloqueados
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| `GET` | `/api/blacklist` | Listar clientes bloqueados |
+| `POST` | `/api/blacklist` | Adicionar à lista negra |
+| `DELETE` | `/api/blacklist/{id}` | Remover da lista negra |
+| `GET` | `/api/blacklist/check/{nome}` | Verificar se está bloqueado |
+
+### Sistema Anti-Ban 🛡️
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| `GET` | `/api/antiban/status` | Status atual do sistema |
+| `GET` | `/api/antiban/config` | Configuração atual |
+| `PUT` | `/api/antiban/config` | Atualizar configuração |
+| `GET` | `/api/antiban/can-send-proposal` | Verificar se pode enviar |
+| `GET` | `/api/antiban/can-search` | Verificar se pode buscar |
+| `GET` | `/api/antiban/working-hours` | Horário de operação |
+
+---
+
+## 🛡️ Sistema Anti-Ban
+
+O sistema inclui proteção avançada para evitar detecção e banimento:
+
+### Proteções Implementadas
+
+| Proteção | Descrição |
+|----------|-----------|
+| 🕐 **Delays Aleatórios** | 1.5s - 4s entre ações (variável) |
+| 📊 **Limites de Ações** | Máx. 8 propostas/dia, 3/hora |
+| ⏰ **Horário de Operação** | Apenas das 8h às 22h |
+| 🖱️ **Simulação Humana** | Movimentos de mouse, scroll aleatório |
+| 🔄 **Fingerprinting** | User-agents e resoluções aleatórias |
+| ⏸️ **Pausas Obrigatórias** | 10-30 min entre propostas |
+| 🚫 **Anti-Detecção** | Remove indicadores de automação |
+
+### Configurações Padrão
+
+```json
+{
+  "max_proposals_per_day": 8,
+  "max_proposals_per_hour": 3,
+  "max_searches_per_hour": 10,
+  "min_pause_between_proposals_minutes": 10,
+  "max_pause_between_proposals_minutes": 30,
+  "working_hours_start": 8,
+  "working_hours_end": 22
+}
+```
+
+### Como Configurar
+
+Via API:
+```bash
+curl -X PUT http://localhost:8000/api/antiban/config \
+  -H "Content-Type: application/json" \
+  -d '{"max_proposals_per_day": 5, "min_pause_between_proposals_minutes": 15}'
+```
+
 ---
 
 ## 📝 Variáveis de Template
