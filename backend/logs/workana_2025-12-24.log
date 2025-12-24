@@ -381,3 +381,32 @@ Call log:
 2025-12-24 16:53:56.508 | INFO     | app.main:lifespan:39 - 🚀 Iniciando Workana Automation API...
 2025-12-24 16:53:56.525 | INFO     | app.main:lifespan:43 - ✅ Banco de dados inicializado
 2025-12-24 16:53:56.526 | INFO     | app.main:lifespan:47 - 👋 Encerrando aplicação...
+2025-12-24 16:54:08.749 | ERROR    | app.automation.browser:search_projects:138 - Erro no Fast Search: No module named 'bs4', caindo para Browser.
+2025-12-24 16:54:08.750 | INFO     | app.automation.components.project_scraper:search_projects:46 - Scraping página 1: https://www.workana.com/jobs?category=it-programming
+2025-12-24 16:54:08.754 | WARNING  | app.automation.components.project_scraper:search_projects:52 - Erro ao carregar página 1: Page.goto: Target page, context or browser has been closed
+2025-12-24 16:54:08.756 | ERROR    | app.automation.browser:search_projects:157 - Erro na busca: Page.query_selector_all: Target page, context or browser has been closed
+2025-12-24 16:54:09.809 | ERROR    | app.automation.browser:search_projects:138 - Erro no Fast Search: No module named 'bs4', caindo para Browser.
+2025-12-24 16:54:09.809 | INFO     | app.automation.components.project_scraper:search_projects:46 - Scraping página 1: https://www.workana.com/jobs?category=it-programming
+2025-12-24 16:54:09.812 | WARNING  | app.automation.components.project_scraper:search_projects:52 - Erro ao carregar página 1: Page.goto: Target page, context or browser has been closed
+2025-12-24 16:54:09.814 | ERROR    | app.automation.browser:search_projects:157 - Erro na busca: Page.query_selector_all: Target page, context or browser has been closed
+2025-12-24 16:54:10.285 | ERROR    | app.automation.browser:search_projects:138 - Erro no Fast Search: No module named 'bs4', caindo para Browser.
+2025-12-24 16:54:10.286 | INFO     | app.automation.components.project_scraper:search_projects:46 - Scraping página 1: https://www.workana.com/jobs?category=it-programming
+2025-12-24 16:54:10.288 | WARNING  | app.automation.components.project_scraper:search_projects:52 - Erro ao carregar página 1: Page.goto: Target page, context or browser has been closed
+2025-12-24 16:54:10.290 | ERROR    | app.automation.browser:search_projects:157 - Erro na busca: Page.query_selector_all: Target page, context or browser has been closed
+2025-12-24 16:54:10.579 | ERROR    | app.automation.browser:search_projects:138 - Erro no Fast Search: No module named 'bs4', caindo para Browser.
+2025-12-24 16:54:10.579 | INFO     | app.automation.components.project_scraper:search_projects:46 - Scraping página 1: https://www.workana.com/jobs?category=it-programming
+2025-12-24 16:54:10.582 | WARNING  | app.automation.components.project_scraper:search_projects:52 - Erro ao carregar página 1: Page.goto: Target page, context or browser has been closed
+2025-12-24 16:54:10.584 | ERROR    | app.automation.browser:search_projects:157 - Erro na busca: Page.query_selector_all: Target page, context or browser has been closed
+2025-12-24 16:54:27.518 | INFO     | app.main:lifespan:39 - 🚀 Iniciando Workana Automation API...
+2025-12-24 16:54:27.533 | INFO     | app.main:lifespan:43 - ✅ Banco de dados inicializado
+2025-12-24 16:54:40.976 | ERROR    | app.automation.browser:search_projects:138 - Erro no Fast Search: No module named 'bs4', caindo para Browser.
+2025-12-24 16:54:40.976 | INFO     | app.automation.components.browser_driver:init_browser:40 - Inicializando navegador Playwright (Componente)...
+2025-12-24 16:54:41.709 | INFO     | app.automation.components.browser_driver:init_browser:82 - Navegador inicializado com sucesso!
+2025-12-24 16:54:41.710 | INFO     | app.automation.components.project_scraper:search_projects:46 - Scraping página 1: https://www.workana.com/jobs?category=it-programming
+2025-12-24 16:54:45.410 | INFO     | app.automation.components.project_scraper:search_projects:70 - Extraídos 9 projetos da página 1
+2025-12-24 16:54:51.284 | ERROR    | app.automation.browser:search_projects:138 - Erro no Fast Search: No module named 'bs4', caindo para Browser.
+2025-12-24 16:54:51.284 | INFO     | app.automation.components.project_scraper:search_projects:46 - Scraping página 2: https://www.workana.com/jobs?category=it-programming&page=2
+2025-12-24 16:54:54.711 | INFO     | app.automation.components.project_scraper:search_projects:70 - Extraídos 9 projetos da página 2
+2025-12-24 17:09:40.067 | ERROR    | app.automation.browser:search_projects:138 - Erro no Fast Search: No module named 'bs4', caindo para Browser.
+2025-12-24 17:09:40.072 | INFO     | app.automation.components.project_scraper:search_projects:46 - Scraping página 1: https://www.workana.com/jobs
+2025-12-24 17:09:51.281 | INFO     | app.automation.components.project_scraper:search_projects:70 - Extraídos 9 projetos da página 1

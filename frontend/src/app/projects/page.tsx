@@ -21,6 +21,7 @@ interface SearchFilters {
     min_budget: string;
     max_budget: string;
     project_type: string;
+    sort: string;
 }
 
 const categories = [
@@ -41,6 +42,7 @@ export default function ProjectsPage() {
         min_budget: "",
         max_budget: "",
         project_type: "any",
+        sort: "relevance",
     });
 
     const [projects, setProjects] = useState<Project[]>([]);
@@ -61,6 +63,7 @@ export default function ProjectsPage() {
                 min_budget: filters.min_budget ? Number(filters.min_budget) : undefined,
                 max_budget: filters.max_budget ? Number(filters.max_budget) : undefined,
                 project_type: filters.project_type !== "any" ? filters.project_type : undefined,
+                sort: filters.sort,
                 page: pageNum,
             });
 
@@ -171,6 +174,23 @@ export default function ProjectsPage() {
                             <option value="any">Todos</option>
                             <option value="fixed">Preço Fixo</option>
                             <option value="hourly">Por Hora</option>
+                        </select>
+                    </div>
+
+                    <div className="form-group">
+                        <label className="form-label">Ordenação</label>
+                        <select
+                            className="form-select"
+                            value={filters.sort}
+                            onChange={(e) => setFilters({ ...filters, sort: e.target.value })}
+                        >
+                            <option value="relevance">Relevância</option>
+                            <option value="created_at_desc">Mais Recentes</option>
+                            <option value="created_at_asc">Mais Antigos</option>
+                            <option value="budget_desc">Maior Valor</option>
+                            <option value="budget_asc">Menor Valor</option>
+                            <option value="bids_desc">Mais Propostas</option>
+                            <option value="bids_asc">Menos Propostas</option>
                         </select>
                     </div>
                 </div>

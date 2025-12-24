@@ -22,7 +22,19 @@ class ProposalStatus(str, Enum):
     SENT = "sent"
     VIEWED = "viewed"
     ACCEPTED = "accepted"
+    ACCEPTED = "accepted"
     REJECTED = "rejected"
+
+
+class SortOption(str, Enum):
+    """Opções de ordenação."""
+    RELEVANCE = "relevance"
+    NEWEST = "created_at_desc"
+    OLDEST = "created_at_asc"
+    BUDGET_DESC = "budget_desc" # Maior valor
+    BUDGET_ASC = "budget_asc"   # Menor valor
+    BIDS_DESC = "bids_desc"     # Mais propostas
+    BIDS_ASC = "bids_asc"       # Menos propostas
 
 
 # ==================== Credenciais ====================
@@ -48,6 +60,7 @@ class SearchFilters(BaseModel):
     min_budget: Optional[float] = Field(None, ge=0, description="Orçamento mínimo")
     max_budget: Optional[float] = Field(None, ge=0, description="Orçamento máximo")
     project_type: ProjectType = Field(default=ProjectType.ANY, description="Tipo de projeto")
+    sort: SortOption = Field(default=SortOption.RELEVANCE, description="Ordenação")
     skills: Optional[List[str]] = Field(default=[], description="Skills requeridas")
     country: Optional[str] = Field(None, description="País do cliente")
     max_results: int = Field(default=20, ge=1, le=100, description="Máximo de resultados")

@@ -96,6 +96,7 @@ class ApiService {
         min_budget?: number;
         max_budget?: number;
         project_type?: string;
+        sort?: string;
         max_results?: number;
         page?: number;
     }) {

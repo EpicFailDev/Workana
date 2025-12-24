@@ -37,6 +37,10 @@ class FastProjectScraper:
         if filters.min_budget: params["budget_min"] = str(filters.min_budget)
         if filters.max_budget: params["budget_max"] = str(filters.max_budget)
         
+        # Ordenação
+        if filters.sort and filters.sort.value != "relevance":
+            params["ranking"] = filters.sort.value
+        
         async with httpx.AsyncClient(headers=self.headers, follow_redirects=True, timeout=30.0) as client:
             while len(projects) < filters.max_results:
                 current_params = params.copy()

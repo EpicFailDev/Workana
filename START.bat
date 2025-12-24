@@ -10,6 +10,9 @@ echo.
 
 cd /d "%~dp0"
 
+echo [0/2] Limpando processos anteriores (Porta 8000)...
+for /f "tokens=5" %%a in ('netstat -aon ^| find ":8000" ^| find "LISTENING"') do taskkill /f /pid %%a >nul 2>&1
+
 echo [1/2] Iniciando Backend (FastAPI)...
 start "Workana Backend" cmd /k "cd backend && .\venv\Scripts\activate && python run.py"
 

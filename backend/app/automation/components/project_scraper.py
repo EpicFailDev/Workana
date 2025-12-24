@@ -34,6 +34,10 @@ class ProjectScraper:
         if filters.min_budget: params.append(f"budget_min={filters.min_budget}")
         if filters.max_budget: params.append(f"budget_max={filters.max_budget}")
         
+        # Ordenação
+        if filters.sort and filters.sort.value != "relevance":
+            params.append(f"ranking={filters.sort.value}")
+        
         while len(projects) < filters.max_results:
             current_params = params.copy()
             if page_num > 1:
