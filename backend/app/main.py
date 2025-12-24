@@ -6,10 +6,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from loguru import logger
 import sys
+import asyncio
 
 from app.config import settings
 from app.api.routes import router as api_router
 from app.database.models import init_db
+
+
+# Configurar política de event loop para Windows (necessário para Playwright)
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 
 # Configurar loguru
@@ -84,5 +90,6 @@ if __name__ == "__main__":
         "app.main:app",
         host=settings.api_host,
         port=settings.api_port,
-        reload=settings.debug
+        reload=settings.debug,
+        loop="asyncio"
     )

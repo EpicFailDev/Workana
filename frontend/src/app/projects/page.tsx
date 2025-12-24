@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { api } from "../../services/api";
 import styles from "./page.module.css";
 
 interface Project {
@@ -51,44 +52,17 @@ export default function ProjectsPage() {
         setHasSearched(true);
 
         try {
-            // Simular busca (em produção, chamar API real)
-            await new Promise(resolve => setTimeout(resolve, 1500));
-
-            // Dados mock para demonstração
-            setProjects([
-                {
-                    id: "123456",
-                    title: "Desenvolvimento de Aplicativo Mobile React Native",
-                    description: "Preciso de um desenvolvedor experiente para criar um aplicativo mobile usando React Native. O app deve ter integração com API REST, autenticação com Firebase, e suporte a notificações push...",
-                    budget: "R$ 3.000 - R$ 5.000",
-                    skills: ["React Native", "Firebase", "REST API", "TypeScript"],
-                    proposals_count: 15,
-                    posted_at: "Há 2 horas",
-                    url: "https://workana.com/job/123456",
-                },
-                {
-                    id: "123457",
-                    title: "Sistema Web em Python/Django para E-commerce",
-                    description: "Desenvolvimento de plataforma completa de e-commerce com painel administrativo, integração com meios de pagamento (PagSeguro, MercadoPago), gestão de estoque e relatórios...",
-                    budget: "R$ 8.000 - R$ 15.000",
-                    skills: ["Python", "Django", "PostgreSQL", "REST API"],
-                    proposals_count: 23,
-                    posted_at: "Há 5 horas",
-                    url: "https://workana.com/job/123457",
-                },
-                {
-                    id: "123458",
-                    title: "Landing Page para Startup de Tecnologia",
-                    description: "Criar uma landing page moderna e responsiva para nossa startup. Precisa ter animações suaves, formulário de contato, e otimização para SEO...",
-                    budget: "R$ 500 - R$ 1.500",
-                    skills: ["HTML", "CSS", "JavaScript", "Figma"],
-                    proposals_count: 42,
-                    posted_at: "Há 1 dia",
-                    url: "https://workana.com/job/123458",
-                },
-            ]);
+            const result = await api.searchProjects({
+                keywords: filters.keywords,
+                category: filters.category,
+                min_budget: filters.min_budget ? Number(filters.min_budget) : undefined,
+                max_budget: filters.max_budget ? Number(filters.max_budget) : undefined,
+                project_type: filters.project_type !== "any" ? filters.project_type : undefined,
+            });
+            setProjects(result.projects);
         } catch (error) {
             console.error("Erro na busca:", error);
+            alert("Erro ao buscar projetos. Verifique se a automação está conectada.");
         } finally {
             setIsSearching(false);
         }

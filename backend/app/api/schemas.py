@@ -191,3 +191,128 @@ class ErrorResponse(BaseModel):
     success: bool = False
     error: str
     detail: Optional[str] = None
+
+
+# ==================== Projetos Salvos ====================
+
+class SavedProject(BaseModel):
+    """Projeto salvo no banco de dados."""
+    id: int
+    workana_id: str
+    title: str
+    description: Optional[str] = None
+    url: str
+    category: Optional[str] = None
+    budget_min: Optional[float] = None
+    budget_max: Optional[float] = None
+    budget_type: Optional[str] = None
+    deadline: Optional[str] = None
+    skills: Optional[List[str]] = None
+    client_name: Optional[str] = None
+    client_country: Optional[str] = None
+    client_rating: Optional[float] = None
+    proposals_count: Optional[int] = None
+    is_favorite: bool = False
+    is_applied: bool = False
+    notes: Optional[str] = None
+    found_at: Optional[datetime] = None
+
+
+class SavedProjectCreate(BaseModel):
+    """Dados para salvar um projeto."""
+    workana_id: str
+    title: str
+    description: Optional[str] = None
+    url: str
+    category: Optional[str] = None
+    budget_min: Optional[float] = None
+    budget_max: Optional[float] = None
+    budget_type: Optional[str] = None
+    deadline: Optional[str] = None
+    skills: Optional[List[str]] = None
+    client_name: Optional[str] = None
+    client_country: Optional[str] = None
+    client_rating: Optional[float] = None
+    proposals_count: Optional[int] = None
+
+
+class SavedProjectList(BaseModel):
+    """Lista de projetos salvos."""
+    projects: List[SavedProject]
+    total: int
+
+
+class ProjectNotesUpdate(BaseModel):
+    """Atualização de notas de um projeto."""
+    notes: str = Field(..., max_length=5000)
+
+
+# ==================== Log de Atividades ====================
+
+class ActivityLogEntry(BaseModel):
+    """Entrada no log de atividades."""
+    id: int
+    action_type: str
+    description: str
+    details: Optional[dict] = None
+    project_id: Optional[int] = None
+    status: str
+    error_message: Optional[str] = None
+    duration_ms: Optional[int] = None
+    created_at: Optional[datetime] = None
+
+
+class ActivityLogList(BaseModel):
+    """Lista de logs de atividade."""
+    logs: List[ActivityLogEntry]
+    total: int
+
+
+# ==================== Estatísticas ====================
+
+class DailyStats(BaseModel):
+    """Estatísticas de um dia específico."""
+    date: str
+    projects_found: int = 0
+    projects_viewed: int = 0
+    proposals_sent: int = 0
+    proposals_accepted: int = 0
+    proposals_rejected: int = 0
+    logins_count: int = 0
+    searches_count: int = 0
+    errors_count: int = 0
+
+
+class StatisticsSummary(BaseModel):
+    """Resumo de estatísticas."""
+    today: dict
+    week: dict
+    month: dict
+
+
+class StatisticsList(BaseModel):
+    """Lista de estatísticas diárias."""
+    statistics: List[DailyStats]
+    days: int
+
+
+# ==================== Clientes Bloqueados ====================
+
+class BlacklistedClient(BaseModel):
+    """Cliente na lista negra."""
+    id: int
+    client_name: str
+    reason: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class BlacklistedClientCreate(BaseModel):
+    """Dados para adicionar cliente à lista negra."""
+    client_name: str = Field(..., min_length=1, max_length=255)
+    reason: Optional[str] = Field(None, max_length=1000)
+
+
+class BlacklistedClientList(BaseModel):
+    """Lista de clientes bloqueados."""
+    clients: List[BlacklistedClient]
+    total: int
