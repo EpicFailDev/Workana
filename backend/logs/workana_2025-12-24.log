@@ -410,3 +410,13 @@ Call log:
 2025-12-24 17:09:40.067 | ERROR    | app.automation.browser:search_projects:138 - Erro no Fast Search: No module named 'bs4', caindo para Browser.
 2025-12-24 17:09:40.072 | INFO     | app.automation.components.project_scraper:search_projects:46 - Scraping página 1: https://www.workana.com/jobs
 2025-12-24 17:09:51.281 | INFO     | app.automation.components.project_scraper:search_projects:70 - Extraídos 9 projetos da página 1
+2025-12-24 17:15:54.289 | ERROR    | app.automation.browser:search_projects:138 - Erro no Fast Search: No module named 'bs4', caindo para Browser.
+2025-12-24 17:15:54.290 | INFO     | app.automation.components.project_scraper:search_projects:46 - Scraping página 1: https://www.workana.com/jobs?query=Automated Test
+2025-12-24 17:15:54.295 | ERROR    | app.automation.browser:search_projects:138 - Erro no Fast Search: No module named 'bs4', caindo para Browser.
+2025-12-24 17:15:54.296 | INFO     | app.automation.components.project_scraper:search_projects:46 - Scraping página 1: https://www.workana.com/jobs?query=Automated Test
+2025-12-24 17:15:54.434 | WARNING  | app.automation.components.project_scraper:search_projects:52 - Erro ao carregar página 1: Page.goto: net::ERR_ABORTED at https://www.workana.com/jobs?query=Automated%20Test
+Call log:
+  - navigating to "https://www.workana.com/jobs?query=Automated%20Test", waiting until "domcontentloaded"
+
+2025-12-24 17:16:02.123 | ERROR    | app.automation.browser:search_projects:157 - Erro na busca: Page.query_selector_all: Execution context was destroyed, most likely because of a navigation
+2025-12-24 17:16:04.402 | INFO     | app.automation.components.project_scraper:search_projects:58 - Sem projetos nesta página.

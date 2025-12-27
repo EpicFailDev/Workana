@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { api } from "../../services/api";
 import styles from "./page.module.css";
 
 interface SavedFilter {
@@ -17,45 +18,49 @@ interface SavedFilter {
     created_at: string;
 }
 
-const mockFilters: SavedFilter[] = [
-    {
-        id: 1,
-        name: "Desenvolvimento React",
-        filters: {
-            keywords: "React, Next.js, TypeScript",
-            category: "it-programming",
-            min_budget: 2000,
-            project_type: "fixed",
-        },
-        created_at: "2024-12-20T10:00:00Z",
-    },
-    {
-        id: 2,
-        name: "Python Backend",
-        filters: {
-            keywords: "Python, Django, FastAPI",
-            category: "it-programming",
-            min_budget: 3000,
-            max_budget: 15000,
-        },
-        created_at: "2024-12-18T14:30:00Z",
-    },
-    {
-        id: 3,
-        name: "Mobile Apps",
-        filters: {
-            keywords: "React Native, Flutter",
-            min_budget: 5000,
-        },
-        created_at: "2024-12-15T09:00:00Z",
-    },
-];
 
 export default function FiltersPage() {
-    const [filters, setFilters] = useState<SavedFilter[]>(mockFilters);
+    const [filters, setFilters] = useState<SavedFilter[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
 
-    const handleDelete = (id: number) => {
-        setFilters(filters.filter(f => f.id !== id));
+    useEffect(() => {
+        loadFilters();
+    }, []);
+
+    const loadFilters = async () => {
+        try {
+            const data = await api.getSavedFilters();
+            // @ts-ignore - Adapter simples pois a API retorna any
+            setFilters(data);
+        } catch (error) {
+            console.error("Erro ao carregar filtros:", error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleDelete = async (id: number) => {
+        if (!confirm("Tem certeza que deseja excluir este filtro?")) return;
+
+        try {
+            await api.deleteFilter(id);
+            setFilters(filters.filter(f => f.id !== id));
+        } catch (error) {
+            console.error("Erro ao excluir filtro:", error);
+            alert("Erro ao excluir filtro.");
+        }
+    };
+
+    const getFilterUrl = (filterData: any) => {
+        const params = new URLSearchParams();
+        if (filterData.keywords) params.append("keywords", filterData.keywords);
+        if (filterData.category) params.append("category", filterData.category);
+        if (filterData.min_budget) params.append("min_budget", String(filterData.min_budget));
+        if (filterData.max_budget) params.append("max_budget", String(filterData.max_budget));
+        if (filterData.project_type) params.append("project_type", filterData.project_type);
+        if (filterData.sort && filterData.sort !== "relevance") params.append("sort", filterData.sort);
+
+        return `/projects?${params.toString()}`;
     };
 
     const formatDate = (dateString: string) => {
@@ -96,7 +101,7 @@ export default function FiltersPage() {
                                 </div>
                                 <div className={styles.filterActions}>
                                     <Link
-                                        href={`/projects?filter=${filter.id}`}
+                                        href={getFilterUrl(filter.filters)}
                                         className="btn btn-primary btn-sm"
                                     >
                                         <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
