@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { api } from "../../services/api";
 import styles from "./page.module.css";
 
@@ -36,13 +37,15 @@ const categories = [
 ];
 
 export default function ProjectsPage() {
+    const searchParams = useSearchParams();
+
     const [filters, setFilters] = useState<SearchFilters>({
-        keywords: "",
-        category: "",
-        min_budget: "",
-        max_budget: "",
-        project_type: "any",
-        sort: "relevance",
+        keywords: searchParams.get("keywords") || "",
+        category: searchParams.get("category") || "",
+        min_budget: searchParams.get("min_budget") || "",
+        max_budget: searchParams.get("max_budget") || "",
+        project_type: searchParams.get("project_type") || "any",
+        sort: searchParams.get("sort") || "relevance",
     });
 
     const [projects, setProjects] = useState<Project[]>([]);
@@ -51,6 +54,19 @@ export default function ProjectsPage() {
     const [hasSearched, setHasSearched] = useState(false);
     const [page, setPage] = useState(1);
     const [hasMore, setHasMore] = useState(true);
+
+    // Estado para salvar filtro
+    const [showSaveModal, setShowSaveModal] = useState(false);
+    const [newFilterName, setNewFilterName] = useState("");
+    const [isSavingFilter, setIsSavingFilter] = useState(false);
+
+    // Efeito para buscar automaticamente se houver filtros na URL
+    useEffect(() => {
+        const hasParams = Array.from(searchParams.keys()).length > 0;
+        if (hasParams && !hasSearched) {
+            executeSearch(1, false);
+        }
+    }, [searchParams]);
 
     const executeSearch = async (pageNum: number, append: boolean = false) => {
         const loadingState = append ? setIsLoadingMore : setIsSearching;
@@ -99,6 +115,32 @@ export default function ProjectsPage() {
     const handleSendProposal = (projectId: string) => {
         // TODO: Abrir modal de envio de proposta
         console.log("Enviar proposta para:", projectId);
+    };
+
+    const handleSaveFilter = async () => {
+        if (!newFilterName.trim()) return;
+
+        setIsSavingFilter(true);
+        try {
+            // Remove campos vazios
+            const cleanFilters: Record<string, any> = {};
+            if (filters.keywords) cleanFilters.keywords = filters.keywords;
+            if (filters.category) cleanFilters.category = filters.category;
+            if (filters.min_budget) cleanFilters.min_budget = Number(filters.min_budget);
+            if (filters.max_budget) cleanFilters.max_budget = Number(filters.max_budget);
+            if (filters.project_type && filters.project_type !== "any") cleanFilters.project_type = filters.project_type;
+            if (filters.sort && filters.sort !== "relevance") cleanFilters.sort = filters.sort;
+
+            await api.createFilter(newFilterName, cleanFilters);
+            alert("Filtro salvo com sucesso!");
+            setShowSaveModal(false);
+            setNewFilterName("");
+        } catch (error) {
+            console.error("Erro ao salvar filtro:", error);
+            alert("Erro ao salvar filtro.");
+        } finally {
+            setIsSavingFilter(false);
+        }
     };
 
     return (
@@ -196,7 +238,10 @@ export default function ProjectsPage() {
                 </div>
 
                 <div className={styles.filtersActions}>
-                    <button className="btn btn-secondary">
+                    <button
+                        className="btn btn-secondary"
+                        onClick={() => setShowSaveModal(true)}
+                    >
                         <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
                         </svg>
@@ -335,6 +380,51 @@ export default function ProjectsPage() {
                         <p className="empty-state-description">
                             Configure os filtros acima e clique em &quot;Buscar Projetos&quot; para encontrar oportunidades
                         </p>
+                    </div>
+                </div>
+            )}
+            {/* Modal de Salvar Filtro */}
+            {showSaveModal && (
+                <div className="modal-overlay">
+                    <div className="modal-content">
+                        <div className="modal-header">
+                            <h3 className="modal-title">Salvar Filtro</h3>
+                            <button className="btn-close" onClick={() => setShowSaveModal(false)}>
+                                <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="modal-body">
+                            <p className="text-muted mb-md">Dê um nome para identificar este filtro depois (ex: Python Remoto)</p>
+                            <div className="form-group">
+                                <label className="form-label">Nome do Filtro</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    value={newFilterName}
+                                    onChange={(e) => setNewFilterName(e.target.value)}
+                                    placeholder="Ex: Projetos React"
+                                    autoFocus
+                                />
+                            </div>
+                        </div>
+                        <div className="modal-footer">
+                            <button
+                                className="btn btn-ghost"
+                                onClick={() => setShowSaveModal(false)}
+                                disabled={isSavingFilter}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                className="btn btn-primary"
+                                onClick={handleSaveFilter}
+                                disabled={!newFilterName.trim() || isSavingFilter}
+                            >
+                                {isSavingFilter ? "Salvando..." : "Salvar"}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
