@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { api } from "../../services/api";
 import styles from "./page.module.css";
@@ -36,7 +36,7 @@ const categories = [
     { value: "engineering", label: "Engenharia & Arquitetura" },
 ];
 
-export default function ProjectsPage() {
+function ProjectsContent() {
     const searchParams = useSearchParams();
 
     const [filters, setFilters] = useState<SearchFilters>({
@@ -429,5 +429,16 @@ export default function ProjectsPage() {
                 </div>
             )}
         </div>
+    );
+}
+
+export default function ProjectsPage() {
+    return (
+        <Suspense fallback={<div className="container" style={{ padding: '2rem', textAlign: 'center' }}>
+            <div className="spinner spinner-lg"></div>
+            <p className="mt-md text-muted">Carregando...</p>
+        </div>}>
+            <ProjectsContent />
+        </Suspense>
     );
 }
