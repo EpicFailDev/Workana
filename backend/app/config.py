@@ -2,13 +2,27 @@
 Configurações da aplicação usando Pydantic Settings.
 """
 from pydantic_settings import BaseSettings
-from pydantic import Field
-from typing import Optional
+from pydantic import Field, field_validator
+from typing import Optional, List
 import os
 
 
 class Settings(BaseSettings):
     """Configurações globais da aplicação."""
+    
+    # CORS - URLs permitidas para requisições cross-origin
+    cors_origins: List[str] = Field(
+        default=["http://localhost:3000", "http://127.0.0.1:3000"],
+        description="Origens permitidas para CORS (separadas por vírgula no .env)"
+    )
+    
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v):
+        """Converte string separada por vírgula em lista."""
+        if isinstance(v, str):
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
     
     # Workana
     workana_email: Optional[str] = Field(default=None, description="Email do Workana")
