@@ -491,7 +491,14 @@ async def get_automation_config(user_id: Any) -> Dict[str, Any]:
                 auto_apply=False,
                 preferred_template_id=None,
                 gemini_api_key=None,
-                user_full_name=None
+                user_full_name=None,
+                telegram_enabled=False,
+                telegram_bot_token=None,
+                telegram_chat_id=None,
+                webhook_enabled=False,
+                webhook_url=None,
+                email_enabled=False,
+                email_to=None
             )
             session.add(config)
             await session.commit()
@@ -505,6 +512,14 @@ async def get_automation_config(user_id: Any) -> Dict[str, Any]:
                 logger.error("Erro ao descriptografar chave Gemini. A chave será resetada.")
                 gemini_key = None
 
+        telegram_token = None
+        if config.telegram_bot_token:
+            try:
+                telegram_token = _decrypt(config.telegram_bot_token)
+            except Exception:
+                logger.error("Erro ao descriptografar token Telegram. O token será resetado.")
+                telegram_token = None
+
         return {
             "headless": config.headless,
             "delay_between_actions_ms": config.delay_between_actions_ms,
@@ -512,7 +527,14 @@ async def get_automation_config(user_id: Any) -> Dict[str, Any]:
             "auto_apply": config.auto_apply,
             "preferred_template_id": config.preferred_template_id,
             "gemini_api_key": gemini_key,
-            "user_full_name": config.user_full_name
+            "user_full_name": config.user_full_name,
+            "telegram_enabled": config.telegram_enabled,
+            "telegram_bot_token": telegram_token,
+            "telegram_chat_id": config.telegram_chat_id,
+            "webhook_enabled": config.webhook_enabled,
+            "webhook_url": config.webhook_url,
+            "email_enabled": config.email_enabled,
+            "email_to": config.email_to
         }
 
 
@@ -526,6 +548,9 @@ async def save_automation_config(user_id: Any, config: Dict[str, Any]):
         
         gemini_api_key = config.get("gemini_api_key")
         encrypted_gemini = _encrypt(gemini_api_key) if gemini_api_key else None
+
+        telegram_bot_token = config.get("telegram_bot_token")
+        encrypted_telegram = _encrypt(telegram_bot_token) if telegram_bot_token else None
         
         if db_config:
             db_config.headless = config.get("headless", True)
@@ -538,6 +563,19 @@ async def save_automation_config(user_id: Any, config: Dict[str, Any]):
                 db_config.gemini_api_key = encrypted_gemini
             if "user_full_name" in config:
                 db_config.user_full_name = config.get("user_full_name")
+            
+            db_config.telegram_enabled = config.get("telegram_enabled", False)
+            if telegram_bot_token is not None:
+                db_config.telegram_bot_token = encrypted_telegram
+            if "telegram_chat_id" in config:
+                db_config.telegram_chat_id = config.get("telegram_chat_id")
+            db_config.webhook_enabled = config.get("webhook_enabled", False)
+            if "webhook_url" in config:
+                db_config.webhook_url = config.get("webhook_url")
+            db_config.email_enabled = config.get("email_enabled", False)
+            if "email_to" in config:
+                db_config.email_to = config.get("email_to")
+                
             db_config.updated_at = datetime.now(timezone.utc)
         else:
             db_config = AutomationConfigModel(
@@ -548,7 +586,14 @@ async def save_automation_config(user_id: Any, config: Dict[str, Any]):
                 auto_apply=config.get("auto_apply", False),
                 preferred_template_id=config.get("preferred_template_id"),
                 gemini_api_key=encrypted_gemini,
-                user_full_name=config.get("user_full_name")
+                user_full_name=config.get("user_full_name"),
+                telegram_enabled=config.get("telegram_enabled", False),
+                telegram_bot_token=encrypted_telegram,
+                telegram_chat_id=config.get("telegram_chat_id"),
+                webhook_enabled=config.get("webhook_enabled", False),
+                webhook_url=config.get("webhook_url"),
+                email_enabled=config.get("email_enabled", False),
+                email_to=config.get("email_to")
             )
             session.add(db_config)
             
@@ -629,6 +674,8 @@ async def get_projects(
                 "client_country": p.client_country,
                 "client_rating": p.client_rating,
                 "proposals_count": p.proposals_count,
+                "payment_verified": p.payment_verified,
+                "posted_at": p.posted_at,
                 "is_favorite": p.is_favorite,
                 "is_applied": p.is_applied,
                 "notes": p.notes,
@@ -665,6 +712,8 @@ async def get_project(user_id: Any, project_id: int) -> Optional[Dict[str, Any]]
                 "client_rating": p.client_rating,
                 "client_projects_posted": p.client_projects_posted,
                 "proposals_count": p.proposals_count,
+                "payment_verified": p.payment_verified,
+                "posted_at": p.posted_at,
                 "is_favorite": p.is_favorite,
                 "is_applied": p.is_applied,
                 "is_ignored": p.is_ignored,

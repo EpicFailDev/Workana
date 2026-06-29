@@ -150,7 +150,14 @@ class ProfileScraperService:
                 
             async with async_playwright() as p:
                 browser = await p.chromium.launch(**launch_kwargs)
-                page = await browser.new_page()
+                from app.automation.antiban import antiban
+                context_options = {
+                    "user_agent": antiban.get_random_user_agent(),
+                    "locale": "pt-BR",
+                    "timezone_id": "America/Sao_Paulo"
+                }
+                context = await browser.new_context(**context_options)
+                page = await context.new_page()
                 
                 # Aumentando timeout para 60s e otimizando espera
                 # networkidle pode demorar muito em sites com ads; domcontentloaded é mais seguro

@@ -17,6 +17,7 @@ interface Project {
     proposals_count: number | null;
     posted_at: string | null;
     url: string;
+    match_score?: number | null;
 }
 
 interface SearchFilters {
@@ -209,6 +210,12 @@ export default function Projects() {
                 break;
             case "relevance":
             default:
+                // Se temos match_score vindo do backend, usamos ele (maior é melhor)
+                // Se não, usamos o fallback local (menor é melhor)
+                if (sorted.length > 0 && sorted[0].match_score !== undefined && sorted[0].match_score !== null) {
+                    sorted.sort((a, b) => (b.match_score || 0) - (a.match_score || 0));
+                    break;
+                }
                 // Relevância customizada: Combina Recência + Baixa Concorrência
                 // Score = Minutos + (Propostas * 30)
                 // Quanto menor o score, melhor (mais recente e menos propostas)
@@ -328,6 +335,37 @@ export default function Projects() {
         }
     };
 
+    const [isSubmittingProposal, setIsSubmittingProposal] = useState(false);
+
+    const handleSubmitProposal = async () => {
+        if (!selectedProject || !aiProposal?.proposal) return;
+        setIsSubmittingProposal(true);
+        try {
+            const priceStr = aiProposal.suggested_price || "100";
+            const priceClean = priceStr.replace(/[^\d]/g, "");
+            const budgetVal = Number(priceClean) || 100;
+
+            const response = await api.submitProposal(selectedProject.id, {
+                project_id: selectedProject.id,
+                custom_message: aiProposal.proposal,
+                budget: budgetVal,
+                deadline_days: 7
+            });
+
+            if (response.success) {
+                toast.success(response.message || "Proposta enviada com sucesso no Workana!");
+                setShowAiModal(false);
+            } else {
+                toast.error("Erro ao enviar proposta: " + response.message);
+            }
+        } catch (error: any) {
+            console.error("Erro ao submeter proposta:", error);
+            toast.error(error.message || "Erro de conexão ao enviar proposta.");
+        } finally {
+            setIsSubmittingProposal(false);
+        }
+    };
+
     const handleCopyProposal = () => {
         if (aiProposal?.proposal) {
             navigator.clipboard.writeText(aiProposal.proposal);
@@ -392,6 +430,9 @@ export default function Projects() {
 
     // Auxiliary function to calculate "Match Score"
     const calculateMatch = (project: Project) => {
+        if (project.match_score !== undefined && project.match_score !== null) {
+            return Math.round(project.match_score);
+        }
         // Simple logic: fewer proposals && recent = higher match
         let score = 100;
         if (project.proposals_count) score -= (project.proposals_count * 2);
@@ -803,9 +844,22 @@ export default function Projects() {
                                             readOnly 
                                         />
                                     </div>
-                                    <button className="btn btn-primary w-full mt-md" onClick={handleCopyProposal}>
-                                        Copiar Proposta
-                                    </button>
+                                    <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+                                        <button 
+                                            className="btn w-full" 
+                                            style={{ backgroundColor: 'var(--color-bg-tertiary)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }} 
+                                            onClick={handleCopyProposal}
+                                        >
+                                            Copiar Proposta
+                                        </button>
+                                        <button 
+                                            className="btn btn-primary w-full" 
+                                            onClick={handleSubmitProposal}
+                                            disabled={isSubmittingProposal}
+                                        >
+                                            {isSubmittingProposal ? "Enviando..." : "Enviar Proposta"}
+                                        </button>
+                                    </div>
                                 </div>
                             )}
                         </div>

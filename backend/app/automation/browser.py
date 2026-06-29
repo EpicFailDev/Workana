@@ -31,6 +31,7 @@ class WorkanaAutomation:
     
     def __init__(self):
         self._is_running: bool = False
+        self._is_logged_in: bool = False
         self._current_action: Optional[str] = None
         self._last_error: Optional[str] = None
         self._searches_today: int = 0
@@ -42,7 +43,7 @@ class WorkanaAutomation:
         from app.api.schemas import AutomationStatus as StatusSchema
         return StatusSchema(
             is_running=self._is_running,
-            is_logged_in=False,
+            is_logged_in=self._is_logged_in,
             current_action=self._current_action,
             proposals_sent_today=self._searches_today,
             max_proposals_per_day=settings.max_proposals_per_day,
@@ -84,9 +85,9 @@ class WorkanaAutomation:
                     logger.warning("⚠️ Scraper Rápido bloqueado ou sem resultados. Iniciando fallback para Scraper Browser...")
                     used_fallback = True
                     self._current_action = "Fallback para browser (WAF)..."
-                    projects = await self._parallel_scraper.search_projects_parallel(filters, user_id=user_id)
+                    projects = await self._parallel_scraper.search_projects_parallel(filters)
             else:
-                projects = await self._parallel_scraper.search_projects_parallel(filters, user_id=user_id)
+                projects = await self._parallel_scraper.search_projects_parallel(filters)
                 
             if user_id:
                 await antiban.register_search(user_id)
@@ -121,6 +122,247 @@ class WorkanaAutomation:
             logger.error(f"Erro ao obter detalhes: {e}")
             return None
         finally:
+            self._current_action = None
+
+    async def login(self, user_id: str) -> bool:
+        """Realiza login no Workana usando as credenciais cadastradas."""
+        from app.database import crud
+        from app.automation.antiban import antiban
+        from app.automation.components.browser_driver import BrowserDriver
+        
+        # 1. Obter credenciais
+        creds = await crud.get_credentials(user_id)
+        if not creds or not creds.get("email") or not creds.get("password"):
+            self._last_error = "Credenciais não configuradas"
+            return False
+            
+        # 2. Verificar regras do anti-ban
+        can_login_now, login_msg = await antiban.can_login(user_id)
+        if not can_login_now:
+            logger.warning(f"Login cancelado por regras do anti-ban: {login_msg}")
+            self._last_error = f"Anti-ban: {login_msg}"
+            return False
+            
+        self._current_action = "Realizando login no Workana..."
+        self._is_running = True
+        
+        driver = BrowserDriver()
+        try:
+            # Inicializar o browser
+            page = await driver.init_browser(use_session=False, headless=settings.headless)
+            
+            # Ir para a página de login
+            logger.info("Navegando para a página de login...")
+            await page.goto("https://www.workana.com/login", wait_until="domcontentloaded", timeout=settings.scraping_timeout)
+            await asyncio.sleep(2)
+            
+            # Verificar se há captcha
+            from app.automation.components.captcha_solver import CaptchaSolver
+            solver = CaptchaSolver()
+            if await solver.is_blocked(page):
+                logger.warning("Bloqueio de captcha detectado na página de login. Tentando resolver...")
+                solved = await solver.detect_and_solve(page)
+                if not solved:
+                    raise Exception("Falha ao resolver captcha no login")
+            
+            # Preencher formulário de login
+            logger.info("Preenchendo credenciais...")
+            email_input = await page.query_selector('input[type="email"], input[name="email"], #email')
+            if not email_input:
+                raise Exception("Campo de email de login não encontrado")
+            await email_input.fill(creds["email"])
+            
+            password_input = await page.query_selector('input[type="password"], input[name="password"], #password')
+            if not password_input:
+                raise Exception("Campo de senha de login não encontrado")
+            await password_input.fill(creds["password"])
+            
+            # Clicar no botão de login
+            submit_button = await page.query_selector('button[type="submit"], input[type="submit"]')
+            if not submit_button:
+                submit_button = await page.query_selector('button:has-text("Entrar"), button:has-text("Login")')
+            
+            if not submit_button:
+                raise Exception("Botão de login não encontrado")
+                
+            await submit_button.click()
+            await asyncio.sleep(5)  # Esperar processamento do login
+            
+            # Verificar se o login foi bem-sucedido
+            current_url = page.url
+            if "login" in current_url:
+                error_elem = await page.query_selector('.alert-danger, .error, .invalid-feedback')
+                error_text = await error_elem.text_content() if error_elem else "Credenciais incorretas ou captcha exigido"
+                raise Exception(f"Falha de autenticação: {error_text.strip()}")
+                
+            logger.success("Login realizado com sucesso!")
+            
+            # Salvar o estado da sessão
+            session_path = f"logs/session_{user_id}.json"
+            import os
+            os.makedirs("logs", exist_ok=True)
+            await page.context.storage_state(path=session_path)
+            logger.info(f"Sessão salva em {session_path}")
+            
+            await antiban.register_login(user_id)
+            self._is_logged_in = True
+            self._last_error = None
+            return True
+            
+        except Exception as e:
+            logger.error(f"Erro ao realizar login: {e}")
+            self._last_error = f"Erro no Login: {str(e)}"
+            self._is_logged_in = False
+            return False
+        finally:
+            await driver.close()
+            self._is_running = False
+            self._current_action = None
+
+    async def submit_proposal(self, user_id: str, proposal_data) -> any:
+        """Envia uma proposta real para o projeto no Workana."""
+        from app.api.schemas import ProposalResult
+        from app.automation.antiban import antiban
+        from app.automation.components.browser_driver import BrowserDriver
+        import os
+        
+        # Verificar limites anti-ban antes do envio
+        can_send, message = await antiban.can_send_proposal(user_id)
+        if not can_send:
+            return ProposalResult(success=False, message=f"Anti-Ban: {message}", project_id=proposal_data.project_id)
+            
+        self._current_action = f"Enviando proposta para {proposal_data.project_id}..."
+        self._is_running = True
+        
+        session_path = f"logs/session_{user_id}.json"
+        driver = BrowserDriver()
+        try:
+            # Se não houver arquivo de sessão, tentar fazer login primeiro
+            if not os.path.exists(session_path):
+                login_success = await self.login(user_id)
+                if not login_success:
+                    return ProposalResult(
+                        success=False,
+                        message=f"Falha de autenticação ao tentar enviar proposta: {self._last_error}",
+                        project_id=proposal_data.project_id
+                    )
+            
+            # Carregar cookies da sessão salva
+            async def session_loader(context):
+                import os
+                if os.path.exists(session_path):
+                    await context.storage_state(path=session_path)
+                    
+            page = await driver.init_browser(use_session=True, session_loader=session_loader, headless=settings.headless)
+            
+            # Obter a URL do projeto
+            project_url = getattr(proposal_data, "project_url", None)
+            if not project_url:
+                from app.database import crud
+                saved_project = await crud.get_project_by_workana_id(user_id, proposal_data.project_id)
+                if saved_project:
+                    project_url = saved_project.url
+                else:
+                    project_url = f"https://www.workana.com/job/{proposal_data.project_id}"
+            
+            logger.info(f"Navegando para a página do projeto: {project_url}")
+            await page.goto(project_url, wait_until="domcontentloaded", timeout=settings.scraping_timeout)
+            await asyncio.sleep(3)
+            
+            # Verificar captcha
+            from app.automation.components.captcha_solver import CaptchaSolver
+            solver = CaptchaSolver()
+            if await solver.is_blocked(page):
+                logger.warning("Captcha detectado na página do projeto. Resolvendo...")
+                solved = await solver.detect_and_solve(page)
+                if not solved:
+                    raise Exception("Falha ao resolver captcha na página do projeto")
+            
+            # Procurar pelo botão de enviar proposta
+            bid_button = await page.query_selector('.bid-button, a[href*="bid"], button:has-text("proposta"), button:has-text("Proposta"), a:has-text("proposta")')
+            if not bid_button:
+                # Verificar se há indicação de "proposta enviada" na página
+                already_applied = await page.query_selector(':has-text("Proposta enviada"), :has-text("Já se candidatou")')
+                if already_applied:
+                    return ProposalResult(
+                        success=True,
+                        message="Você já enviou uma proposta para este projeto anteriormente.",
+                        project_id=proposal_data.project_id
+                    )
+                raise Exception("Botão de proposta não encontrado (projeto encerrado ou erro de carregamento)")
+                
+            logger.info("Clicando no botão de proposta...")
+            await bid_button.click()
+            await asyncio.sleep(3)
+            
+            # Preencher os campos da proposta
+            # 1. Preço da Proposta (budget)
+            budget_input = await page.query_selector('input[name="bid_amount"], input#bid_amount, input[name="price"], input[type="number"]')
+            if budget_input:
+                await budget_input.fill(str(proposal_data.budget))
+            
+            # 2. Mensagem personalizada (custom_message)
+            message_text = proposal_data.custom_message
+            if not message_text and proposal_data.template_id:
+                from app.database import crud
+                template = await crud.get_template(user_id, proposal_data.template_id)
+                if template:
+                    message_text = template.content
+            
+            if not message_text:
+                raise Exception("Mensagem da proposta está vazia")
+                
+            message_input = await page.query_selector('textarea[name="bid_message"], textarea#bid_message, textarea[name="message"], textarea')
+            if message_input:
+                await message_input.fill(message_text)
+                
+            # 3. Prazo em dias (deadline_days)
+            deadline_input = await page.query_selector('input[name="deadline"], input#deadline, select[name="deadline"]')
+            if deadline_input:
+                await deadline_input.fill(str(proposal_data.deadline_days))
+                
+            # Clicar no botão final de enviar proposta
+            submit_bid = await page.query_selector('button[type="submit"]:has-text("proposta"), button[type="submit"]:has-text("Enviar"), #submit-bid')
+            if not submit_bid:
+                submit_bid = await page.query_selector('button:has-text("Enviar proposta"), button:has-text("Enviar Proposta")')
+                
+            if not submit_bid:
+                raise Exception("Botão final de envio da proposta não encontrado")
+                
+            logger.info("Submetendo proposta...")
+            await submit_bid.click()
+            await asyncio.sleep(5)
+            
+            logger.success("Proposta submetida com sucesso no Workana!")
+            
+            # Registrar proposta enviada no anti-ban
+            await antiban.register_proposal_sent(user_id)
+            
+            # Salvar no histórico de propostas
+            from app.database import crud
+            result_obj = ProposalResult(success=True, message="Enviada", project_id=proposal_data.project_id)
+            await crud.save_proposal_history(user_id, proposal_data, result_obj)
+            
+            return result_obj
+            
+        except Exception as e:
+            logger.error(f"Erro ao enviar proposta: {e}")
+            self._last_error = f"Erro no Envio: {str(e)}"
+            try:
+                from app.database import crud
+                result_obj = ProposalResult(success=False, message=str(e), project_id=proposal_data.project_id)
+                await crud.save_proposal_history(user_id, proposal_data, result_obj)
+            except Exception as history_error:
+                logger.warning(f"Erro ao salvar histórico de falha: {history_error}")
+                
+            return ProposalResult(
+                success=False,
+                message=f"Erro ao enviar proposta: {str(e)}",
+                project_id=proposal_data.project_id
+            )
+        finally:
+            await driver.close()
+            self._is_running = False
             self._current_action = None
 
     async def close(self):

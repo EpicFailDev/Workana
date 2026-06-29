@@ -107,6 +107,21 @@
   --z-overlay: 900;
   --z-header: 800;
   --z-modal: 2000;
+
+  /* Shadcn UI Variables mapping to design system */
+  --color-background: var(--color-bg-primary);
+  --color-foreground: var(--color-text-primary);
+  --color-primary-foreground: #ffffff;
+  --color-muted: var(--color-bg-secondary);
+  --color-muted-foreground: var(--color-text-secondary);
+  --color-accent: var(--color-bg-hover);
+  --color-accent-foreground: var(--color-text-primary);
+  --color-input: var(--color-border);
+  --color-ring: var(--color-primary);
+  --color-popover: var(--color-bg-secondary);
+  --color-popover-foreground: var(--color-text-primary);
+  --color-card: var(--color-bg-card);
+  --color-card-foreground: var(--color-text-primary);
 }
 
 /* ===== THEMES ===== */

@@ -163,6 +163,24 @@ class ApiService {
         });
     }
 
+    async submitProposal(projectId: string, proposalData: {
+        project_id: string;
+        custom_message: string;
+        budget: number;
+        deadline_days: number;
+        template_id?: number | null;
+    }) {
+        return this.request<{
+            success: boolean;
+            message: string;
+            project_id: string;
+            proposal_id?: string;
+        }>(`/projects/${projectId}/submit-proposal`, {
+            method: "POST",
+            body: proposalData,
+        });
+    }
+
     async getProposalHistory() {
         return this.request<Array<{
             id: number;
@@ -170,7 +188,7 @@ class ApiService {
             project_title: string;
             budget: number;
             deadline_days: number;
-            status: "sent" | "viewed" | "accepted" | "rejected";
+            status: "generated" | "sent" | "viewed" | "accepted" | "rejected";
             sent_at: string;
         }>>("/proposals/history");
     }

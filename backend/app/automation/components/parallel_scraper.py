@@ -297,6 +297,14 @@ class AnonymousParallelScraper:
             # Limpar múltiplos saltos de linha para não ficar com muito espaço em branco
             desc = re.sub(r'\n{3,}', '\n\n', desc).strip()
 
+            # Extração de país e pagamento verificado
+            country_html = data.get('country', '')
+            client_country = None
+            if country_html:
+                client_country = BeautifulSoup(country_html, 'html.parser').get_text(strip=True)
+                
+            payment_verified = bool(data.get('hasVerifiedPaymentMethod', False))
+
             return Project(
                 id=slug,
                 title=title,
@@ -305,7 +313,9 @@ class AnonymousParallelScraper:
                 skills=skills,
                 proposals_count=proposals,
                 posted_at=data.get('postedDate'),
-                url=url
+                url=url,
+                client_country=client_country,
+                payment_verified=payment_verified
             )
         except Exception as e:
             logger.warning(f"Erro ao processar JSON de projeto: {e}")
@@ -380,6 +390,16 @@ class AnonymousParallelScraper:
                 if posted_at:
                     posted_at = posted_at.replace("Publicado:", "").strip()
 
+            # Extração de país do card DOM
+            country_el = await card.query_selector('.country-name a, .country-name')
+            client_country = await country_el.text_content() if country_el else None
+            if client_country:
+                client_country = client_country.strip()
+
+            # Extração de pagamento verificado
+            payment_el = await card.query_selector('[title*="Pagamento verificado"], [title*="verified"], .payment-verified, .verified-payment')
+            payment_verified = payment_el is not None
+
             return Project(
                 id=pid,
                 title=title,
@@ -388,7 +408,9 @@ class AnonymousParallelScraper:
                 skills=skills,
                 proposals_count=proposals,
                 posted_at=posted_at.strip() if posted_at else None,
-                url=ref or ""
+                url=ref or "",
+                client_country=client_country,
+                payment_verified=payment_verified
             )
         except Exception as e:
             logger.warning(f"Erro ao extrair projeto: {e}")

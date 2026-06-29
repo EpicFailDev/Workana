@@ -10,6 +10,7 @@ export default {
                 // Cores customizadas do projeto
                 primary: {
                     DEFAULT: '#6366f1',
+                    foreground: '#ffffff',
                     50: '#eef2ff',
                     100: '#e0e7ff',
                     200: '#c7d2fe',
@@ -23,6 +24,7 @@ export default {
                 },
                 secondary: {
                     DEFAULT: '#8b5cf6',
+                    foreground: '#ffffff',
                     500: '#8b5cf6',
                     600: '#7c3aed',
                 },
@@ -44,8 +46,33 @@ export default {
                     card: '#1a1a2e',
                     hover: '#252540',
                 },
+                foreground: {
+                    DEFAULT: '#f8fafc',
+                },
                 border: {
                     DEFAULT: 'rgba(255, 255, 255, 0.1)',
+                },
+                input: {
+                    DEFAULT: 'rgba(255, 255, 255, 0.08)',
+                },
+                ring: {
+                    DEFAULT: '#6366f1',
+                },
+                muted: {
+                    DEFAULT: '#141424',
+                    foreground: '#94a3b8',
+                },
+                accent: {
+                    DEFAULT: 'rgba(255, 255, 255, 0.08)',
+                    foreground: '#f8fafc',
+                },
+                popover: {
+                    DEFAULT: '#0c0c14',
+                    foreground: '#f8fafc',
+                },
+                card: {
+                    DEFAULT: '#0f0f18',
+                    foreground: '#f8fafc',
                 },
             },
             fontFamily: {

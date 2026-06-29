@@ -206,6 +206,14 @@ class FastProjectScraper:
 
             desc = re.sub(r'\n{3,}', '\n\n', desc).strip()
 
+            # Extração de país e pagamento verificado
+            country_html = data.get('country', '')
+            client_country = None
+            if country_html:
+                client_country = BeautifulSoup(country_html, 'html.parser').get_text(strip=True)
+                
+            payment_verified = bool(data.get('hasVerifiedPaymentMethod', False))
+
             return Project(
                 id=slug,
                 title=title,
@@ -214,7 +222,9 @@ class FastProjectScraper:
                 skills=skills,
                 proposals_count=proposals,
                 posted_at=data.get('postedDate'),
-                url=url
+                url=url,
+                client_country=client_country,
+                payment_verified=payment_verified
             )
         except Exception as e:
             logger.warning(f"Erro ao processar JSON de projeto: {e}")

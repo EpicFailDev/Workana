@@ -12,7 +12,7 @@ interface ProposalHistory {
     project_url?: string;
     budget: number;
     deadline_days: number;
-    status: "sent" | "viewed" | "accepted" | "rejected";
+    status: "generated" | "sent" | "viewed" | "accepted" | "rejected";
     sent_at: string;
     message?: string;
 }

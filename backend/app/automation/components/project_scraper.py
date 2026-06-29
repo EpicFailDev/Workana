@@ -227,6 +227,16 @@ class ProjectScraper:
             date_el = await card.query_selector(WorkanaSelectors.CARD_DATE)
             posted_at = await date_el.text_content() if date_el else None
             
+            # Extração de país do card DOM
+            country_el = await card.query_selector('.country-name a, .country-name')
+            client_country = await country_el.text_content() if country_el else None
+            if client_country:
+                client_country = client_country.strip()
+
+            # Extração de pagamento verificado
+            payment_el = await card.query_selector('[title*="Pagamento verificado"], [title*="verified"], .payment-verified, .verified-payment')
+            payment_verified = payment_el is not None
+
             return Project(
                 id=pid,
                 title=title.strip(),
@@ -235,7 +245,9 @@ class ProjectScraper:
                 skills=skills,
                 proposals_count=proposals,
                 posted_at=posted_at.strip() if posted_at else None,
-                url=ref
+                url=ref,
+                client_country=client_country,
+                payment_verified=payment_verified
             )
         except Exception as e:
             logger.warning(f"Erro card: {e}")

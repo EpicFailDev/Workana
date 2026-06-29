@@ -3,7 +3,8 @@ from loguru import logger
 from typing import List
 
 from app.api.schemas import (
-    SearchFilters, SavedFilter, Project, ProjectList, ProposalGenerationResult
+    SearchFilters, SavedFilter, Project, ProjectList, ProposalGenerationResult,
+    ProposalSubmit, ProposalResult
 )
 from app.auth import get_current_user
 from app.database import crud
@@ -18,6 +19,11 @@ async def search_projects(filters: SearchFilters, user: dict = Depends(get_curre
     """Busca projetos no Workana com os filtros especificados."""
     try:
         projects = await automation.search_projects(filters, user_id=user["user_id"])
+        
+        # Calcular o match_score do backend para cada projeto
+        from app.services.scorer import ProjectScorer
+        for proj in projects:
+            proj.match_score = ProjectScorer.calculate_score(proj, filters)
         
         # Logar atividade de busca e quantidade encontrada
         await crud.log_activity(
@@ -203,3 +209,19 @@ async def delete_filter(filter_id: int, user: dict = Depends(get_current_user)):
     """Remove um filtro salvo do usuário."""
     await crud.delete_filter(user["user_id"], filter_id)
     return {"success": True, "message": "Filtro removido!"}
+
+
+# ==================== Envio de Propostas ====================
+
+@router.post("/projects/{project_id}/submit-proposal", response_model=ProposalResult)
+async def submit_proposal(project_id: str, proposal: ProposalSubmit, user: dict = Depends(get_current_user)):
+    """Envia uma proposta de fato para o projeto no Workana."""
+    try:
+        if proposal.project_id != project_id:
+            proposal.project_id = project_id
+            
+        result = await automation.submit_proposal(user["user_id"], proposal)
+        return result
+    except Exception as e:
+        logger.error(f"Erro ao enviar proposta para {project_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

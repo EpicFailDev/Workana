@@ -1,167 +1,107 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import styles from './Auth.module.css';
+import { AuthFormSplitScreen } from '@/components/ui/login';
 
 export default function Auth() {
-    const [isLogin, setIsLogin] = useState(true);
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
-    const [submitting, setSubmitting] = useState(false);
-
+    const location = useLocation();
+    const navigate = useNavigate();
     const { signIn, signUp } = useAuth();
     const { toast } = useToast();
-    const navigate = useNavigate();
+    const [mode, setMode] = useState<'login' | 'register'>('login');
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-
-        // Validações básicas
-        if (!email.trim() || !password) {
-            toast.error('Preencha todos os campos.', 'Erro de Validação');
-            return;
+    useEffect(() => {
+        if (location.hash === '#register') {
+            setMode('register');
+        } else {
+            setMode('login');
         }
+    }, [location.hash]);
 
-        if (!isLogin && password !== confirmPassword) {
-            toast.error('As senhas não coincidem.', 'Erro de Validação');
-            return;
-        }
-
-        setSubmitting(true);
+    const handleLoginSubmit = async (data: any) => {
         try {
-            if (isLogin) {
-                const { error } = await signIn(email, password);
-                if (error) {
-                    toast.error(error.message, 'Erro ao Entrar');
-                } else {
-                    toast.success('Acesso autorizado. Bem-vindo de volta!', 'Sucesso');
-                    navigate('/');
-                }
+            const { error } = await signIn(data.email, data.password);
+            if (error) {
+                toast.error(error.message, 'Erro ao Entrar');
+                throw error;
             } else {
-                const { data, error } = await signUp(email, password);
-                if (error) {
-                    toast.error(error.message, 'Erro ao Registrar');
+                toast.success('Acesso autorizado. Bem-vindo de volta!', 'Sucesso');
+                navigate('/');
+            }
+        } catch (err: any) {
+            console.error(err);
+            throw err;
+        }
+    };
+
+    const handleRegisterSubmit = async (data: any) => {
+        try {
+            const { data: signUpData, error } = await signUp(data.email, data.password);
+            if (error) {
+                toast.error(error.message, 'Erro ao Registrar');
+                throw error;
+            } else {
+                if (signUpData?.session) {
+                    toast.success('Conta criada e logada com sucesso!', 'Sucesso');
+                    navigate('/');
                 } else {
-                    // Supabase pode requerer confirmação de email dependendo das configurações.
-                    if (data?.session) {
-                        toast.success('Conta criada e logada com sucesso!', 'Sucesso');
-                        navigate('/');
-                    } else {
-                        toast.success('Conta criada com sucesso! Verifique seu email para confirmação, se necessário.', 'Conta Criada');
-                        setIsLogin(true);
-                        setPassword('');
-                        setConfirmPassword('');
-                    }
+                    toast.success('Conta criada com sucesso! Verifique seu email para confirmação, se necessário.', 'Conta Criada');
+                    navigate('#login');
                 }
             }
         } catch (err: any) {
             console.error(err);
-            toast.error(err?.message || 'Ocorreu um erro inesperado.', 'Erro de Sistema');
-        } finally {
-            setSubmitting(false);
+            throw err;
         }
     };
 
+    const isLogin = mode === 'login';
+
     return (
-        <div className={styles.authContainer}>
-            <div className={styles.authCard}>
-                {/* Logo & Header */}
-                <div className={styles.logoArea}>
-                    <div className={styles.logoIcon}>
-                        <img 
-                            src="https://media.licdn.com/dms/image/sync/v2/D4D27AQEiu3OUtuPafw/articleshare-shrink_800/B4DZmh2H6fJIAM-/0/1759356944429?e=2147483647&v=beta&t=RtaLDLIZf-4r34Z-ETQzA4mmzZRdYCEYXuV07qeXdDk" 
-                            alt="Workana Logo" 
-                            className={styles.officialLogo}
-                        />
-                        <div className={styles.pulse}></div>
+        <AuthFormSplitScreen
+            logo={
+                <img 
+                    src="/icon.png" 
+                    alt="AI Assistant Logo" 
+                    className="h-[90px] w-[90px] select-none"
+                    draggable="false"
+                />
+            }
+            title={
+                isLogin ? (
+                    <div>
+                        <h1 className="text-[2.5rem] font-medium tracking-[-0.035em] text-white leading-[1.12]">
+                            Welcome to your
+                        </h1>
+                        <h1 className="mt-1 bg-gradient-to-r from-[#ff5a1f] via-[#d934c4] to-[#087cff] bg-clip-text text-[2.6rem] font-bold leading-[1.08] tracking-[-0.035em] text-transparent">
+                            AI Assistant
+                        </h1>
                     </div>
-                    <h1 className={styles.title}>Workana Accelerator</h1>
-                    <span className={styles.subtitle}>SISTEMA DE AUTENTICAÇÃO</span>
-                </div>
-
-                {/* Switch Tabs */}
-                <div className={styles.tabs}>
-                    <button 
-                        type="button"
-                        className={`${styles.tabButton} ${isLogin ? styles.active : ''}`}
-                        onClick={() => {
-                            setIsLogin(true);
-                            setPassword('');
-                            setConfirmPassword('');
-                        }}
-                    >
-                        Entrar
-                    </button>
-                    <button 
-                        type="button"
-                        className={`${styles.tabButton} ${!isLogin ? styles.active : ''}`}
-                        onClick={() => {
-                            setIsLogin(false);
-                            setPassword('');
-                            setConfirmPassword('');
-                        }}
-                    >
-                        Registrar
-                    </button>
-                </div>
-
-                {/* Form */}
-                <form className={styles.form} onSubmit={handleSubmit}>
-                    <div className={styles.formGroup}>
-                        <label className={styles.label}>EMAIL OPERACIONAL</label>
-                        <input
-                            type="email"
-                            className={styles.input}
-                            placeholder="seu@email.com"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            disabled={submitting}
-                            required
-                        />
+                ) : (
+                    <div>
+                        <h1 className="text-[2.5rem] font-medium tracking-[-0.035em] text-white leading-[1.12]">
+                            Create your
+                        </h1>
+                        <h1 className="mt-1 bg-gradient-to-r from-[#ff5a1f] via-[#d934c4] to-[#087cff] bg-clip-text text-[2.6rem] font-bold leading-[1.08] tracking-[-0.035em] text-transparent">
+                            AI Account
+                        </h1>
                     </div>
-
-                    <div className={styles.formGroup}>
-                        <label className={styles.label}>CHAVE DE ACESSO (SENHA)</label>
-                        <input
-                            type="password"
-                            className={styles.input}
-                            placeholder="••••••••"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            disabled={submitting}
-                            required
-                        />
-                    </div>
-
-                    {!isLogin && (
-                        <div className={styles.formGroup}>
-                            <label className={styles.label}>CONFIRMAR CHAVE</label>
-                            <input
-                                type="password"
-                                className={styles.input}
-                                placeholder="••••••••"
-                                value={confirmPassword}
-                                onChange={(e) => setConfirmPassword(e.target.value)}
-                                disabled={submitting}
-                                required
-                            />
-                        </div>
-                    )}
-
-                    <button type="submit" className={styles.submitButton} disabled={submitting}>
-                        {submitting ? (
-                            <>
-                                <div className={styles.spinner}></div>
-                                <span>Processando...</span>
-                            </>
-                        ) : (
-                            <span>{isLogin ? 'INICIAR SESSÃO' : 'CRIAR CREDENCIAIS'}</span>
-                        )}
-                    </button>
-                </form>
-            </div>
-        </div>
+                )
+            }
+            description={
+                isLogin 
+                    ? 'Your intelligent partner for freelance success.' 
+                    : 'Join the future of freelance automation.'
+            }
+            imageSrc="/Design_sem_nome_10.png"
+            imageAlt="Login background image"
+            onSubmit={isLogin ? handleLoginSubmit : handleRegisterSubmit}
+            forgotPasswordHref="#"
+            createAccountHref={isLogin ? '#register' : '#login'}
+            footerLabelText={isLogin ? "Don't have an account?" : 'Already have an account?'}
+            footerLinkText={isLogin ? 'Create one' : 'Sign in'}
+            showRememberMe={isLogin}
+        />
     );
 }

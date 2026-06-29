@@ -86,7 +86,9 @@ class Project(BaseModel):
     client_member_since: Optional[str] = Field(None, description="Membro desde")
     proposals_count: Optional[int] = Field(None, description="Número de propostas")
     posted_at: Optional[str] = Field(None, description="Quando foi postado")
+    payment_verified: Optional[bool] = Field(False, description="Pagamento verificado")
     url: str = Field(..., description="URL do projeto")
+    match_score: Optional[float] = Field(None, description="Score de compatibilidade/relevância")
 
 
 class ProjectList(BaseModel):
@@ -199,6 +201,15 @@ class AutomationConfig(BaseModel):
     preferred_template_id: Optional[int] = None
     gemini_api_key: Optional[str] = None
     user_full_name: Optional[str] = None
+    
+    # Notificações
+    telegram_enabled: bool = False
+    telegram_bot_token: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    webhook_enabled: bool = False
+    webhook_url: Optional[str] = None
+    email_enabled: bool = False
+    email_to: Optional[str] = None
 
 
 # ==================== Respostas Genéricas ====================
@@ -231,10 +242,11 @@ class SavedProject(BaseModel):
     budget_type: Optional[str] = None
     deadline: Optional[str] = None
     skills: Optional[List[str]] = None
-    client_name: Optional[str] = None
     client_country: Optional[str] = None
     client_rating: Optional[float] = None
     proposals_count: Optional[int] = None
+    payment_verified: Optional[bool] = False
+    posted_at: Optional[str] = None
     is_favorite: bool = False
     is_applied: bool = False
     notes: Optional[str] = None
@@ -257,6 +269,8 @@ class SavedProjectCreate(BaseModel):
     client_country: Optional[str] = None
     client_rating: Optional[float] = None
     proposals_count: Optional[int] = None
+    payment_verified: Optional[bool] = False
+    posted_at: Optional[str] = None
 
 
 class SavedProjectList(BaseModel):

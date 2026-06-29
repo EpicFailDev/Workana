@@ -116,6 +116,16 @@ class AutomationConfig(Base):
     preferred_template_id = Column(BigInteger, nullable=True)
     gemini_api_key = Column(Text, nullable=True)  # Chave criptografada
     user_full_name = Column(Text, nullable=True)
+    
+    # Notificações
+    telegram_enabled = Column(Boolean, default=False)
+    telegram_bot_token = Column(Text, nullable=True)  # Chave criptografada
+    telegram_chat_id = Column(Text, nullable=True)
+    webhook_enabled = Column(Boolean, default=False)
+    webhook_url = Column(Text, nullable=True)
+    email_enabled = Column(Boolean, default=False)
+    email_to = Column(String(255), nullable=True)
+    
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
@@ -141,6 +151,8 @@ class Project(Base):
     client_rating = Column(Float, nullable=True)
     client_projects_posted = Column(Integer, nullable=True)
     proposals_count = Column(Integer, nullable=True)
+    payment_verified = Column(Boolean, default=False)
+    posted_at = Column(String(100), nullable=True)
     is_favorite = Column(Boolean, default=False)
     is_applied = Column(Boolean, default=False)
     is_ignored = Column(Boolean, default=False)

@@ -42,7 +42,15 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("✅ Banco de dados inicializado")
     
+    # Inicializar e iniciar o scheduler de busca em background
+    from app.services.scheduler import scheduler_instance
+    scheduler_instance.start()
+    
     yield
+    
+    # Parar o scheduler de busca
+    from app.services.scheduler import scheduler_instance
+    scheduler_instance.stop()
     
     logger.info("👋 Encerrando aplicação...")
 
