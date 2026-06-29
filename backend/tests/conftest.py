@@ -6,8 +6,10 @@ from pathlib import Path
 import pytest
 from uuid import UUID
 
-# Configure o banco antes de importar a aplicação/settings. A suíte nunca deve
-# ler ou alterar o workana.db real do desenvolvedor.
+# Configure o banco e variáveis de ambiente de teste antes de importar a aplicação/settings.
+# A suíte nunca deve ler ou alterar o workana.db real do desenvolvedor.
+os.environ["TESTING"] = "true"
+os.environ["DEBUG"] = "true"
 TEST_DB_PATH = Path(tempfile.gettempdir()) / f"workana-accelerator-tests-{os.getpid()}.db"
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{TEST_DB_PATH.as_posix()}"
 

@@ -438,6 +438,19 @@ async def get_dashboard_stats(user_id: Any) -> DashboardStats:
         total_proposals = total_proposals_res.scalar() or 0
         response_rate = (accepted / total_proposals * 100) if total_proposals > 0 else 0.0
         
+        # Propostas enviadas hoje
+        today_date = datetime.now(timezone.utc).date()
+        proposals_today_res = await session.execute(
+            select(func.count(ProposalHistoryModel.id))
+            .where(
+                and_(
+                    func.date(ProposalHistoryModel.sent_at) == today_date,
+                    ProposalHistoryModel.user_id == user_id
+                )
+            )
+        )
+        proposals_today = proposals_today_res.scalar() or 0
+
         # Última atividade do usuário
         last_activity_result = await session.execute(
             select(ActivityLogModel.created_at)
@@ -448,12 +461,12 @@ async def get_dashboard_stats(user_id: Any) -> DashboardStats:
         last_activity = last_activity_result.scalar_one_or_none()
         
         return DashboardStats(
-            total_proposals_sent=total_projects, # Exibido como "Encontrados"
-            proposals_today=searches_today,      # Exibido como "Buscas Hoje"
+            total_proposals_sent=total_proposals,
+            proposals_today=proposals_today,
             proposals_this_week=proposals_week,
             proposals_this_month=proposals_month,
             response_rate=round(response_rate, 1),
-            accepted_proposals=saved_projects,   # Exibido como "Salvos"
+            accepted_proposals=accepted,
             pending_proposals=total_proposals - accepted,
             last_activity=last_activity
         )

@@ -79,9 +79,6 @@ class AnonymousParallelScraper:
         if filters.max_budget:
             params.append(f"budget_max={filters.max_budget}")
         
-        if filters.max_budget:
-            params.append(f"budget_max={filters.max_budget}")
-        
         # Novos filtros
         if filters.publication:
             params.append(f"publication={filters.publication}")

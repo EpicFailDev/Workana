@@ -38,8 +38,11 @@ def get_current_user(authorization: Optional[str] = Header(default=None)) -> Use
     if scheme.lower() != "bearer" or not token:
         raise _unauthorized("Cabeçalho de autorização inválido.")
     
-    # Se estivermos em modo debug e sem Supabase configurado, podemos usar um mock para testes
-    if settings.debug and not settings.supabase_jwks_url:
+    # Se estivermos em modo debug, executando testes automatizados e sem Supabase configurado, podemos usar um mock para testes
+    import sys
+    import os
+    is_testing = "pytest" in sys.modules or os.getenv("TESTING") == "true"
+    if settings.debug and is_testing and not settings.supabase_jwks_url:
         if token == "mock-token":
             return {
                 "user_id": UUID("00000000-0000-0000-0000-000000000000"),

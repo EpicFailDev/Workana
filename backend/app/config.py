@@ -2,7 +2,7 @@
 Configurações da aplicação usando Pydantic Settings.
 """
 from pydantic_settings import BaseSettings
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from typing import Optional, List, Any
 import os
 
@@ -32,13 +32,33 @@ class Settings(BaseSettings):
     gemini_api_key: Optional[str] = Field(default=None, description="Chave da API do Gemini")
     
     # Segurança
-    secret_key: str = Field(default="dev-secret-key-change-in-production")
-    encryption_key: str = Field(default="dev-encryption-key-32bytes!")
+    secret_key: Optional[str] = Field(default=None, description="Chave secreta para JWT")
+    encryption_key: Optional[str] = Field(default=None, description="Chave de criptografia simétrica de 32 bytes")
     
     # API
     api_host: str = Field(default="0.0.0.0")
     api_port: int = Field(default=8000)
-    debug: bool = Field(default=True)
+    debug: bool = Field(default=False)
+
+    @model_validator(mode="after")
+    def validate_security_keys(self) -> 'Settings':
+        """Garante que secret_key e encryption_key sejam seguros em produção."""
+        is_prod = not self.debug
+        insecure_secret = "dev-secret-key-change-in-production"
+        insecure_encrypt = "dev-encryption-key-32bytes!"
+        
+        if is_prod:
+            if not self.secret_key or self.secret_key == insecure_secret:
+                raise ValueError("A SECRET_KEY deve ser explicitamente definida e segura em produção (debug=False).")
+            if not self.encryption_key or self.encryption_key == insecure_encrypt:
+                raise ValueError("A ENCRYPTION_KEY deve ser explicitamente definida e segura em produção (debug=False).")
+        else:
+            # Em modo debug (desenvolvimento/testes), preenche com valores mockados de dev se não definidos
+            if not self.secret_key:
+                self.secret_key = insecure_secret
+            if not self.encryption_key:
+                self.encryption_key = insecure_encrypt
+        return self
     
     # Automação
     headless: bool = Field(default=True, description="Executar navegador em modo headless")
