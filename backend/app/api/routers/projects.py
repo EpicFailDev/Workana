@@ -79,7 +79,9 @@ async def generate_proposal(project_id: str, user: dict = Depends(get_current_us
         }
         
         # Chama a IA
-        result = await proposal_agent_instance.generate_proposal(project_dict)
+        result = await proposal_agent_instance.generate_proposal(
+            user["user_id"], project_dict
+        )
         
         # Salvar proposta gerada no histórico
         if result.get("success"):

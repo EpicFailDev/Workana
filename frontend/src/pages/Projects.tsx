@@ -536,7 +536,7 @@ export default function Projects() {
                         <>
                             {projects.length > 0 && (
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', alignItems: 'center' }}>
-                                    <span className="badge badge-neutral">{projects.length} Missões Identificadas</span>
+                                    <span className="badge badge-neutral">{projects.length} Projetos Encontrados</span>
                                     <select 
                                         className={styles.controlInput} 
                                         style={{ width: 'auto', padding: '6px 12px' }}
@@ -548,7 +548,7 @@ export default function Projects() {
                                     >
                                         <option value="relevance">Relevância</option>
                                         <option value="created_at_desc">Mais Recentes</option>
-                                        <option value="budget_desc">Maior Recompensa</option>
+                                        <option value="budget_desc">Maior Orçamento</option>
                                         <option value="bids_asc">Menos Concorridos</option>
                                     </select>
                                 </div>
@@ -639,7 +639,7 @@ export default function Projects() {
                             {hasMore && (
                                 <div className={styles.loadMoreArea}>
                                     <button className="btn btn-secondary btn-lg" onClick={handleLoadMore} disabled={isLoadingMore}>
-                                        {isLoadingMore ? 'Carregando dados...' : 'CARREGAR MAIS MISSÕES'}
+                                        {isLoadingMore ? 'Carregando dados...' : 'CARREGAR MAIS PROJETOS'}
                                     </button>
                                 </div>
                             )}
@@ -670,7 +670,7 @@ export default function Projects() {
                                 <div>
                                     <h2 style={{ fontSize: '1.8rem', fontWeight: 'bold', lineHeight: '1.2', marginBottom: '8px' }}>{selectedProject.title}</h2>
                                     <div style={{ fontSize: '1.1rem', color: '#34d399', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <span style={{ opacity: 0.7, fontSize: '0.9rem', fontWeight: 'normal', color: 'var(--color-text-muted)' }}>RECOMPENSA DE MISSÃO:</span>
+                                        <span style={{ opacity: 0.7, fontSize: '0.9rem', fontWeight: 'normal', color: 'var(--color-text-muted)' }}>ORÇAMENTO DO PROJETO:</span>
                                         {selectedProject.budget || 'NEGOCIÁVEL'}
                                     </div>
                                 </div>

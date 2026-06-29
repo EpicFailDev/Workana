@@ -9,6 +9,7 @@ import json
 from datetime import datetime
 import sqlite3
 import asyncpg
+from uuid import UUID
 
 # Adiciona o diretório backend ao path para conseguir importar app
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -30,7 +31,7 @@ TABLES = [
     "profile_config"
 ]
 
-async def get_supabase_user_id(conn) -> str:
+async def get_supabase_user_id(conn) -> UUID:
     """Busca o primeiro user_id de auth.users no Postgres."""
     row = await conn.fetchrow("SELECT id, email FROM auth.users LIMIT 1;")
     if not row:
@@ -38,17 +39,17 @@ async def get_supabase_user_id(conn) -> str:
         print("Crie um usuário no frontend ou dashboard do Supabase primeiro antes de rodar a migração.")
         sys.exit(1)
     print(f"✅ Associando registros ao usuário do Supabase: {row['email']} ({row['id']})")
-    return str(row['id'])
+    return row['id']
 
 def adapt_json(value):
     """Adapta dados JSON do SQLite para o Postgres JSONB."""
     if not value:
         return None
     try:
-        # Se já for uma string contendo JSON, tenta carregar e salvar como JSON/dict
+        # O codec JSONB nativo do asyncpg recebe JSON serializado.
         if isinstance(value, str):
-            return json.loads(value)
-        return value
+            return json.dumps(json.loads(value))
+        return json.dumps(value)
     except Exception:
         return value
 
@@ -134,15 +135,16 @@ async def migrate():
                 # Preparar query de inserção
                 columns = list(row_dict.keys())
                 placeholders = [f"${i+1}" for i in range(len(columns))]
-                query = f"INSERT INTO public.{table} ({', '.join(columns)}) VALUES ({', '.join(placeholders)});"
+                query = (
+                    f"INSERT INTO public.{table} ({', '.join(columns)}) "
+                    f"VALUES ({', '.join(placeholders)}) ON CONFLICT DO NOTHING;"
+                )
                 
                 try:
-                    await pg_conn.execute(query, *row_dict.values())
-                    inserted_count += 1
+                    result = await pg_conn.execute(query, *row_dict.values())
+                    if result.endswith(" 1"):
+                        inserted_count += 1
                 except Exception as e:
-                    # Se der erro de unique constraint em projetos, apenas loga e pula
-                    if "uix_user_id_workana_id" in str(e) or "uix_user_id_date" in str(e):
-                        continue
                     print(f"  ❌ Erro ao inserir linha na tabela {table}: {e}")
 
             print(f"  🚀 Inseridas {inserted_count} de {len(rows)} linhas na tabela {table}.")

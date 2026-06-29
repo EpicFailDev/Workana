@@ -3,7 +3,7 @@ Router para gerenciamento de métricas do perfil público do Workana.
 """
 from fastapi import APIRouter, HTTPException, Depends
 from loguru import logger
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy import select, desc, and_
 
@@ -69,9 +69,6 @@ async def get_profile_metrics(user: dict = Depends(get_current_user)):
                 profile_url=metrics.profile_url,
                 username=metrics.username,
                 display_name=metrics.display_name,
-                ranking_general=metrics.ranking_general,
-                ranking_category=metrics.ranking_category,
-                level=metrics.level,
                 projects_completed=metrics.projects_completed or 0,
                 projects_in_progress=metrics.projects_in_progress or 0,
                 hours_worked=metrics.hours_worked or 0,
@@ -83,11 +80,7 @@ async def get_profile_metrics(user: dict = Depends(get_current_user)):
                 skills=metrics.skills or [],
                 last_login=metrics.last_login,
                 profile_photo_url=metrics.profile_photo_url,
-                last_sync=metrics.scraped_at,
-                xp=metrics.xp or 0,
-                lp=metrics.lp or 0,
-                rank_tier=metrics.rank_tier or "Ferro",
-                rank_division=metrics.rank_division or "IV"
+                last_sync=metrics.scraped_at
             )
             
     except Exception as e:
@@ -143,9 +136,6 @@ async def sync_profile_metrics(force: bool = False, user: dict = Depends(get_cur
                 profile_url=config.profile_url,
                 username=metrics_data.get("username"),
                 display_name=metrics_data.get("display_name"),
-                ranking_general=metrics_data.get("ranking_general"),
-                ranking_category=metrics_data.get("ranking_category"),
-                level=metrics_data.get("level"),
                 projects_completed=metrics_data.get("projects_completed", 0),
                 projects_in_progress=metrics_data.get("projects_in_progress", 0),
                 hours_worked=metrics_data.get("hours_worked", 0),
@@ -159,44 +149,10 @@ async def sync_profile_metrics(force: bool = False, user: dict = Depends(get_cur
                 profile_photo_url=metrics_data.get("profile_photo_url")
             )
             
-            # Inicializar XP/Rank baseado no nível do Workana se for a primeira vez ou se o nível mudou
-            workana_level = metrics_data.get("level", "Ferro").upper()
-            level_xp_map = {
-                "FERRO": 0,
-                "BRONZE": 500,
-                "PRATA": 1000,
-                "OURO": 1500,
-                "PLATINA": 2000,
-                "PLATINUM": 2000,
-                "HERO": 4000
-            }
-            
-            # Buscar métricas anteriores do usuário para ver se já tinha XP
-            prev_metrics_res = await session.execute(
-                select(ProfileMetrics)
-                .where(and_(ProfileMetrics.profile_url == config.profile_url, ProfileMetrics.user_id == user["user_id"]))
-                .order_by(desc(ProfileMetrics.scraped_at))
-                .limit(1)
-            )
-            prev_metrics = prev_metrics_res.scalar_one_or_none()
-            
-            base_xp = level_xp_map.get(workana_level, 0)
-            if prev_metrics and prev_metrics.xp and prev_metrics.xp > base_xp:
-                new_metrics.xp = prev_metrics.xp
-            else:
-                new_metrics.xp = base_xp
-                
-            # Recalcular Rank
-            from app.database.crud import calculate_rank
-            tier, division, lp = calculate_rank(new_metrics.xp)
-            new_metrics.rank_tier = tier
-            new_metrics.rank_division = division
-            new_metrics.lp = lp
-            
             session.add(new_metrics)
             
             # Atualizar última sincronização na config
-            config.last_sync_at = datetime.utcnow()
+            config.last_sync_at = datetime.now(timezone.utc)
             
             await session.commit()
             
@@ -208,9 +164,6 @@ async def sync_profile_metrics(force: bool = False, user: dict = Depends(get_cur
                 profile_url=config.profile_url,
                 username=metrics_data.get("username"),
                 display_name=metrics_data.get("display_name"),
-                ranking_general=metrics_data.get("ranking_general"),
-                ranking_category=metrics_data.get("ranking_category"),
-                level=metrics_data.get("level"),
                 projects_completed=metrics_data.get("projects_completed", 0),
                 projects_in_progress=metrics_data.get("projects_in_progress", 0),
                 hours_worked=metrics_data.get("hours_worked", 0),
@@ -222,11 +175,7 @@ async def sync_profile_metrics(force: bool = False, user: dict = Depends(get_cur
                 skills=metrics_data.get("skills", []),
                 last_login=metrics_data.get("last_login"),
                 profile_photo_url=metrics_data.get("profile_photo_url"),
-                last_sync=datetime.utcnow(),
-                xp=new_metrics.xp,
-                lp=new_metrics.lp,
-                rank_tier=new_metrics.rank_tier,
-                rank_division=new_metrics.rank_division
+                last_sync=datetime.now(timezone.utc)
             )
             
     except HTTPException:
@@ -345,11 +294,9 @@ async def get_profile_history(limit: int = 30, user: dict = Depends(get_current_
                 ProfileMetricsHistory(
                     id=m.id,
                     profile_url=m.profile_url,
-                    level=m.level,
                     projects_completed=m.projects_completed or 0,
                     average_rating=m.average_rating,
                     total_reviews=m.total_reviews or 0,
-                    ranking_general=m.ranking_general,
                     scraped_at=m.scraped_at
                 )
                 for m in metrics_list
@@ -390,8 +337,7 @@ async def validate_profile_url(url: str, user: dict = Depends(get_current_user))
         return {
             "valid": True,
             "display_name": metrics.get("display_name"),
-            "username": metrics.get("username"),
-            "level": metrics.get("level")
+            "username": metrics.get("username")
         }
         
     except Exception as e:

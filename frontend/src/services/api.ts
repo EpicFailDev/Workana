@@ -259,10 +259,6 @@ class ApiService {
             accepted_proposals: number;
             pending_proposals: number;
             last_activity: string | null;
-            xp: number;
-            lp: number;
-            rank_tier: string;
-            rank_division: string;
         }>("/dashboard/stats");
     }
 
@@ -274,9 +270,6 @@ class ApiService {
             profile_url: string | null;
             username: string | null;
             display_name: string | null;
-            ranking_general: number | null;
-            ranking_category: string | null;
-            level: string | null;
             projects_completed: number;
             projects_in_progress: number;
             hours_worked: number;
@@ -289,10 +282,6 @@ class ApiService {
             last_login: string | null;
             profile_photo_url: string | null;
             last_sync: string | null;
-            xp: number;
-            lp: number;
-            rank_tier: string;
-            rank_division: string;
             is_configured: boolean;
             error: string | null;
         }>("/profile/metrics");
@@ -304,9 +293,6 @@ class ApiService {
             profile_url: string | null;
             username: string | null;
             display_name: string | null;
-            ranking_general: number | null;
-            ranking_category: string | null;
-            level: string | null;
             projects_completed: number;
             projects_in_progress: number;
             hours_worked: number;
@@ -319,10 +305,6 @@ class ApiService {
             last_login: string | null;
             profile_photo_url: string | null;
             last_sync: string | null;
-            xp: number;
-            lp: number;
-            rank_tier: string;
-            rank_division: string;
             is_configured: boolean;
             error: string | null;
         }>(`/profile/sync?force=${force}`, { method: "POST" });
@@ -354,7 +336,6 @@ class ApiService {
             valid: boolean;
             display_name?: string;
             username?: string;
-            level?: string;
             error?: string;
         }>(`/profile/validate?url=${encodeURIComponent(url)}`, { method: "POST" });
     }

@@ -2,7 +2,7 @@
 Operações CRUD para o banco de dados.
 """
 from typing import Optional, List, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from loguru import logger
 from sqlalchemy import select, func, delete, update, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,34 +15,13 @@ from app.database.models import (
     ProposalTemplate as ProposalTemplateModel, ProposalHistory as ProposalHistoryModel,
     AutomationConfig as AutomationConfigModel, Project as ProjectModel,
     ActivityLog as ActivityLogModel, DailyStatistics as DailyStatisticsModel,
-    BlacklistedClient as BlacklistedClientModel,
-    ProfileConfig as ProfileConfigModel, ProfileMetrics as ProfileMetricsModel
+    BlacklistedClient as BlacklistedClientModel
 )
 from app.api.schemas import (
     SavedFilter, ProposalTemplate, ProposalTemplateCreate,
     ProposalSubmit, ProposalResult, ProposalHistory, DashboardStats
 )
 from app.config import settings
-
-
-# ==================== Configuração de Ranqueada ====================
-
-TIERS = ["Ferro", "Bronze", "Prata", "Ouro", "Platina", "Esmeralda", "Diamante", "Mestre", "Grão-Mestre", "Desafiante"]
-DIVISIONS = ["IV", "III", "II", "I"]
-XP_PER_DIVISION = 500
-
-def calculate_rank(total_xp: int):
-    """Calcula Rank Tier, Division e LP baseado no XP total."""
-    tier_index = total_xp // (XP_PER_DIVISION * 4)
-    if tier_index >= len(TIERS):
-        tier_index = len(TIERS) - 1
-        division_index = 3 # I
-        lp = 100
-    else:
-        division_index = (total_xp // XP_PER_DIVISION) % 4
-        lp = (total_xp % XP_PER_DIVISION) * 100 // XP_PER_DIVISION
-        
-    return TIERS[tier_index], DIVISIONS[division_index], lp
 
 
 def _get_fernet():
@@ -252,7 +231,7 @@ async def update_template(user_id: Any, template_id: int, template: ProposalTemp
             db_template.default_budget = template.default_budget
             db_template.default_deadline_days = template.default_deadline_days
             db_template.is_default = template.is_default or False
-            db_template.updated_at = datetime.utcnow()
+            db_template.updated_at = datetime.now(timezone.utc)
             
             await session.commit()
             await session.refresh(db_template)
@@ -374,7 +353,7 @@ async def update_proposal_status(user_id: Any, proposal_id: int, status: str) ->
 async def get_daily_stats(user_id: Any) -> Dict[str, int]:
     """Obtém estatísticas diárias do usuário."""
     async with async_session() as session:
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
         result = await session.execute(
             select(func.count(ProposalHistoryModel.id))
             .where(
@@ -394,7 +373,7 @@ async def get_daily_stats(user_id: Any) -> Dict[str, int]:
 async def get_dashboard_stats(user_id: Any) -> DashboardStats:
     """Obtém estatísticas do dashboard com filtragem por user_id."""
     async with async_session() as session:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
         week_ago = now - timedelta(days=7)
         month_ago = now - timedelta(days=30)
@@ -468,25 +447,6 @@ async def get_dashboard_stats(user_id: Any) -> DashboardStats:
         )
         last_activity = last_activity_result.scalar_one_or_none()
         
-        # Gamification (Métricas do Perfil)
-        config_result = await session.execute(
-            select(ProfileConfigModel).where(ProfileConfigModel.user_id == user_id).limit(1)
-        )
-        config = config_result.scalar_one_or_none()
-        
-        xp, lp, tier, division = 0, 0, "Ferro", "IV"
-        if config:
-            metrics_result = await session.execute(
-                select(ProfileMetricsModel)
-                .where(and_(ProfileMetricsModel.profile_url == config.profile_url, ProfileMetricsModel.user_id == user_id))
-                .order_by(ProfileMetricsModel.scraped_at.desc())
-                .limit(1)
-            )
-            metrics = metrics_result.scalar_one_or_none()
-            if metrics:
-                xp = metrics.xp or 0
-                tier, division, lp = calculate_rank(xp)
-        
         return DashboardStats(
             total_proposals_sent=total_projects, # Exibido como "Encontrados"
             proposals_today=searches_today,      # Exibido como "Buscas Hoje"
@@ -495,11 +455,7 @@ async def get_dashboard_stats(user_id: Any) -> DashboardStats:
             response_rate=round(response_rate, 1),
             accepted_proposals=saved_projects,   # Exibido como "Salvos"
             pending_proposals=total_proposals - accepted,
-            last_activity=last_activity,
-            xp=xp,
-            lp=lp,
-            rank_tier=tier,
-            rank_division=division
+            last_activity=last_activity
         )
 
 
@@ -569,7 +525,7 @@ async def save_automation_config(user_id: Any, config: Dict[str, Any]):
                 db_config.gemini_api_key = encrypted_gemini
             if "user_full_name" in config:
                 db_config.user_full_name = config.get("user_full_name")
-            db_config.updated_at = datetime.utcnow()
+            db_config.updated_at = datetime.now(timezone.utc)
         else:
             db_config = AutomationConfigModel(
                 user_id=user_id,
@@ -604,7 +560,7 @@ async def save_project(user_id: Any, project_data: Dict[str, Any]) -> int:
             for key, value in project_data.items():
                 if hasattr(existing, key) and key != "id" and key != "user_id":
                     setattr(existing, key, value)
-            existing.updated_at = datetime.utcnow()
+            existing.updated_at = datetime.now(timezone.utc)
             await session.commit()
             return existing.id
         else:
@@ -731,7 +687,7 @@ async def mark_project_applied(user_id: Any, project_id: int):
         
         if project:
             project.is_applied = True
-            project.updated_at = datetime.utcnow()
+            project.updated_at = datetime.now(timezone.utc)
             await session.commit()
 
 
@@ -758,7 +714,7 @@ async def update_project_notes(user_id: Any, project_id: int, notes: str):
         
         if project:
             project.notes = notes
-            project.updated_at = datetime.utcnow()
+            project.updated_at = datetime.now(timezone.utc)
             await session.commit()
 
 
@@ -798,54 +754,6 @@ async def log_activity(
                 pass
         await _update_daily_stats(user_id, action_type, status, increment=increment)
         
-        # Ganhar XP por ações de sucesso
-        if status == "success":
-            xp_map = {
-                "search": 15,
-                "apply": 50,
-                "proposal_sent": 50,
-                "login": 10,
-                "project_found": 5,
-                "project_view": 2
-            }
-            xp_to_add = xp_map.get(action_type, 0)
-            if xp_to_add > 0:
-                await add_xp(user_id, xp_to_add)
-
-
-async def add_xp(user_id: Any, amount: int):
-    """Adiciona XP ao perfil atual de um usuário específico e calcula seu rank."""
-    async with async_session() as session:
-        # Buscar config para saber qual perfil usar
-        config_result = await session.execute(
-            select(ProfileConfigModel).where(ProfileConfigModel.user_id == user_id).limit(1)
-        )
-        config = config_result.scalar_one_or_none()
-        
-        if not config:
-            return
-            
-        metrics_result = await session.execute(
-            select(ProfileMetricsModel)
-            .where(and_(ProfileMetricsModel.profile_url == config.profile_url, ProfileMetricsModel.user_id == user_id))
-            .order_by(ProfileMetricsModel.scraped_at.desc())
-            .limit(1)
-        )
-        metrics = metrics_result.scalar_one_or_none()
-        
-        if metrics:
-            current_xp = (metrics.xp or 0) + amount
-            tier, division, lp = calculate_rank(current_xp)
-            
-            metrics.xp = current_xp
-            metrics.lp = lp
-            metrics.rank_tier = tier
-            metrics.rank_division = division
-            
-            await session.commit()
-            logger.info(f"[User {user_id}] XP Adicionado: +{amount}. Novo XP: {current_xp} ({tier} {division} {lp}LP)")
-
-
 async def get_activity_logs(
     user_id: Any,
     limit: int = 100,
@@ -887,7 +795,7 @@ async def get_activity_logs(
 async def _update_daily_stats(user_id: Any, action_type: str, status: str, increment: int = 1):
     """Atualiza estatísticas diárias internas de um usuário específico."""
     async with async_session() as session:
-        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         
         result = await session.execute(
             select(DailyStatisticsModel).where(
@@ -915,14 +823,14 @@ async def _update_daily_stats(user_id: Any, action_type: str, status: str, incre
         if status == "error":
             stats.errors_count = (stats.errors_count or 0) + increment
         
-        stats.updated_at = datetime.utcnow()
+        stats.updated_at = datetime.now(timezone.utc)
         await session.commit()
 
 
 async def get_statistics(user_id: Any, days: int = 30) -> List[Dict[str, Any]]:
     """Obtém estatísticas dos últimos N dias de um usuário específico."""
     async with async_session() as session:
-        start_date = datetime.utcnow() - timedelta(days=days)
+        start_date = datetime.now(timezone.utc) - timedelta(days=days)
         
         result = await session.execute(
             select(DailyStatisticsModel)
@@ -950,7 +858,7 @@ async def get_statistics(user_id: Any, days: int = 30) -> List[Dict[str, Any]]:
 async def get_statistics_summary(user_id: Any) -> Dict[str, Any]:
     """Obtém resumo das estatísticas de um usuário específico."""
     async with async_session() as session:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
         week_ago = now - timedelta(days=7)
         month_ago = now - timedelta(days=30)

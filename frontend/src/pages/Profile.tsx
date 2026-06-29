@@ -9,9 +9,6 @@ interface ProfileMetrics {
     profile_url: string | null;
     username: string | null;
     display_name: string | null;
-    ranking_general: number | null;
-    ranking_category: string | null;
-    level: string | null;
     projects_completed: number;
     projects_in_progress: number;
     hours_worked: number;
@@ -137,7 +134,7 @@ export default function Profile() {
                         </div>
                         <h2 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '0.5rem' }}>Analisador de Perfil Workana</h2>
                         <p style={{ color: 'var(--color-text-secondary)' }}>
-                            Cole a URL de um perfil público do Workana para visualizar métricas detalhadas, ranking e histórico.
+                            Cole a URL de um perfil público do Workana para visualizar métricas e histórico profissional.
                         </p>
                     </div>
 
@@ -305,11 +302,6 @@ export default function Profile() {
                         <div className={styles.basicInfo}>
                             <h2>{profileMetrics.display_name}</h2>
                             <div className={styles.badges}>
-                                {profileMetrics.level && (
-                                    <span className={`${styles.levelBadge} ${styles[profileMetrics.level.toLowerCase()]}`}>
-                                        {profileMetrics.level}
-                                    </span>
-                                )}
                                 {profileMetrics.hourly_rate && (
                                     <span className={styles.hourlyRateBadge}>
                                         💰 {profileMetrics.hourly_rate}
@@ -348,11 +340,6 @@ export default function Profile() {
                 {/* Lado Direito: Métricas e Skills */}
                 <div className={styles.mainContent}>
                     <div className={styles.statsGrid}>
-                        <div className={`m3-card ${styles.statBox}`}>
-                            <span className={styles.statIcon}>🏆</span>
-                            <span className={styles.statLarge}>{profileMetrics.ranking_general ? `#${profileMetrics.ranking_general.toLocaleString('pt-BR')}` : '-'}</span>
-                            <span className={styles.statLabel}>Ranking Geral</span>
-                        </div>
                         <div className={`m3-card ${styles.statBox}`}>
                             <span className={styles.statIcon}>⭐</span>
                             <span className={styles.statLarge}>{profileMetrics.average_rating?.toFixed(2) || '0.00'}</span>
