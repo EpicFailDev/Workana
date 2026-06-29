@@ -67,6 +67,11 @@ class Settings(BaseSettings):
     delay_between_actions_ms: int = Field(default=2000, description="Delay entre ações principais")
     scraper_type: str = Field(default="fast", description="Tipo de scraper: 'parallel' (browser) ou 'fast' (http)")
     
+    # Proxy e Resolvedor de Captcha
+    proxy_url: Optional[str] = Field(default=None, description="URL do proxy rotativo (ex: http://user:pass@host:port)")
+    captcha_provider: Optional[str] = Field(default=None, description="Provedor de captcha ('2captcha' ou 'anti-captcha')")
+    captcha_api_key: Optional[str] = Field(default=None, description="Chave de API do provedor de captcha")
+
     # Banco de dados
     database_url: str = Field(default="sqlite+aiosqlite:///./workana.db")
 

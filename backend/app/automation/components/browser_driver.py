@@ -42,10 +42,10 @@ class BrowserDriver:
             
             is_headless = settings.headless if headless is None else headless
             
-            self._browser = await self._playwright.chromium.launch(
-                headless=is_headless,
-                slow_mo=settings.slow_mo,
-                args=[
+            launch_kwargs = {
+                "headless": is_headless,
+                "slow_mo": settings.slow_mo,
+                "args": [
                     '--disable-blink-features=AutomationControlled',
                     '--disable-dev-shm-usage',
                     '--no-sandbox',
@@ -53,7 +53,11 @@ class BrowserDriver:
                     '--disable-features=IsolateOrigins,site-per-process',
                     '--start-maximized' if not is_headless else '',
                 ]
-            )
+            }
+            if settings.proxy_url:
+                launch_kwargs["proxy"] = {"server": settings.proxy_url}
+                
+            self._browser = await self._playwright.chromium.launch(**launch_kwargs)
             
             context_options = self._antiban.get_browser_context_options()
             if not is_headless:

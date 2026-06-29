@@ -17,7 +17,7 @@ from app.automation.browser import automation_instance as automation
 async def search_projects(filters: SearchFilters, user: dict = Depends(get_current_user)):
     """Busca projetos no Workana com os filtros especificados."""
     try:
-        projects = await automation.search_projects(filters)
+        projects = await automation.search_projects(filters, user_id=user["user_id"])
         
         # Logar atividade de busca e quantidade encontrada
         await crud.log_activity(
@@ -42,13 +42,13 @@ async def search_projects(filters: SearchFilters, user: dict = Depends(get_curre
     except Exception as e:
         logger.error(f"Erro na busca: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
+ 
+ 
 @router.get("/projects/{project_id}", response_model=Project)
 async def get_project_details(project_id: str, user: dict = Depends(get_current_user)):
     """Obtém detalhes de um projeto específico (live search)."""
     try:
-        project = await automation.get_project_details(project_id)
+        project = await automation.get_project_details(project_id, user_id=user["user_id"])
         if not project:
             raise HTTPException(status_code=404, detail="Projeto não encontrado")
         return project
@@ -57,8 +57,8 @@ async def get_project_details(project_id: str, user: dict = Depends(get_current_
     except Exception as e:
         logger.error(f"Erro ao obter projeto: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
+ 
+ 
 @router.post("/projects/{project_id}/generate-proposal", response_model=ProposalGenerationResult)
 async def generate_proposal(project_id: str, user: dict = Depends(get_current_user)):
     """Gera uma proposta personalizada usando IA."""
@@ -66,7 +66,7 @@ async def generate_proposal(project_id: str, user: dict = Depends(get_current_us
     
     try:
         # Primeiro busca os detalhes do projeto para alimentar a IA
-        project = await automation.get_project_details(project_id)
+        project = await automation.get_project_details(project_id, user_id=user["user_id"])
         if not project:
             raise HTTPException(status_code=404, detail="Projeto não encontrado para gerar proposta")
         

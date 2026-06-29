@@ -29,15 +29,16 @@ class FastProjectScraper:
         }
         self.semaphore = asyncio.Semaphore(5) # Limitar a 5 requisições simultâneas
 
-    async def search_projects(self, filters: SearchFilters) -> List[Project]:
+    async def search_projects(self, filters: SearchFilters, user_id: Optional[str] = None) -> List[Project]:
         """Executa a busca de projetos via HTTP de forma PARALELA."""
+        self.was_blocked = False
         start_page = filters.page
         pages_to_fetch = filters.pages_to_fetch
         
         logger.info(f"⚡ Fast Parallel Scraping: páginas {start_page} a {start_page + pages_to_fetch - 1}")
         
         tasks = [
-            self._scrape_page_with_semaphore(filters, page_num)
+            self._scrape_page_with_semaphore(filters, page_num, user_id)
             for page_num in range(start_page, start_page + pages_to_fetch)
         ]
         
@@ -57,15 +58,24 @@ class FastProjectScraper:
                 
         return all_projects
 
-    async def _scrape_page_with_semaphore(self, filters: SearchFilters, page_num: int) -> List[Project]:
+    async def _scrape_page_with_semaphore(self, filters: SearchFilters, page_num: int, user_id: Optional[str] = None) -> List[Project]:
         """Wrapper para limitar concorrência e adicionar jitter."""
         async with self.semaphore:
             # Delay aleatório pequeno para não disparar o WAF/Rate limit
             await asyncio.sleep(random.uniform(0.5, 2.0))
-            return await self._scrape_page_http(filters, page_num)
+            return await self._scrape_page_http(filters, page_num, user_id)
 
-    async def _scrape_page_http(self, filters: SearchFilters, page_num: int) -> List[Project]:
-        """Busca uma única página via HTTP."""
+    async def _scrape_page_http(self, filters: SearchFilters, page_num: int, user_id: Optional[str] = None) -> List[Project]:
+        """Busca uma única página via HTTP com controle de proxy, resolvedor e métricas."""
+        import time
+        from app.database import crud
+        from app.config import settings
+        from app.automation.antiban import antiban
+
+        start_time = time.time()
+        success = False
+        blocked = False
+        
         params = {}
         if filters.keywords: params["query"] = filters.keywords
         if filters.category: params["category"] = filters.category
@@ -86,15 +96,31 @@ class FastProjectScraper:
             params["page"] = str(page_num)
 
         headers = self.headers.copy()
-        headers["User-Agent"] = random.choice([
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        ])
+        headers["User-Agent"] = antiban.get_random_user_agent()
+
+        client_kwargs = {
+            "headers": headers,
+            "follow_redirects": True,
+            "timeout": 15.0
+        }
+        if settings.proxy_url:
+            client_kwargs["proxy"] = settings.proxy_url
 
         try:
-            async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=15.0) as client:
+            async with httpx.AsyncClient(**client_kwargs) as client:
                 response = await client.get(self.WORKANA_JOBS_URL, params=params)
+                
+                # Check for Cloudflare / block indicators
+                is_cf = response.status_code in (403, 503) or any(
+                    ind in response.text.lower() for ind in ["cloudflare", "just a moment", "attention required", "turnstile"]
+                )
+                
+                if is_cf:
+                    blocked = True
+                    self.was_blocked = True
+                    logger.warning(f"Fast Scraper bloqueado pelo Cloudflare na página {page_num}!")
+                    return []
+                    
                 if response.status_code != 200:
                     logger.error(f"Status {response.status_code} na página {page_num}")
                     return []
@@ -120,11 +146,21 @@ class FastProjectScraper:
                     if p:
                         page_projects.append(p)
                 
+                success = True
                 return page_projects
                 
         except Exception as e:
             logger.error(f"Erro na página {page_num}: {e}")
             return []
+        finally:
+            duration_ms = int((time.time() - start_time) * 1000)
+            if user_id:
+                await crud.update_scraping_stats(
+                    user_id=user_id,
+                    success=success,
+                    blocked=blocked,
+                    duration_ms=duration_ms
+                )
 
     async def _extract_project_from_json(self, data: dict) -> Optional[Project]:
         """Extrai um projeto de um dicionário (JSON do Workana)."""
@@ -183,17 +219,46 @@ class FastProjectScraper:
         except Exception as e:
             logger.warning(f"Erro ao processar JSON de projeto: {e}")
             return None
-    async def get_project_details(self, project_id: str) -> Optional[Project]:
+    async def get_project_details(self, project_id: str, user_id: Optional[str] = None) -> Optional[Project]:
         """Obtém detalhes de um projeto via HTTP direto (rápido)."""
+        import time
+        from app.database import crud
+        from app.config import settings
+        from app.automation.antiban import antiban
+
+        start_time = time.time()
+        success = False
+        blocked = False
+        
         url = f"{self.WORKANA_BASE_URL}/job/{project_id}"
         logger.info(f"⚡ Fast Details: {url}")
         
         headers = self.headers.copy()
-        headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        headers["User-Agent"] = antiban.get_random_user_agent()
         
+        client_kwargs = {
+            "headers": headers,
+            "follow_redirects": True,
+            "timeout": 15.0
+        }
+        if settings.proxy_url:
+            client_kwargs["proxy"] = settings.proxy_url
+
         try:
-            async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=15.0) as client:
+            async with httpx.AsyncClient(**client_kwargs) as client:
                 response = await client.get(url)
+                
+                # Check for Cloudflare / block indicators
+                is_cf = response.status_code in (403, 503) or any(
+                    ind in response.text.lower() for ind in ["cloudflare", "just a moment", "attention required", "turnstile"]
+                )
+                
+                if is_cf:
+                    blocked = True
+                    self.was_blocked = True
+                    logger.warning(f"Fast Scraper blocked by Cloudflare (WAF) on details for {project_id}!")
+                    return None
+                    
                 if response.status_code != 200:
                     logger.error(f"Status {response.status_code} ao obter detalhes de {project_id}")
                     return None
@@ -219,6 +284,7 @@ class FastProjectScraper:
                 client_el = soup.select_one('.client-name a, .client-info h4, .project-author a')
                 client_name = client_el.get_text(strip=True) if client_el else None
                 
+                success = True
                 return Project(
                     id=project_id,
                     title=title,
@@ -230,3 +296,12 @@ class FastProjectScraper:
         except Exception as e:
             logger.error(f"Erro ao obter detalhes Fast ({project_id}): {e}")
             return None
+        finally:
+            duration_ms = int((time.time() - start_time) * 1000)
+            if user_id:
+                await crud.update_scraping_stats(
+                    user_id=user_id,
+                    success=success,
+                    blocked=blocked,
+                    duration_ms=duration_ms
+                )

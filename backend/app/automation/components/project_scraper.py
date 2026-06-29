@@ -7,6 +7,8 @@ from app.api.schemas import SearchFilters, Project
 from app.automation.components.browser_driver import BrowserDriver
 from app.automation.selectors import WorkanaSelectors
 
+from app.automation.components.captcha_solver import CaptchaSolver
+
 class ProjectScraper:
     """
     Responsável por buscar dados de projetos e extrair informações.
@@ -17,6 +19,23 @@ class ProjectScraper:
 
     def __init__(self, driver: BrowserDriver):
         self._driver = driver
+        self._captcha_solver = CaptchaSolver()
+
+    async def _safe_goto(self, page, url: str, wait_until: str = "domcontentloaded", timeout: int = 60000) -> bool:
+        """Navega de forma segura, resolvendo captchas se necessário."""
+        try:
+            await page.goto(url, wait_until=wait_until, timeout=timeout)
+            await asyncio.sleep(2)
+            if await self._captcha_solver.is_blocked(page):
+                logger.warning("⚠️ Bloqueio de WAF/Cloudflare detectado! Ativando resolvedor de Captcha...")
+                solved = await self._captcha_solver.detect_and_solve(page)
+                if not solved:
+                    logger.error("Falha ao resolver o Captcha de bloqueio.")
+                    return False
+            return True
+        except Exception as e:
+            logger.error(f"Erro ao navegar para {url}: {e}")
+            return False
 
     async def search_projects(self, filters: SearchFilters, ensure_page_callback) -> List[Project]:
         """
@@ -62,8 +81,9 @@ class ProjectScraper:
             logger.info(f"Scraping página {page_num}: {search_url}")
             
             try:
-                await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
-                await asyncio.sleep(2) # Espera carregar js
+                success = await self._safe_goto(page, search_url, wait_until="domcontentloaded", timeout=60000)
+                if not success:
+                    raise Exception("Falha de WAF ou carregamento da página")
             except Exception as e:
                 logger.warning(f"Erro ao carregar página {page_num}: {e}")
                 if page_num > 1: break # Se não for a primeira, assume fim
@@ -106,8 +126,7 @@ class ProjectScraper:
             return None
             
         url = f"{self.WORKANA_BASE_URL}/job/{project_id}"
-        await page.goto(url, wait_until="networkidle")
-        await asyncio.sleep(1)
+        await self._safe_goto(page, url, wait_until="networkidle")
         
         # Extração
         title = await self._get_text(page, WorkanaSelectors.DETAILS_TITLE)

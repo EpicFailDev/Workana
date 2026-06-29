@@ -56,16 +56,26 @@ class AnonymousParallelScraper:
 
 
     async def _safe_goto(self, page, url: str):
-        """Navega para a URL com retry e timeout configurado."""
+        """Navega para a URL com retry, timeout configurado e resolvedor de captcha."""
+        from app.automation.components.captcha_solver import CaptchaSolver
+        solver = CaptchaSolver()
         for attempt in range(settings.max_retries):
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=settings.scraping_timeout)
+                await asyncio.sleep(2)  # Espera carregar JS
+                
+                # Se detectou bloqueio por Captcha/Cloudflare, tenta resolver
+                if await solver.is_blocked(page):
+                    logger.warning(f"⚠️ [Tentativa {attempt + 1}] Bloqueio de WAF/Cloudflare detectado! Ativando resolvedor...")
+                    solved = await solver.detect_and_solve(page)
+                    if not solved:
+                        raise Exception("Falha ao resolver captcha")
                 return
             except Exception as e:
                 logger.warning(f"Tentativa {attempt + 1}/{settings.max_retries} falhou: {e}")
                 if attempt == settings.max_retries - 1:
                     raise e
-                await asyncio.sleep(1)
+                await asyncio.sleep(2)
 
     def _build_search_url(self, filters: SearchFilters, page_num: int) -> str:
         """Constrói a URL de busca para uma página específica."""
@@ -78,7 +88,6 @@ class AnonymousParallelScraper:
             params.append(f"budget_min={filters.min_budget}")
         if filters.max_budget:
             params.append(f"budget_max={filters.max_budget}")
-        
         # Novos filtros
         if filters.publication:
             params.append(f"publication={filters.publication}")

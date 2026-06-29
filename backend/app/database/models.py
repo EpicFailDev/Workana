@@ -187,12 +187,43 @@ class DailyStatistics(Base):
     searches_count = Column(Integer, default=0)
     errors_count = Column(Integer, default=0)
     total_time_spent_minutes = Column(Integer, default=0)
+    scraping_success_count = Column(Integer, default=0)
+    scraping_failure_count = Column(Integer, default=0)
+    scraping_blocked_count = Column(Integer, default=0)
+    scraping_total_time_ms = Column(BigInteger, default=0)
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     __table_args__ = (
         UniqueConstraint("user_id", "date", name="uix_user_id_date"),
     )
+
+
+class AntibanStats(Base):
+    """Estatísticas do anti-ban salvas por usuário com lock otimista."""
+    __tablename__ = "antiban_stats"
+    
+    id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
+    user_id = Column(Uuid(as_uuid=True), nullable=False, unique=True, index=True)
+    proposals_sent_today = Column(Integer, default=0)
+    proposals_sent_this_hour = Column(Integer, default=0)
+    searches_this_hour = Column(Integer, default=0)
+    logins_today = Column(Integer, default=0)
+    last_proposal_time = Column(DateTime(timezone=True), nullable=True)
+    last_search_time = Column(DateTime(timezone=True), nullable=True)
+    last_login_time = Column(DateTime(timezone=True), nullable=True)
+    session_start_time = Column(DateTime(timezone=True), nullable=True)
+    last_break_time = Column(DateTime(timezone=True), nullable=True)
+    consecutive_proposals = Column(Integer, default=0)
+    total_actions_today = Column(Integer, default=0)
+    last_hourly_reset = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    last_daily_reset = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    version = Column(Integer, default=1, nullable=False)
+    
+    __mapper_args__ = {
+        "version_id_col": version
+    }
+
 
 
 class BlacklistedClient(Base):

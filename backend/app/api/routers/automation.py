@@ -96,7 +96,7 @@ async def delete_template(template_id: int, user: dict = Depends(get_current_use
 @router.get("/antiban/status")
 async def get_antiban_status(user: dict = Depends(get_current_user)):
     """Retorna status atual do sistema anti-ban."""
-    return antiban.get_status()
+    return await antiban.get_status(user["user_id"])
 
 
 @router.get("/antiban/config")
@@ -121,10 +121,12 @@ async def update_antiban_config(config: dict, user: dict = Depends(get_current_u
 @router.get("/antiban/can-search")
 async def can_search(user: dict = Depends(get_current_user)):
     """Verifica se pode fazer uma busca agora."""
-    can_do, message = antiban.can_search()
+    can_do, message = await antiban.can_search(user["user_id"])
+    status = await antiban.get_status(user["user_id"])
     return {
         "can_search": can_do,
         "message": message,
-        "searches_this_hour": antiban.stats.searches_this_hour,
+        "searches_this_hour": status["searches_this_hour"],
         "max_per_hour": antiban.config.max_searches_per_hour
     }
+
