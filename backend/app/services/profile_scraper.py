@@ -59,67 +59,6 @@ class ProfileScraperService:
         cache_key = cls._get_cache_key(profile_url)
         
         # Verificar cache
-"""
-Serviço para scraping do perfil público do Workana.
-Este serviço coleta apenas dados públicos (sem login) para evitar violação dos ToS.
-"""
-import httpx
-from bs4 import BeautifulSoup
-from typing import Optional, Dict, Any
-from datetime import datetime, timedelta
-from loguru import logger
-import re
-import asyncio
-from tenacity import retry, stop_after_attempt, wait_fixed
-
-
-class ProfileScraperService:
-    """Serviço para coletar métricas do perfil público do Workana."""
-    
-    # Cache simples em memória
-    _cache: Dict[str, Any] = {}
-    _cache_ttl = timedelta(hours=1)
-    
-    # Headers para simular navegador real
-    HEADERS = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-    }
-    
-    @classmethod
-    def _get_cache_key(cls, url: str) -> str:
-        """Gera chave de cache para a URL."""
-        return f"profile_{url}"
-    
-    @classmethod
-    def _is_cache_valid(cls, cache_key: str) -> bool:
-        """Verifica se o cache ainda é válido."""
-        if cache_key not in cls._cache:
-            return False
-        cached_time = cls._cache[cache_key].get("cached_at")
-        if not cached_time:
-            return False
-        return datetime.utcnow() - cached_time < cls._cache_ttl
-    
-    @classmethod
-    async def fetch_public_profile(cls, profile_url: str, force_refresh: bool = False) -> Dict[str, Any]:
-        """
-        Busca dados do perfil público do Workana.
-        
-        Args:
-             profile_url: URL do perfil público (ex: https://www.workana.com/freelancer/username)
-             force_refresh: Se True, ignora cache e faz nova requisição
-             
-        Returns:
-             Dict com métricas do perfil
-        """
-        cache_key = cls._get_cache_key(profile_url)
-        
-        # Verificar cache
         if not force_refresh and cls._is_cache_valid(cache_key):
             logger.debug(f"Retornando perfil do cache: {profile_url}")
             return cls._cache[cache_key]["data"]
@@ -154,6 +93,69 @@ class ProfileScraperService:
                 
                 # Se não conseguiu extrair dados profissionais, tentar com Playwright.
                 if not metrics.get("display_name") or not metrics.get("projects_completed"):
+                    logger.info("Dados incompletos ou zerados via HTTP, tentando com Playwright...")
+                    metrics = await cls._fetch_with_playwright(profile_url)
+                
+                # Salvar no cache
+                cls._cache[cache_key] = {
+                    "data": metrics,
+                    "cached_at": datetime.utcnow()
+                }
+                
+                logger.info(f"Perfil coletado com sucesso: {metrics.get('display_name', 'Unknown')}")
+                return metrics
+                
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Erro HTTP ao buscar perfil: {e.response.status_code}")
+            # Tentar com Playwright em caso de erro HTTP
+            try:
+                metrics = await cls._fetch_with_playwright(profile_url)
+                cls._cache[cache_key] = {"data": metrics, "cached_at": datetime.utcnow()}
+                return metrics
+            except Exception:
+                return {"error": f"HTTP {e.response.status_code}", "success": False}
+        except Exception as e:
+            logger.error(f"Erro ao buscar perfil: {str(e)}")
+            return {"error": str(e), "success": False}
+    
+    @classmethod
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+    async def _fetch_with_playwright(cls, profile_url: str) -> Dict[str, Any]:
+        """Usa Playwright para buscar perfil com JavaScript renderizado."""
+        from playwright.async_api import async_playwright
+        
+        metrics = {
+            "success": True,
+            "profile_url": profile_url,
+            "username": cls._extract_username(profile_url),
+            "display_name": None,
+            "projects_completed": 0,
+            "projects_in_progress": 0,
+            "hours_worked": 0,
+            "average_rating": None,
+            "total_reviews": 0,
+            "member_since": None,
+            "country": None,
+            "hourly_rate": None,
+            "skills": [],
+            "last_login": None,
+            "profile_photo_url": None,
+            "scraped_at": datetime.utcnow().isoformat()
+        }
+        
+        try:
+            launch_kwargs = {"headless": True}
+            if settings.proxy_url:
+                launch_kwargs["proxy"] = {"server": settings.proxy_url}
+                
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(**launch_kwargs)
+                page = await browser.new_page()
+                
+                # Aumentando timeout para 60s e otimizando espera
+                # networkidle pode demorar muito em sites com ads; domcontentloaded é mais seguro
+                await page.goto(profile_url, wait_until="domcontentloaded", timeout=60000)
+                
                 # Validação estrita: H1 deve existir
                 try:
                     await page.wait_for_selector("h1", timeout=15000)
