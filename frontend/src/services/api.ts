@@ -1,8 +1,13 @@
 /**
  * Serviço de API para comunicação com o backend.
  */
+import { supabase } from '../integrations/supabase/client';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+// Garante que a URL base sempre termine com /api
+const rawBaseUrl = import.meta.env.VITE_API_URL || "";
+const API_BASE_URL = rawBaseUrl 
+    ? (rawBaseUrl.endsWith("/api") ? rawBaseUrl : `${rawBaseUrl}/api`)
+    : "/api";
 
 interface RequestOptions {
     method?: "GET" | "POST" | "PUT" | "DELETE";
@@ -20,10 +25,15 @@ class ApiService {
     private async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
         const { method = "GET", body, headers = {} } = options;
 
+        // Obter token de acesso do Supabase
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token;
+
         const config: RequestInit = {
             method,
             headers: {
                 "Content-Type": "application/json",
+                ...(token ? { "Authorization": `Bearer ${token}` } : {}),
                 ...headers,
             },
         };
@@ -34,25 +44,19 @@ class ApiService {
 
         const response = await fetch(`${this.baseUrl}${endpoint}`, config);
 
+        if (response.status === 401) {
+            // Token inválido/expirado -> limpa sessão local e redireciona para login
+            await supabase.auth.signOut();
+            window.location.href = "/auth";
+            throw new Error("Sessão expirada. Faça login novamente.");
+        }
+
         if (!response.ok) {
             const error = await response.json().catch(() => ({ detail: "Erro desconhecido" }));
             throw new Error(error.detail || `HTTP error! status: ${response.status}`);
         }
 
         return response.json();
-    }
-
-    // ==================== Credenciais ====================
-
-    async saveCredentials(email: string, password: string) {
-        return this.request("/credentials", {
-            method: "POST",
-            body: { email, password },
-        });
-    }
-
-    async getCredentialsStatus() {
-        return this.request<{ configured: boolean; email: string | null }>("/credentials/status");
     }
 
     // ==================== Automação ====================
@@ -68,12 +72,16 @@ class ApiService {
         }>("/automation/status");
     }
 
-    async login() {
-        return this.request("/automation/login", { method: "POST" });
-    }
-
-    async logout() {
-        return this.request("/automation/logout", { method: "POST" });
+    async getAutomationConfig() {
+        return this.request<{
+            headless: boolean;
+            delay_between_actions_ms: number;
+            max_proposals_per_day: number;
+            auto_apply: boolean;
+            preferred_template_id: number | null;
+            gemini_api_key?: string;
+            user_full_name?: string;
+        }>("/automation/config");
     }
 
     async updateAutomationConfig(config: {
@@ -81,10 +89,26 @@ class ApiService {
         delay_between_actions_ms: number;
         max_proposals_per_day: number;
         auto_apply: boolean;
+        gemini_api_key?: string;
+        user_full_name?: string;
     }) {
         return this.request("/automation/config", {
             method: "PUT",
             body: config,
+        });
+    }
+
+    async getCredentialsStatus() {
+        return this.request<{
+            configured: boolean;
+            email: string | null;
+        }>("/automation/credentials");
+    }
+
+    async updateCredentials(creds: { email: string; password: string }) {
+        return this.request("/automation/credentials", {
+            method: "POST",
+            body: creds,
         });
     }
 
@@ -99,6 +123,11 @@ class ApiService {
         sort?: string;
         max_results?: number;
         page?: number;
+        pages_to_fetch?: number;
+        publication?: string; // e.g. '1d', '3d'
+        language?: string;    // e.g. 'pt', 'en'
+        proposals?: string;   // e.g. 'less_than_5', '5_plus'
+        payment_verified?: boolean;
     }) {
         return this.request<{
             projects: Array<{
@@ -120,6 +149,37 @@ class ApiService {
 
     async getProjectDetails(projectId: string) {
         return this.request(`/projects/${projectId}`);
+    }
+
+    async generateProposal(projectId: string) {
+        return this.request<{
+            success: boolean;
+            proposal?: string;
+            suggested_price?: string;
+            justification?: string;
+            error?: string;
+        }>(`/projects/${projectId}/generate-proposal`, {
+            method: "POST",
+        });
+    }
+
+    async getProposalHistory() {
+        return this.request<Array<{
+            id: number;
+            project_id: string;
+            project_title: string;
+            budget: number;
+            deadline_days: number;
+            status: "sent" | "viewed" | "accepted" | "rejected";
+            sent_at: string;
+        }>>("/proposals/history");
+    }
+
+    async updateProposalStatus(proposalId: number, status: string) {
+        return this.request<{ success: boolean; message: string }>(`/proposals/${proposalId}/status`, {
+            method: "PUT",
+            body: { status }
+        });
     }
 
     // ==================== Filtros ====================
@@ -187,38 +247,6 @@ class ApiService {
         return this.request(`/templates/${templateId}`, { method: "DELETE" });
     }
 
-    // ==================== Propostas ====================
-
-    async sendProposal(proposal: {
-        project_id: string;
-        template_id?: number;
-        custom_message?: string;
-        budget: number;
-        deadline_days: number;
-    }) {
-        return this.request<{
-            success: boolean;
-            message: string;
-            project_id: string;
-            proposal_id?: string;
-        }>("/proposals/send", {
-            method: "POST",
-            body: proposal,
-        });
-    }
-
-    async getProposalHistory(limit: number = 50) {
-        return this.request<Array<{
-            id: number;
-            project_id: string;
-            project_title: string;
-            budget: number;
-            deadline_days: number;
-            status: string;
-            sent_at: string;
-        }>>(`/proposals/history?limit=${limit}`);
-    }
-
     // ==================== Dashboard ====================
 
     async getDashboardStats() {
@@ -231,9 +259,107 @@ class ApiService {
             accepted_proposals: number;
             pending_proposals: number;
             last_activity: string | null;
+            xp: number;
+            lp: number;
+            rank_tier: string;
+            rank_division: string;
         }>("/dashboard/stats");
+    }
+
+    // ==================== Perfil Público ====================
+
+    async getProfileMetrics() {
+        return this.request<{
+            success: boolean;
+            profile_url: string | null;
+            username: string | null;
+            display_name: string | null;
+            ranking_general: number | null;
+            ranking_category: string | null;
+            level: string | null;
+            projects_completed: number;
+            projects_in_progress: number;
+            hours_worked: number;
+            average_rating: number | null;
+            total_reviews: number;
+            member_since: string | null;
+            country: string | null;
+            hourly_rate: string | null;
+            skills: string[];
+            last_login: string | null;
+            profile_photo_url: string | null;
+            last_sync: string | null;
+            xp: number;
+            lp: number;
+            rank_tier: string;
+            rank_division: string;
+            is_configured: boolean;
+            error: string | null;
+        }>("/profile/metrics");
+    }
+
+    async syncProfileMetrics(force: boolean = false) {
+        return this.request<{
+            success: boolean;
+            profile_url: string | null;
+            username: string | null;
+            display_name: string | null;
+            ranking_general: number | null;
+            ranking_category: string | null;
+            level: string | null;
+            projects_completed: number;
+            projects_in_progress: number;
+            hours_worked: number;
+            average_rating: number | null;
+            total_reviews: number;
+            member_since: string | null;
+            country: string | null;
+            hourly_rate: string | null;
+            skills: string[];
+            last_login: string | null;
+            profile_photo_url: string | null;
+            last_sync: string | null;
+            xp: number;
+            lp: number;
+            rank_tier: string;
+            rank_division: string;
+            is_configured: boolean;
+            error: string | null;
+        }>(`/profile/sync?force=${force}`, { method: "POST" });
+    }
+
+    async getProfileConfig() {
+        return this.request<{
+            profile_url: string | null;
+            auto_sync_enabled: boolean;
+            sync_interval_hours: number;
+            last_sync_at: string | null;
+            is_configured: boolean;
+        }>("/profile/config");
+    }
+
+    async updateProfileConfig(config: {
+        profile_url: string;
+        auto_sync_enabled?: boolean;
+        sync_interval_hours?: number;
+    }) {
+        return this.request<{ success: boolean; message: string }>("/profile/config", {
+            method: "PUT",
+            body: config,
+        });
+    }
+
+    async validateProfileUrl(url: string) {
+        return this.request<{
+            valid: boolean;
+            display_name?: string;
+            username?: string;
+            level?: string;
+            error?: string;
+        }>(`/profile/validate?url=${encodeURIComponent(url)}`, { method: "POST" });
     }
 }
 
 // Instância singleton do serviço
 export const api = new ApiService(API_BASE_URL);
+

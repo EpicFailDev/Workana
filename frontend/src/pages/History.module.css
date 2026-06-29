@@ -1,0 +1,281 @@
+.container {
+    padding: var(--spacing-xl);
+    max-width: 1600px;
+    margin: 0 auto;
+    height: calc(100vh - 64px); /* Full height minus header/nav if needed */
+    display: flex;
+    flex-direction: column;
+}
+
+.kanbanBoard {
+    display: flex;
+    gap: var(--spacing-lg);
+    overflow-x: auto;
+    padding-bottom: var(--spacing-lg);
+    flex: 1;
+    align-items: flex-start; /* Align columns to top */
+}
+
+.column {
+    background: rgba(255, 255, 255, 0.03); /* Very subtle background */
+    border-radius: var(--radius-lg);
+    min-width: 320px;
+    max-width: 320px;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    border: 1px solid var(--border-color);
+}
+
+.columnHeader {
+    padding: var(--spacing-md);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.columnTitle {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.columnCount {
+    background: var(--bg-hover);
+    color: var(--color-text-secondary);
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-weight: 500;
+}
+
+.columnContent {
+    padding: var(--spacing-md);
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+/* Kanban Card */
+.card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    cursor: grab;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+    border-color: var(--color-primary-light);
+}
+
+.card:active {
+    cursor: grabbing;
+}
+
+.cardHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: var(--spacing-sm);
+}
+
+.projectTitle {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.cardMeta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: var(--spacing-md);
+    font-size: 0.8rem;
+    color: var(--color-text-secondary);
+}
+
+.budget {
+    font-weight: 600;
+    color: var(--color-success);
+}
+
+.date {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.actions {
+    margin-top: var(--spacing-sm);
+    padding-top: var(--spacing-sm);
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    justify-content: flex-end;
+    opacity: 0; 
+    transition: opacity 0.2s ease;
+}
+
+.card:hover .actions {
+    opacity: 1;
+}
+
+/* Specific Column Colors (Border Top) */
+.column[data-status="sent"] { border-top: 3px solid var(--color-text-secondary); }
+.column[data-status="viewed"] { border-top: 3px solid var(--color-info); }
+.column[data-status="accepted"] { border-top: 3px solid var(--color-success); }
+.column[data-status="rejected"] { border-top: 3px solid var(--color-error); }
+
+/* Drag and Drop Helpers */
+.dragging {
+    opacity: 0.5;
+    transform: scale(0.95);
+}
+
+.dropTarget {
+    background: rgba(var(--color-primary-rgb), 0.1);
+    border: 2px dashed var(--color-primary);
+}
+
+.loadingContainer {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 60vh;
+}
+
+.modalOverlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(4px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal {
+    background: var(--bg-card);
+    border: 1px solid var(--color-primary);
+    box-shadow: 0 0 20px rgba(var(--color-primary-rgb), 0.3);
+    border-radius: var(--radius-lg);
+    width: 90%;
+    max-width: 800px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    animation: slideIn 0.3s ease-out;
+}
+
+.modalHeader {
+    padding: var(--spacing-lg);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(var(--color-primary-rgb), 0.1);
+}
+
+.modalTitle {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+
+.modalClose {
+    background: none;
+    border: none;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    font-size: 1.5rem;
+    padding: 0;
+    line-height: 1;
+    transition: color 0.2s;
+}
+
+.modalClose:hover {
+    color: var(--color-error);
+}
+
+.modalContent {
+    padding: var(--spacing-xl);
+    overflow-y: auto;
+    flex: 1;
+    font-size: 0.95rem;
+    line-height: 1.6;
+    color: var(--color-text-primary);
+    white-space: pre-wrap;
+}
+
+@keyframes slideIn {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+.column[data-status="generated"] { border-top: 3px solid var(--color-accent); }
+
+.modalActions {
+    padding: var(--spacing-lg);
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--spacing-md);
+    background: rgba(var(--color-primary-rgb), 0.05);
+}
+
+.button {
+    padding: var(--spacing-sm) var(--spacing-lg);
+    border-radius: var(--radius-md);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ctaButton {
+    background: var(--color-primary);
+    color: #000;
+}
+
+.ctaButton:hover {
+    background: var(--color-primary-light);
+    transform: translateY(-1px);
+}
+
+.secondaryButton {
+    background: transparent;
+    border: 1px solid var(--color-text-secondary);
+    color: var(--color-text-secondary);
+}
+
+.secondaryButton:hover {
+    border-color: var(--color-text-primary);
+    color: var(--color-text-primary);
+}

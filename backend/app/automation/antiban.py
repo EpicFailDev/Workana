@@ -100,7 +100,8 @@ class AntibanSystem:
     ]
     
     # Locales comuns
-    LOCALES = ["pt-BR", "en-US", "es-ES"]
+    # Locales (Enforcing BR for currency consistency)
+    LOCALES = ["pt-BR"]
     
     def __init__(self, config: Optional[AntibanConfig] = None):
         self.config = config or AntibanConfig()

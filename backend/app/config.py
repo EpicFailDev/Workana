@@ -3,7 +3,7 @@ Configurações da aplicação usando Pydantic Settings.
 """
 from pydantic_settings import BaseSettings
 from pydantic import Field, field_validator
-from typing import Optional, List
+from typing import Optional, List, Any
 import os
 
 
@@ -11,8 +11,8 @@ class Settings(BaseSettings):
     """Configurações globais da aplicação."""
     
     # CORS - URLs permitidas para requisições cross-origin
-    cors_origins: List[str] = Field(
-        default=["http://localhost:3000", "http://127.0.0.1:3000"],
+    cors_origins: Any = Field(
+        default=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8080", "http://127.0.0.1:8080", "http://localhost:5173", "http://127.0.0.1:5173"],
         description="Origens permitidas para CORS (separadas por vírgula no .env)"
     )
     
@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     workana_email: Optional[str] = Field(default=None, description="Email do Workana")
     workana_password: Optional[str] = Field(default=None, description="Senha do Workana")
     
+    # AI (Gemini)
+    gemini_api_key: Optional[str] = Field(default=None, description="Chave da API do Gemini")
+    
     # Segurança
     secret_key: str = Field(default="dev-secret-key-change-in-production")
     encryption_key: str = Field(default="dev-encryption-key-32bytes!")
@@ -42,9 +45,22 @@ class Settings(BaseSettings):
     slow_mo: int = Field(default=100, description="Delay em ms entre ações do Playwright")
     max_proposals_per_day: int = Field(default=10, description="Máximo de propostas por dia")
     delay_between_actions_ms: int = Field(default=2000, description="Delay entre ações principais")
+    scraper_type: str = Field(default="fast", description="Tipo de scraper: 'parallel' (browser) ou 'fast' (http)")
     
     # Banco de dados
     database_url: str = Field(default="sqlite+aiosqlite:///./workana.db")
+
+    # Supabase Auth
+    supabase_url: str = Field(default="", description="Supabase project URL")
+    supabase_jwks_url: str = Field(default="", description="Supabase JWKS keys URL")
+
+    # Scraper Settings
+    workana_base_url: str = Field(default="https://www.workana.com")
+    workana_jobs_url: str = Field(default="https://www.workana.com/pt/jobs")
+    scraping_timeout: int = Field(default=30000, description="Timeout para scraping em ms")
+    max_retries: int = Field(default=3, description="Número máximo de tentativas de scraping")
+    workana_conversion_rate: float = Field(default=5.0, description="Taxa de conversão USD/BRL usada internamente pelo Workana")
+
     
     class Config:
         env_file = ".env"

@@ -1,0 +1,65 @@
+.badgeContainer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 8px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 0.3s ease;
+}
+
+.badgeContainer:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--tier-color);
+  box-shadow: 0 0 15px rgba(var(--tier-color-rgb), 0.2);
+}
+
+.iconWrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sm .iconWrapper { width: 32px; height: 32px; }
+.md .iconWrapper { width: 48px; height: 48px; }
+.lg .iconWrapper { width: 64px; height: 64px; }
+
+.svg {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 0 5px var(--tier-color));
+}
+
+.info {
+  display: flex;
+  flex-direction: column;
+}
+
+.tierName {
+  font-weight: 800;
+  font-size: 1.1rem;
+  color: var(--tier-color);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.lpText {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.base {
+  opacity: 0.3;
+}
+
+@keyframes pulse {
+  0% { filter: drop-shadow(0 0 5px var(--tier-color)); }
+  50% { filter: drop-shadow(0 0 10px var(--tier-color)); }
+  100% { filter: drop-shadow(0 0 5px var(--tier-color)); }
+}
+
+.lg .svg {
+  animation: pulse 3s infinite ease-in-out;
+}
