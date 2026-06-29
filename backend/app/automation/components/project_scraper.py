@@ -1,9 +1,11 @@
 
 import asyncio
 from typing import List, Optional
+import random
 from loguru import logger
 from app.api.schemas import SearchFilters, Project
 from app.automation.components.browser_driver import BrowserDriver
+from app.automation.selectors import WorkanaSelectors
 
 class ProjectScraper:
     """
@@ -11,7 +13,7 @@ class ProjectScraper:
     """
     
     WORKANA_BASE_URL = "https://www.workana.com"
-    WORKANA_JOBS_URL = "https://www.workana.com/jobs"
+    WORKANA_JOBS_URL = "https://www.workana.com/pt/jobs"
 
     def __init__(self, driver: BrowserDriver):
         self._driver = driver
@@ -34,9 +36,19 @@ class ProjectScraper:
         if filters.min_budget: params.append(f"budget_min={filters.min_budget}")
         if filters.max_budget: params.append(f"budget_max={filters.max_budget}")
         
+        # Filtro de propostas
+        if filters.proposals:
+            if filters.proposals == "less_than_5":
+                params.append("has_few_bids=1")
+            elif filters.proposals == "5_plus":
+                params.append("has_few_bids=2")
+        
         # Ordenação
         if filters.sort and filters.sort.value != "relevance":
             params.append(f"ranking={filters.sort.value}")
+            
+        # Forçar moeda BRL
+        params.append("currency=BRL")
         
         while len(projects) < filters.max_results:
             current_params = params.copy()
@@ -56,7 +68,7 @@ class ProjectScraper:
                 logger.warning(f"Erro ao carregar página {page_num}: {e}")
                 if page_num > 1: break # Se não for a primeira, assume fim
                 
-            project_cards = await page.query_selector_all('.project-item, .job-item, [data-testid="project-card"]')
+            project_cards = await page.query_selector_all(WorkanaSelectors.PROJECT_CARD)
             
             if not project_cards:
                 logger.info("Sem projetos nesta página.")
@@ -76,7 +88,7 @@ class ProjectScraper:
             if found_on_page == 0: break
             
             # Verifica paginação
-            next_btn = await page.query_selector('.pagination .next')
+            next_btn = await page.query_selector(WorkanaSelectors.PAGINATION_NEXT)
             if not next_btn:
                 break
                 
@@ -98,17 +110,17 @@ class ProjectScraper:
         await asyncio.sleep(1)
         
         # Extração
-        title = await self._get_text(page, 'h1, .project-title')
-        description = await self._get_text(page, '.project-description, .description')
-        budget = await self._get_text(page, '.budget, .price')
+        title = await self._get_text(page, WorkanaSelectors.DETAILS_TITLE)
+        description = await self._get_text(page, WorkanaSelectors.DETAILS_DESCRIPTION)
+        budget = await self._get_text(page, WorkanaSelectors.DETAILS_BUDGET)
         
-        client_name = await self._get_text(page, '.client-name, .employer-name')
-        client_country = await self._get_text(page, '.client-country, .location, .country')
+        client_name = await self._get_text(page, WorkanaSelectors.DETAILS_CLIENT_NAME)
+        client_country = await self._get_text(page, WorkanaSelectors.DETAILS_CLIENT_COUNTRY)
         
         # Avaliação
         client_rating = None
         try:
-            stars_el = await page.query_selector('.stars-container, .rating')
+            stars_el = await page.query_selector(WorkanaSelectors.DETAILS_RATING)
             if stars_el:
                 title_attr = await stars_el.get_attribute("title")
                 if title_attr:
@@ -116,7 +128,7 @@ class ProjectScraper:
                     match = re.search(r'([\d\.]+)', title_attr)
                     if match: client_rating = float(match.group(1))
                 else:
-                    full_stars = await stars_el.query_selector_all('.fa-star')
+                    full_stars = await stars_el.query_selector_all(WorkanaSelectors.DETAILS_STARS)
                     client_rating = float(len(full_stars))
         except: pass
         
@@ -125,7 +137,7 @@ class ProjectScraper:
         paid = None
         since = None
         try:
-            sidebar = await page.inner_text('aside, .project-details-sidebar, #sidebar')
+            sidebar = await page.inner_text(WorkanaSelectors.DETAILS_SIDEBAR)
             import re
             m_posted = re.search(r'(\d+)\s*Projetos publicados', sidebar, re.IGNORECASE)
             if m_posted: posted = int(m_posted.group(1))
@@ -154,7 +166,7 @@ class ProjectScraper:
 
     async def _extract_project_from_card(self, card) -> Optional[Project]:
         try:
-            title_el = await card.query_selector('h2 a, .project-title a')
+            title_el = await card.query_selector(WorkanaSelectors.CARD_TITLE)
             title = await title_el.text_content() if title_el else "Sem título"
             
             ref = await title_el.get_attribute("href") if title_el else ""
@@ -162,22 +174,22 @@ class ProjectScraper:
             
             pid = ref.split("/")[-1] if ref else ""
             
-            desc_el = await card.query_selector('.project-description, p')
+            desc_el = await card.query_selector(WorkanaSelectors.CARD_DESCRIPTION)
             desc = await desc_el.text_content() if desc_el else ""
             
-            budget_el = await card.query_selector('.budget, .price')
+            budget_el = await card.query_selector(WorkanaSelectors.CARD_BUDGET)
             budget = await budget_el.text_content() if budget_el else None
             
             # Skills
             skills = []
-            for s in await card.query_selector_all('.skill, .tag'):
+            for s in await card.query_selector_all(WorkanaSelectors.CARD_SKILLS):
                 txt = await s.text_content()
                 if txt: skills.append(txt.strip())
             
             # Proposals
             proposals = 0
             p_text = ""
-            p_el = await card.query_selector('.proposals-count, .bids')
+            p_el = await card.query_selector(WorkanaSelectors.CARD_PROPOSALS)
             if p_el:
                 p_text = await p_el.text_content()
             else:
@@ -193,13 +205,13 @@ class ProjectScraper:
                 if m: proposals = int(m.group())
 
             # Data
-            date_el = await card.query_selector('.date, time')
+            date_el = await card.query_selector(WorkanaSelectors.CARD_DATE)
             posted_at = await date_el.text_content() if date_el else None
             
             return Project(
                 id=pid,
                 title=title.strip(),
-                description=desc.strip()[:500],
+                description=desc.strip(),
                 budget=budget.strip() if budget else None,
                 skills=skills,
                 proposals_count=proposals,
@@ -213,4 +225,3 @@ class ProjectScraper:
     async def _get_text(self, parent, selector):
         el = await parent.query_selector(selector)
         return (await el.text_content()).strip() if el else None
-import random

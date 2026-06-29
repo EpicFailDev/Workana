@@ -36,7 +36,6 @@ echo.
 echo [6/6] Instalando dependencias do Frontend...
 cd frontend
 call npm install
-
 cd ..
 
 echo.

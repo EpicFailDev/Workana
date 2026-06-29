@@ -1,7 +1,7 @@
 """
 Schemas Pydantic para validação de dados da API.
 """
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -16,16 +16,6 @@ class ProjectType(str, Enum):
     ANY = "any"
 
 
-class ProposalStatus(str, Enum):
-    """Status de uma proposta."""
-    PENDING = "pending"
-    SENT = "sent"
-    VIEWED = "viewed"
-    ACCEPTED = "accepted"
-    ACCEPTED = "accepted"
-    REJECTED = "rejected"
-
-
 class SortOption(str, Enum):
     """Opções de ordenação."""
     RELEVANCE = "relevance"
@@ -37,21 +27,17 @@ class SortOption(str, Enum):
     BIDS_ASC = "bids_asc"       # Menos propostas
 
 
-# ==================== Credenciais ====================
-
-class CredentialsInput(BaseModel):
-    """Entrada para salvar credenciais."""
-    email: EmailStr = Field(..., description="Email do Workana")
-    password: str = Field(..., min_length=1, description="Senha do Workana")
-
-
-class CredentialsStatus(BaseModel):
-    """Status das credenciais."""
-    configured: bool = Field(..., description="Se as credenciais estão configuradas")
-    email: Optional[str] = Field(None, description="Email configurado (parcialmente oculto)")
+class ProposalStatus(str, Enum):
+    """Status da proposta."""
+    SENT = "sent"
+    VIEWED = "viewed"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    GENERATED = "generated"  # Propostas geradas por IA mas não enviadas
 
 
 # ==================== Filtros de Busca ====================
+
 
 class SearchFilters(BaseModel):
     """Filtros para busca de projetos."""
@@ -62,9 +48,14 @@ class SearchFilters(BaseModel):
     project_type: ProjectType = Field(default=ProjectType.ANY, description="Tipo de projeto")
     sort: SortOption = Field(default=SortOption.RELEVANCE, description="Ordenação")
     skills: Optional[List[str]] = Field(default=[], description="Skills requeridas")
+    publication: Optional[str] = Field(None, description="Data de publicação (ex: 1d, 3d, 1w)")
+    language: Optional[str] = Field(None, description="Idioma (ex: pt, en, es)")
+    proposals: Optional[str] = Field(None, description="Propostas (less_than_5, 5_plus)")
+    payment_verified: Optional[bool] = Field(False, description="Pagamento verificado")
     country: Optional[str] = Field(None, description="País do cliente")
-    max_results: int = Field(default=20, ge=1, le=100, description="Máximo de resultados")
+    max_results: int = Field(default=100, ge=1, le=500, description="Máximo de resultados")
     page: int = Field(default=1, ge=1, description="Página inicial da busca")
+    pages_to_fetch: int = Field(default=10, ge=1, le=100, description="Número de páginas para buscar simultaneamente")
 
 
 class SavedFilter(BaseModel):
@@ -147,6 +138,15 @@ class ProposalResult(BaseModel):
     proposal_id: Optional[str] = None
 
 
+class ProposalGenerationResult(BaseModel):
+    """Resultado da geração de proposta por IA."""
+    success: bool
+    proposal: Optional[str] = None
+    suggested_price: Optional[str] = None
+    justification: Optional[str] = None
+    error: Optional[str] = None
+
+
 # ==================== Histórico ====================
 
 class ProposalHistory(BaseModel):
@@ -154,11 +154,13 @@ class ProposalHistory(BaseModel):
     id: int
     project_id: str
     project_title: str
+    project_url: Optional[str] = None
     budget: float
     deadline_days: int
     status: ProposalStatus
     sent_at: datetime
     message_preview: Optional[str] = None
+    message: Optional[str] = None
 
 
 # ==================== Dashboard Stats ====================
@@ -173,6 +175,12 @@ class DashboardStats(BaseModel):
     accepted_proposals: int = 0
     pending_proposals: int = 0
     last_activity: Optional[datetime] = None
+    
+    # Gamification
+    xp: int = 0
+    lp: int = 0
+    rank_tier: str = "Ferro"
+    rank_division: str = "IV"
 
 
 # ==================== Automação ====================
@@ -194,6 +202,8 @@ class AutomationConfig(BaseModel):
     max_proposals_per_day: int = Field(default=10, ge=1, le=50)
     auto_apply: bool = False
     preferred_template_id: Optional[int] = None
+    gemini_api_key: Optional[str] = None
+    user_full_name: Optional[str] = None
 
 
 # ==================== Respostas Genéricas ====================
@@ -334,3 +344,72 @@ class BlacklistedClientList(BaseModel):
     """Lista de clientes bloqueados."""
     clients: List[BlacklistedClient]
     total: int
+
+
+# ==================== Métricas do Perfil Público ====================
+
+class ProfileMetricsResponse(BaseModel):
+    """Métricas do perfil público do Workana."""
+    success: bool = True
+    profile_url: Optional[str] = None
+    username: Optional[str] = None
+    display_name: Optional[str] = None
+    ranking_general: Optional[int] = None
+    ranking_category: Optional[str] = None
+    level: Optional[str] = None  # Nível original
+    
+    # Novos campos
+    xp: int = 0
+    lp: int = 0
+    rank_tier: str = "Ferro"
+    rank_division: str = "IV"
+    
+    projects_completed: int = 0
+    projects_in_progress: int = 0
+    hours_worked: int = 0
+    average_rating: Optional[float] = None
+    total_reviews: int = 0
+    member_since: Optional[str] = None
+    country: Optional[str] = None
+    hourly_rate: Optional[str] = None
+    skills: List[str] = []
+    last_login: Optional[str] = None
+    profile_photo_url: Optional[str] = None
+    last_sync: Optional[datetime] = None
+    is_configured: bool = False
+    error: Optional[str] = None
+
+
+class ProfileConfigUpdate(BaseModel):
+    """Atualização de configuração do perfil."""
+    profile_url: str = Field(..., description="URL do perfil público do Workana")
+    auto_sync_enabled: bool = Field(default=True, description="Sincronização automática habilitada")
+    sync_interval_hours: int = Field(default=6, ge=1, le=24, description="Intervalo de sincronização em horas")
+
+
+class ProfileConfigResponse(BaseModel):
+    """Resposta de configuração do perfil."""
+    profile_url: Optional[str] = None
+    auto_sync_enabled: bool = True
+    sync_interval_hours: int = 6
+    last_sync_at: Optional[datetime] = None
+    is_configured: bool = False
+
+
+class ProfileMetricsHistory(BaseModel):
+    """Histórico de métricas do perfil."""
+    id: int
+    profile_url: str
+    level: Optional[str] = None
+    projects_completed: int = 0
+    average_rating: Optional[float] = None
+    total_reviews: int = 0
+    ranking_general: Optional[int] = None
+    scraped_at: datetime
+
+
+class ProfileMetricsHistoryList(BaseModel):
+    """Lista de histórico de métricas."""
+    history: List[ProfileMetricsHistory]
+    total: int
+

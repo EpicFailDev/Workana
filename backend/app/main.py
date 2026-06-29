@@ -9,7 +9,7 @@ import sys
 import asyncio
 
 from app.config import settings
-from app.api.routes import router as api_router
+from app.api.routers import projects, automation, dashboard, profile
 from app.database.models import init_db
 
 
@@ -59,13 +59,16 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Incluir rotas da API
-app.include_router(api_router, prefix="/api")
+app.include_router(projects.router, prefix="/api", tags=["Projects"])
+app.include_router(automation.router, prefix="/api", tags=["Automation"])
+app.include_router(dashboard.router, prefix="/api", tags=["Dashboard"])
+app.include_router(profile.router, prefix="/api", tags=["Profile"])
 
 
 @app.get("/")

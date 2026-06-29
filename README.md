@@ -62,10 +62,11 @@
 ### Frontend
 | Tecnologia | Versão | Uso |
 |------------|--------|-----|
-| **Next.js** | 14 | Framework React |
-| **TypeScript** | 5.x | Tipagem estática |
-| **CSS Modules** | - | Estilização modular |
+| **Vite** | 6.x | Build Tool & Dev Server |
 | **React** | 18 | Biblioteca de UI |
+| **TypeScript** | 5.x | Tipagem estática |
+| **Tailwind CSS** | 4.x | Framework de CSS |
+| **Lucide React** | - | Ícones |
 
 ---
 
@@ -413,6 +414,9 @@ Atenciosamente!
 
 ### Variáveis de Ambiente (.env)
 
+Configure as seguintes variáveis no arquivo `.env` para habilitar a integração com o Supabase:
+
+#### Backend (`backend/.env`)
 ```env
 # Credenciais Workana (opcional, pode configurar pela interface)
 WORKANA_EMAIL=seu@email.com
@@ -432,7 +436,35 @@ HEADLESS=true
 SLOW_MO=100
 MAX_PROPOSALS_PER_DAY=10
 DELAY_BETWEEN_ACTIONS_MS=2000
+
+# Conexão Postgres (Supabase)
+DATABASE_URL=postgresql+asyncpg://postgres:[SENHA_DO_BANCO]@db.omfrvmbsazgfwhapsaur.supabase.co:5432/postgres?pgbouncer=true&pool_mode=session
+
+# Supabase Auth
+SUPABASE_URL=https://omfrvmbsazgfwhapsaur.supabase.co
+SUPABASE_JWKS_URL=https://omfrvmbsazgfwhapsaur.supabase.co/auth/v1/jwks
 ```
+
+#### Frontend (`frontend/.env`)
+```env
+VITE_SUPABASE_URL=https://omfrvmbsazgfwhapsaur.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_fOfKf_lvgTfGaltaAXOFYQ_xtsM2h4m
+VITE_API_URL=http://localhost:8000/api
+```
+
+### 🔌 Integração e MCP com Supabase
+
+Para integrar o ambiente do desenvolvedor com o MCP (Model Context Protocol) do Supabase:
+
+1. Faça login na Supabase CLI:
+   ```bash
+   supabase login
+   ```
+2. O arquivo `.mcp.json` na raiz do projeto está pré-configurado para conectar o ZCode ao Supabase MCP do projeto `omfrvmbsazgfwhapsaur`.
+3. Para migrar dados existentes do SQLite local para o Supabase Postgres, execute o script de migração:
+   ```bash
+   python backend/scripts/migrate_sqlite_to_supabase.py
+   ```
 
 ### Configurações Recomendadas
 

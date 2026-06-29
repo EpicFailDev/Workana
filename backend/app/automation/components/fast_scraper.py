@@ -4,153 +4,229 @@ from typing import List, Optional
 from loguru import logger
 import random
 import asyncio
+import json
+import html
+import re
 
 from app.api.schemas import SearchFilters, Project
+from app.services.currency import CurrencyService
 
 class FastProjectScraper:
     """
-    Scraper rápido usando requisições HTTP diretas (httpx + BeautifulSoup).
-    Muito mais rápido que o navegador completo, mas pode ser bloqueado mais facilmente.
+    Scraper rápido usando requisições HTTP diretas e extração de JSON embutido.
+    Busca múltiplas páginas em paralelo sem overhead de navegador.
     """
     
     WORKANA_BASE_URL = "https://www.workana.com"
-    WORKANA_JOBS_URL = "https://www.workana.com/jobs"
+    WORKANA_JOBS_URL = "https://www.workana.com/pt/jobs"
 
     def __init__(self):
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
             "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Cache-Control": "max-age=0",
+            "Connection": "keep-alive"
         }
+        self.semaphore = asyncio.Semaphore(5) # Limitar a 5 requisições simultâneas
 
     async def search_projects(self, filters: SearchFilters) -> List[Project]:
-        """
-        Executa a busca de projetos via HTTP.
-        """
-        projects: List[Project] = []
-        page_num = filters.page # Inicia da página solicitada
+        """Executa a busca de projetos via HTTP de forma PARALELA."""
+        start_page = filters.page
+        pages_to_fetch = filters.pages_to_fetch
         
-        base_search_url = self.WORKANA_JOBS_URL
+        logger.info(f"⚡ Fast Parallel Scraping: páginas {start_page} a {start_page + pages_to_fetch - 1}")
+        
+        tasks = [
+            self._scrape_page_with_semaphore(filters, page_num)
+            for page_num in range(start_page, start_page + pages_to_fetch)
+        ]
+        
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        all_projects: List[Project] = []
+        seen_ids = set()
+        
+        for result in results:
+            if isinstance(result, list):
+                for p in result:
+                    if p.id not in seen_ids:
+                        seen_ids.add(p.id)
+                        all_projects.append(p)
+            elif isinstance(result, Exception):
+                logger.error(f"Erro em página Fast: {result}")
+                
+        return all_projects
+
+    async def _scrape_page_with_semaphore(self, filters: SearchFilters, page_num: int) -> List[Project]:
+        """Wrapper para limitar concorrência e adicionar jitter."""
+        async with self.semaphore:
+            # Delay aleatório pequeno para não disparar o WAF/Rate limit
+            await asyncio.sleep(random.uniform(0.5, 2.0))
+            return await self._scrape_page_http(filters, page_num)
+
+    async def _scrape_page_http(self, filters: SearchFilters, page_num: int) -> List[Project]:
+        """Busca uma única página via HTTP."""
         params = {}
         if filters.keywords: params["query"] = filters.keywords
         if filters.category: params["category"] = filters.category
         if filters.min_budget: params["budget_min"] = str(filters.min_budget)
         if filters.max_budget: params["budget_max"] = str(filters.max_budget)
         
-        # Ordenação
+        # Filtro de propostas
+        if filters.proposals:
+            if filters.proposals == "less_than_5":
+                params["has_few_bids"] = "1"
+            elif filters.proposals == "5_plus":
+                params["has_few_bids"] = "2"
+
         if filters.sort and filters.sort.value != "relevance":
             params["ranking"] = filters.sort.value
-        
-        async with httpx.AsyncClient(headers=self.headers, follow_redirects=True, timeout=30.0) as client:
-            while len(projects) < filters.max_results:
-                current_params = params.copy()
-                if page_num > 1:
-                    current_params["page"] = str(page_num)
-                
-                logger.info(f"Fast Scraping página {page_num}...")
-                
-                try:
-                    response = await client.get(base_search_url, params=current_params)
-                    
-                    if response.status_code != 200:
-                        logger.warning(f"Erro HTTP {response.status_code} na página {page_num}")
-                        break
-                        
-                    soup = BeautifulSoup(response.text, 'html.parser')
-                    
-                    # Seletores ajustados para o HTML estático (podem diferir levemente do renderizado via JS)
-                    # O Workana geralmente entrega o mesmo HTML inicial
-                    project_cards = soup.select('.project-item, .job-item, [data-testid="project-card"]')
-                    
-                    if not project_cards:
-                        logger.info("Sem projetos nesta página (Fast).")
-                        break
-                    
-                    found_on_page = 0
-                    for card in project_cards:
-                        if len(projects) >= filters.max_results: break
-                        
-                        p = self._extract_project_from_card(card)
-                        if p and not any(existing.id == p.id for existing in projects):
-                            projects.append(p)
-                            found_on_page += 1
-                    
-                    logger.info(f"Extraídos {found_on_page} projetos (Fast) da página {page_num}")
-                    
-                    if found_on_page == 0: break
-                    
-                    # Verifica paginação
-                    next_btn = soup.select_one('.pagination .next, .pagination-next')
-                    if not next_btn:
-                        break
-                        
-                    page_num += 1
-                    # Pequeno delay para ser gentil
-                    await asyncio.sleep(random.uniform(0.5, 1.5))
-                    
-                except Exception as e:
-                    logger.error(f"Erro no Fast Scraper: {e}")
-                    break
-            
-        return projects
+        params["currency"] = "BRL"
+        if page_num > 1:
+            params["page"] = str(page_num)
 
-    def _extract_project_from_card(self, card) -> Optional[Project]:
+        headers = self.headers.copy()
+        headers["User-Agent"] = random.choice([
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ])
+
         try:
-            # Título e Link
-            title_el = card.select_one('h2 a, .project-title a')
-            if not title_el: return None
-            
-            title = title_el.get_text(strip=True)
-            ref = title_el.get('href')
-            if ref and not ref.startswith("http"): ref = self.WORKANA_BASE_URL + ref
-            
-            pid = ref.split("/")[-1] if ref else ""
-            
-            # Descrição
-            desc_el = card.select_one('.project-description, .project-body')
-            desc = desc_el.get_text(strip=True) if desc_el else ""
-            
-            # Orçamento
-            budget_el = card.select_one('.budget, .price')
-            budget = budget_el.get_text(strip=True) if budget_el else None
-            
-            # Skills
-            skills = []
-            for s in card.select('.skill, .tag'):
-                txt = s.get_text(strip=True)
-                if txt: skills.append(txt)
-            
-            # Propostas (Texto)
-            proposals = 0
-            p_el = card.select_one('.proposals-count, .bids')
-            p_text = p_el.get_text(strip=True) if p_el else ""
-            
-            if not p_text:
-                full_text = card.get_text()
-                import re
-                m = re.search(r'(\d+)\s*(?:proposta|bid)', full_text, re.IGNORECASE)
-                if m: proposals = int(m.group(1))
-            else:
-                import re
-                m = re.search(r'\d+', p_text)
-                if m: proposals = int(m.group())
+            async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=15.0) as client:
+                response = await client.get(self.WORKANA_JOBS_URL, params=params)
+                if response.status_code != 200:
+                    logger.error(f"Status {response.status_code} na página {page_num}")
+                    return []
+                
+                soup = BeautifulSoup(response.text, 'html.parser')
+                search_tag = soup.find('search')
+                
+                if not search_tag:
+                    return []
+                
+                results_attr = search_tag.get(':results-initials')
+                if not results_attr:
+                    return []
+                
+                decoded_json = html.unescape(results_attr)
+                data = json.loads(decoded_json)
+                
+                projects_data = data.get('results', [])
+                page_projects = []
+                
+                for p_dict in projects_data:
+                    p = await self._extract_project_from_json(p_dict)
+                    if p:
+                        page_projects.append(p)
+                
+                return page_projects
+                
+        except Exception as e:
+            logger.error(f"Erro na página {page_num}: {e}")
+            return []
 
-            # Data
-            date_el = card.select_one('.date, time')
-            posted_at = date_el.get_text(strip=True) if date_el and date_el.get_text(strip=True) else None
-            if not posted_at and date_el and date_el.get('title'):
-                posted_at = date_el.get('title')
+    async def _extract_project_from_json(self, data: dict) -> Optional[Project]:
+        """Extrai um projeto de um dicionário (JSON do Workana)."""
+        try:
+            # Título: extrair texto do HTML
+            title_html = data.get('title', '')
+            title_soup = BeautifulSoup(title_html, 'html.parser')
+            title = title_soup.get_text(strip=True)
+            
+            slug = data.get('slug', '')
+            url = f"{self.WORKANA_BASE_URL}/job/{slug}" if slug else ""
+            
+            budget = data.get('budget', '')
+            if budget and "USD" in budget.upper():
+                budget = await CurrencyService.convert_to_brl(budget)
+            
+            skills = [s.get('anchorText') for s in data.get('skills', []) if s.get('anchorText')]
+            
+            # Propostas
+            proposals_text = data.get('totalBids', '0')
+            m = re.search(r'\d+', str(proposals_text))
+            proposals = int(m.group()) if m else 0
+
+            # Descrição: unescape e limpeza básica
+            desc = html.unescape(data.get('description', ''))
+            desc = re.sub(r'<br\s*/?>', '\n', desc, flags=re.IGNORECASE)
+            desc = BeautifulSoup(desc, 'html.parser').get_text(separator='\n')
+            
+            # Remover metadados que o Workana anexa ao final (mais robusto)
+            meta_pattern = r'\n+(?:Categoria|Subcategoria|Tamanho do projeto|Do que você precisa\?|Qual é o alcance|E-commerce|Isso é um projeto|Duração|Quantidade de pessoas)\b'
+            parts = re.split(meta_pattern, desc, flags=re.IGNORECASE)
+            if len(parts) > 1:
+                desc = parts[0]
+            
+            # Fallback para versões coladas "Categoria:..."
+            meta_labels_fallback = [
+                r'Categoria:', r'Subcategoria:', r'Tamanho do projeto:', r'Do que você precisa\?:'
+            ]
+            for label in meta_labels_fallback:
+                parts = re.split(label, desc, flags=re.IGNORECASE)
+                if len(parts) > 1:
+                    desc = parts[0]
+
+            desc = re.sub(r'\n{3,}', '\n\n', desc).strip()
 
             return Project(
-                id=pid,
+                id=slug,
                 title=title,
-                description=desc[:500],
+                description=desc,
                 budget=budget,
                 skills=skills,
                 proposals_count=proposals,
-                posted_at=posted_at,
-                url=ref or ""
+                posted_at=data.get('postedDate'),
+                url=url
             )
         except Exception as e:
-            logger.warning(f"Erro card Fast: {e}")
+            logger.warning(f"Erro ao processar JSON de projeto: {e}")
+            return None
+    async def get_project_details(self, project_id: str) -> Optional[Project]:
+        """Obtém detalhes de um projeto via HTTP direto (rápido)."""
+        url = f"{self.WORKANA_BASE_URL}/job/{project_id}"
+        logger.info(f"⚡ Fast Details: {url}")
+        
+        headers = self.headers.copy()
+        headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        
+        try:
+            async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=15.0) as client:
+                response = await client.get(url)
+                if response.status_code != 200:
+                    logger.error(f"Status {response.status_code} ao obter detalhes de {project_id}")
+                    return None
+                
+                soup = BeautifulSoup(response.text, 'html.parser')
+                
+                # No Workana, detalhes do projeto costumam estar em um objeto JSON num script
+                # ou podemos extrair do DOM. O Fast scraper prefere JSON se disponível.
+                # Mas para simplificar aqui, vamos extrair do DOM usando seletores básicos.
+                
+                title_el = soup.find('h1', class_='project-title') or soup.find('h1')
+                title = title_el.get_text(strip=True) if title_el else "Sem título"
+                
+                desc_el = soup.find('div', class_='project-details') or soup.find('div', class_='description')
+                description = ""
+                if desc_el:
+                    description = desc_el.get_text(separator='\n', strip=True)
+                
+                budget_el = soup.find('span', class_='budget') or soup.find('div', class_='budget')
+                budget = budget_el.get_text(strip=True) if budget_el else None
+                
+                # Nome do cliente - geralmente em um link dentro da seção do cliente
+                client_el = soup.select_one('.client-name a, .client-info h4, .project-author a')
+                client_name = client_el.get_text(strip=True) if client_el else None
+                
+                return Project(
+                    id=project_id,
+                    title=title,
+                    description=description,
+                    budget=budget,
+                    skills=[],
+                    url=url
+                )
+        except Exception as e:
+            logger.error(f"Erro ao obter detalhes Fast ({project_id}): {e}")
             return None

@@ -1,12 +1,15 @@
-"use client";
-
-import { usePathname } from "next/navigation";
-import Link from "next/link";
+import { useLocation, Link } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import styles from "./Sidebar.module.css";
+
+interface SidebarProps {
+    isOpen: boolean;
+    onClose: () => void;
+}
 
 const menuItems = [
     {
-        name: "Dashboard",
+        name: "Mission Control",
         href: "/",
         icon: (
             <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
@@ -18,7 +21,7 @@ const menuItems = [
         ),
     },
     {
-        name: "Buscar Projetos",
+        name: "Project Intercept",
         href: "/projects",
         icon: (
             <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
@@ -28,7 +31,7 @@ const menuItems = [
         ),
     },
     {
-        name: "Templates",
+        name: "Tactical Proposals",
         href: "/templates",
         icon: (
             <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
@@ -40,16 +43,17 @@ const menuItems = [
         ),
     },
     {
-        name: "Filtros Salvos",
-        href: "/filters",
+        name: "Operative Profile",
+        href: "/profile",
         icon: (
             <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
-                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                <circle cx="12" cy="7" r="4" />
+                <path d="M5.5 21a8.38 8.38 0 0 1 13 0" />
             </svg>
         ),
     },
     {
-        name: "Histórico",
+        name: "Mission History",
         href: "/history",
         icon: (
             <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
@@ -59,7 +63,7 @@ const menuItems = [
         ),
     },
     {
-        name: "Configurações",
+        name: "System Config",
         href: "/settings",
         icon: (
             <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
@@ -70,34 +74,36 @@ const menuItems = [
     },
 ];
 
-export default function Sidebar() {
-    const pathname = usePathname();
+export default function Sidebar({ isOpen, onClose }: SidebarProps) {
+    const location = useLocation();
+    const pathname = location.pathname;
+    const { user, signOut } = useAuth();
 
     return (
-        <aside className={styles.sidebar}>
+        <aside className={`sidebar ${isOpen ? 'open' : ''} ${styles.sidebar}`}>
+            {/* Mobile Close Button */}
+            <button className={`${styles.closeBtn} mobile-only btn btn-ghost`} onClick={onClose}>
+                <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+
             {/* Logo */}
             <div className={styles.logo}>
                 <div className={styles.logoIcon}>
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
-                        <defs>
-                            <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                                <stop offset="0%" stopColor="#6366f1" />
-                                <stop offset="50%" stopColor="#8b5cf6" />
-                                <stop offset="100%" stopColor="#a855f7" />
-                            </linearGradient>
-                        </defs>
-                        <path
-                            d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
-                            stroke="url(#logoGradient)"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                        />
-                    </svg>
+                    <img 
+                        src="https://media.licdn.com/dms/image/sync/v2/D4D27AQEiu3OUtuPafw/articleshare-shrink_800/B4DZmh2H6fJIAM-/0/1759356944429?e=2147483647&v=beta&t=RtaLDLIZf-4r34Z-ETQzA4mmzZRdYCEYXuV07qeXdDk" 
+                        alt="Workana Logo" 
+                        className={styles.officialLogo}
+                    />
+                    <div className={styles.statusPulse}></div>
                 </div>
                 <div className={styles.logoText}>
                     <h1>Workana</h1>
-                    <span>Automation</span>
+                    <div className={styles.subtextContainer}>
+                        <span className={styles.subtextMain}>AUTOMATION</span>
+                        <span className={styles.subtextStatus}>• SYSTEM ACTIVE</span>
+                    </div>
                 </div>
             </div>
 
@@ -106,8 +112,11 @@ export default function Sidebar() {
                 {menuItems.map((item) => (
                     <Link
                         key={item.href}
-                        href={item.href}
+                        to={item.href}
                         className={`${styles.navItem} ${pathname === item.href ? styles.active : ""}`}
+                        onClick={() => {
+                            if (window.innerWidth <= 1024) onClose();
+                        }}
                     >
                         {item.icon}
                         <span>{item.name}</span>
@@ -116,16 +125,51 @@ export default function Sidebar() {
             </nav>
 
             {/* Footer */}
-            <div className={styles.footer}>
+            <div className={styles.footer} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <div className={styles.userInfo}>
-                    <div className={styles.avatar}>
-                        <span>U</span>
-                    </div>
+                    <div className={styles.avatar} />
+
                     <div className={styles.userDetails}>
-                        <span className={styles.userName}>Usuário</span>
-                        <span className={styles.userStatus}>Plano Gratuito</span>
+                        <span className={styles.userName} title={user?.email || "Operador"}>
+                            {user?.email ? user.email.split("@")[0] : "Operador"}
+                        </span>
+                        <span className={styles.userStatus}>Plano Premium</span>
                     </div>
                 </div>
+
+                <button 
+                    onClick={signOut}
+                    style={{
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        marginTop: '12px',
+                        padding: '10px',
+                        border: '1px solid rgba(239, 68, 68, 0.2)',
+                        borderRadius: '8px',
+                        color: '#ef4444',
+                        background: 'rgba(239, 68, 68, 0.05)',
+                        cursor: 'pointer',
+                        fontWeight: '600',
+                        fontSize: '0.85rem',
+                        transition: 'all 0.3s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)';
+                        e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'rgba(239, 68, 68, 0.05)';
+                        e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.2)';
+                    }}
+                >
+                    <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                    </svg>
+                    <span>Terminar Sessão</span>
+                </button>
             </div>
         </aside>
     );

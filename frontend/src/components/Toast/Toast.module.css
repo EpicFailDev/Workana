@@ -1,0 +1,163 @@
+.toastContainer {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    z-index: 9999;
+    pointer-events: none; /* Allows clicking through the container area */
+}
+
+.toast {
+    pointer-events: auto; /* Re-enable clicks on the toasts themselves */
+    min-width: 300px;
+    max-width: 400px;
+    padding: 16px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    transform-origin: bottom right;
+    animation: slideIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    transition: all 0.3s ease;
+}
+
+/* Dark mode support */
+:global(body.dark-mode) .toast {
+    background: rgba(30, 30, 30, 0.95);
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    color: var(--color-text-primary);
+}
+
+.toast.exiting {
+    animation: slideOut 0.3s forwards cubic-bezier(0.6, -0.28, 0.735, 0.045);
+    opacity: 0;
+    transform: translateX(100%);
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(100%) scale(0.9);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+    }
+}
+
+@keyframes slideOut {
+    from {
+        opacity: 1;
+        transform: translateX(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateX(100%) scale(0.9);
+    }
+}
+
+.icon {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+}
+
+.content {
+    flex: 1;
+}
+
+.title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    margin-bottom: 4px;
+    color: var(--color-text-primary);
+}
+
+.message {
+    font-size: 0.875rem;
+    color: var(--color-text-secondary);
+    line-height: 1.4;
+}
+
+.closeButton {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--color-text-muted);
+    padding: 4px;
+    border-radius: 4px;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.closeButton:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--color-text-primary);
+}
+
+:global(body.dark-mode) .closeButton:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+/* Types */
+.success .icon {
+    color: #10b981;
+    background: rgba(16, 185, 129, 0.15);
+}
+
+.error .icon {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.15);
+}
+
+.warning .icon {
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.15);
+}
+
+.info .icon {
+    color: #3b82f6;
+    background: rgba(59, 130, 246, 0.15);
+}
+
+/* Progress bar for auto-dismiss */
+.progressBar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    background: inherit;
+    border-radius: 0 0 0 12px; /* Slight clip for corner */
+    width: 100%;
+    overflow: hidden;
+}
+
+.progressFill {
+    height: 100%;
+    width: 100%;
+    transform-origin: left;
+    animation: progress linear forwards;
+}
+
+.success .progressFill { background: #10b981; }
+.error .progressFill { background: #ef4444; }
+.warning .progressFill { background: #f59e0b; }
+.info .progressFill { background: #3b82f6; }
+
+@keyframes progress {
+    from { transform: scaleX(1); }
+    to { transform: scaleX(0); }
+}

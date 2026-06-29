@@ -3,6 +3,7 @@ Operações CRUD para o banco de dados.
 """
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
+from loguru import logger
 from sqlalchemy import select, func, delete, update, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from cryptography.fernet import Fernet
@@ -14,13 +15,34 @@ from app.database.models import (
     ProposalTemplate as ProposalTemplateModel, ProposalHistory as ProposalHistoryModel,
     AutomationConfig as AutomationConfigModel, Project as ProjectModel,
     ActivityLog as ActivityLogModel, DailyStatistics as DailyStatisticsModel,
-    BlacklistedClient as BlacklistedClientModel
+    BlacklistedClient as BlacklistedClientModel,
+    ProfileConfig as ProfileConfigModel, ProfileMetrics as ProfileMetricsModel
 )
 from app.api.schemas import (
     SavedFilter, ProposalTemplate, ProposalTemplateCreate,
     ProposalSubmit, ProposalResult, ProposalHistory, DashboardStats
 )
 from app.config import settings
+
+
+# ==================== Configuração de Ranqueada ====================
+
+TIERS = ["Ferro", "Bronze", "Prata", "Ouro", "Platina", "Esmeralda", "Diamante", "Mestre", "Grão-Mestre", "Desafiante"]
+DIVISIONS = ["IV", "III", "II", "I"]
+XP_PER_DIVISION = 500
+
+def calculate_rank(total_xp: int):
+    """Calcula Rank Tier, Division e LP baseado no XP total."""
+    tier_index = total_xp // (XP_PER_DIVISION * 4)
+    if tier_index >= len(TIERS):
+        tier_index = len(TIERS) - 1
+        division_index = 3 # I
+        lp = 100
+    else:
+        division_index = (total_xp // XP_PER_DIVISION) % 4
+        lp = (total_xp % XP_PER_DIVISION) * 100 // XP_PER_DIVISION
+        
+    return TIERS[tier_index], DIVISIONS[division_index], lp
 
 
 def _get_fernet():
@@ -46,23 +68,25 @@ def _decrypt(encrypted_text: str) -> str:
 
 # ==================== Credenciais ====================
 
-async def save_credentials(email: str, password: str):
-    """Salva as credenciais criptografadas."""
+async def save_credentials(user_id: Any, email: str, password: str):
+    """Salva as credenciais criptografadas de um usuário específico."""
     async with async_session() as session:
-        # Remover credenciais antigas
-        await session.execute(delete(Credentials))
+        # Remover credenciais antigas do usuário
+        await session.execute(delete(Credentials).where(Credentials.user_id == user_id))
         
         # Inserir novas credenciais
         encrypted_password = _encrypt(password)
-        creds = Credentials(email=email, encrypted_password=encrypted_password)
+        creds = Credentials(user_id=user_id, email=email, encrypted_password=encrypted_password)
         session.add(creds)
         await session.commit()
 
 
-async def get_credentials() -> Optional[Dict[str, str]]:
-    """Obtém as credenciais descriptografadas."""
+async def get_credentials(user_id: Any) -> Optional[Dict[str, str]]:
+    """Obtém as credenciais descriptografadas de um usuário específico."""
     async with async_session() as session:
-        result = await session.execute(select(Credentials).limit(1))
+        result = await session.execute(
+            select(Credentials).where(Credentials.user_id == user_id).limit(1)
+        )
         creds = result.scalar_one_or_none()
         
         if creds:
@@ -76,10 +100,14 @@ async def get_credentials() -> Optional[Dict[str, str]]:
 
 # ==================== Filtros Salvos ====================
 
-async def get_saved_filters() -> List[SavedFilter]:
-    """Lista todos os filtros salvos."""
+async def get_saved_filters(user_id: Any) -> List[SavedFilter]:
+    """Lista todos os filtros salvos de um usuário específico."""
     async with async_session() as session:
-        result = await session.execute(select(SavedFilterModel).order_by(SavedFilterModel.created_at.desc()))
+        result = await session.execute(
+            select(SavedFilterModel)
+            .where(SavedFilterModel.user_id == user_id)
+            .order_by(SavedFilterModel.created_at.desc())
+        )
         filters = result.scalars().all()
         
         return [
@@ -93,10 +121,11 @@ async def get_saved_filters() -> List[SavedFilter]:
         ]
 
 
-async def create_filter(filter_data: SavedFilter) -> SavedFilter:
-    """Cria um novo filtro."""
+async def create_filter(user_id: Any, filter_data: SavedFilter) -> SavedFilter:
+    """Cria um novo filtro para um usuário específico."""
     async with async_session() as session:
         db_filter = SavedFilterModel(
+            user_id=user_id,
             name=filter_data.name,
             filters_json=filter_data.filters.model_dump()
         )
@@ -112,20 +141,25 @@ async def create_filter(filter_data: SavedFilter) -> SavedFilter:
         )
 
 
-async def delete_filter(filter_id: int):
-    """Remove um filtro."""
+async def delete_filter(user_id: Any, filter_id: int):
+    """Remove um filtro de um usuário específico."""
     async with async_session() as session:
-        await session.execute(delete(SavedFilterModel).where(SavedFilterModel.id == filter_id))
+        await session.execute(
+            delete(SavedFilterModel)
+            .where(and_(SavedFilterModel.id == filter_id, SavedFilterModel.user_id == user_id))
+        )
         await session.commit()
 
 
 # ==================== Templates ====================
 
-async def get_templates() -> List[ProposalTemplate]:
-    """Lista todos os templates."""
+async def get_templates(user_id: Any) -> List[ProposalTemplate]:
+    """Lista todos os templates de um usuário específico."""
     async with async_session() as session:
         result = await session.execute(
-            select(ProposalTemplateModel).order_by(ProposalTemplateModel.is_default.desc(), ProposalTemplateModel.name)
+            select(ProposalTemplateModel)
+            .where(ProposalTemplateModel.user_id == user_id)
+            .order_by(ProposalTemplateModel.is_default.desc(), ProposalTemplateModel.name)
         )
         templates = result.scalars().all()
         
@@ -136,19 +170,18 @@ async def get_templates() -> List[ProposalTemplate]:
                 content=t.content,
                 default_budget=t.default_budget,
                 default_deadline_days=t.default_deadline_days,
-                is_default=t.is_default,
-                created_at=t.created_at,
-                updated_at=t.updated_at
+                is_default=t.is_default
             )
             for t in templates
         ]
 
 
-async def get_template(template_id: int) -> Optional[ProposalTemplate]:
-    """Obtém um template específico."""
+async def get_template(user_id: Any, template_id: int) -> Optional[ProposalTemplate]:
+    """Obtém um template específico de um usuário."""
     async with async_session() as session:
         result = await session.execute(
-            select(ProposalTemplateModel).where(ProposalTemplateModel.id == template_id)
+            select(ProposalTemplateModel)
+            .where(and_(ProposalTemplateModel.id == template_id, ProposalTemplateModel.user_id == user_id))
         )
         t = result.scalar_one_or_none()
         
@@ -159,28 +192,29 @@ async def get_template(template_id: int) -> Optional[ProposalTemplate]:
                 content=t.content,
                 default_budget=t.default_budget,
                 default_deadline_days=t.default_deadline_days,
-                is_default=t.is_default,
-                created_at=t.created_at,
-                updated_at=t.updated_at
+                is_default=t.is_default
             )
         return None
 
 
-async def create_template(template: ProposalTemplateCreate) -> ProposalTemplate:
-    """Cria um novo template."""
+async def create_template(user_id: Any, template: ProposalTemplateCreate) -> ProposalTemplate:
+    """Cria um novo template para o usuário."""
     async with async_session() as session:
-        # Se é default, remover default dos outros
+        # Se for default, desmarcar outros do mesmo usuário
         if template.is_default:
             await session.execute(
-                ProposalTemplateModel.__table__.update().values(is_default=False)
+                update(ProposalTemplateModel)
+                .where(ProposalTemplateModel.user_id == user_id)
+                .values(is_default=False)
             )
-        
+            
         db_template = ProposalTemplateModel(
+            user_id=user_id,
             name=template.name,
             content=template.content,
             default_budget=template.default_budget,
             default_deadline_days=template.default_deadline_days,
-            is_default=template.is_default
+            is_default=template.is_default or False
         )
         session.add(db_template)
         await session.commit()
@@ -192,80 +226,115 @@ async def create_template(template: ProposalTemplateCreate) -> ProposalTemplate:
             content=db_template.content,
             default_budget=db_template.default_budget,
             default_deadline_days=db_template.default_deadline_days,
-            is_default=db_template.is_default,
-            created_at=db_template.created_at,
-            updated_at=db_template.updated_at
+            is_default=db_template.is_default
         )
 
 
-async def update_template(template_id: int, template: ProposalTemplateCreate) -> Optional[ProposalTemplate]:
-    """Atualiza um template existente."""
+async def update_template(user_id: Any, template_id: int, template: ProposalTemplateCreate) -> Optional[ProposalTemplate]:
+    """Atualiza um template de um usuário específico."""
     async with async_session() as session:
+        if template.is_default:
+            await session.execute(
+                update(ProposalTemplateModel)
+                .where(ProposalTemplateModel.user_id == user_id)
+                .values(is_default=False)
+            )
+            
         result = await session.execute(
-            select(ProposalTemplateModel).where(ProposalTemplateModel.id == template_id)
+            select(ProposalTemplateModel)
+            .where(and_(ProposalTemplateModel.id == template_id, ProposalTemplateModel.user_id == user_id))
         )
         db_template = result.scalar_one_or_none()
         
-        if not db_template:
-            return None
-        
-        # Se é default, remover default dos outros
-        if template.is_default:
-            await session.execute(
-                ProposalTemplateModel.__table__.update().values(is_default=False)
+        if db_template:
+            db_template.name = template.name
+            db_template.content = template.content
+            db_template.default_budget = template.default_budget
+            db_template.default_deadline_days = template.default_deadline_days
+            db_template.is_default = template.is_default or False
+            db_template.updated_at = datetime.utcnow()
+            
+            await session.commit()
+            await session.refresh(db_template)
+            
+            return ProposalTemplate(
+                id=db_template.id,
+                name=db_template.name,
+                content=db_template.content,
+                default_budget=db_template.default_budget,
+                default_deadline_days=db_template.default_deadline_days,
+                is_default=db_template.is_default
             )
-        
-        db_template.name = template.name
-        db_template.content = template.content
-        db_template.default_budget = template.default_budget
-        db_template.default_deadline_days = template.default_deadline_days
-        db_template.is_default = template.is_default
-        db_template.updated_at = datetime.utcnow()
-        
-        await session.commit()
-        await session.refresh(db_template)
-        
-        return ProposalTemplate(
-            id=db_template.id,
-            name=db_template.name,
-            content=db_template.content,
-            default_budget=db_template.default_budget,
-            default_deadline_days=db_template.default_deadline_days,
-            is_default=db_template.is_default,
-            created_at=db_template.created_at,
-            updated_at=db_template.updated_at
-        )
+        return None
 
 
-async def delete_template(template_id: int):
-    """Remove um template."""
+async def delete_template(user_id: Any, template_id: int):
+    """Remove um template de um usuário."""
     async with async_session() as session:
-        await session.execute(delete(ProposalTemplateModel).where(ProposalTemplateModel.id == template_id))
+        await session.execute(
+            delete(ProposalTemplateModel)
+            .where(and_(ProposalTemplateModel.id == template_id, ProposalTemplateModel.user_id == user_id))
+        )
         await session.commit()
 
 
 # ==================== Histórico de Propostas ====================
 
-async def save_proposal_history(proposal: ProposalSubmit, result: ProposalResult):
-    """Salva uma proposta no histórico."""
+async def save_proposal_history(user_id: Any, proposal: ProposalSubmit, result: ProposalResult):
+    """Salva uma tentativa de envio de proposta no histórico."""
     async with async_session() as session:
         history = ProposalHistoryModel(
+            user_id=user_id,
             project_id=proposal.project_id,
-            project_title=f"Projeto {proposal.project_id}",  # Será atualizado com título real
+            project_title=proposal.project_title,
+            project_url=proposal.project_url,
             budget=proposal.budget,
             deadline_days=proposal.deadline_days,
-            message=proposal.custom_message,
+            message=proposal.message,
             status="sent" if result.success else "failed"
         )
         session.add(history)
         await session.commit()
 
 
-async def get_proposal_history(limit: int = 50) -> List[ProposalHistory]:
-    """Obtém o histórico de propostas."""
+async def save_ai_proposal(
+    user_id: Any,
+    project_id: str,
+    project_title: str,
+    project_url: str,
+    proposal_text: str,
+    suggested_price: str
+) -> int:
+    """Salva uma proposta gerada por IA no histórico do usuário."""
+    import re
+    async with async_session() as session:
+        # Extrair valor numérico do preço (ex: "R$ 1.500" -> 1500.0)
+        price_clean = suggested_price.replace('.', '').replace(',', '.')
+        price_match = re.search(r'[\d.]+', price_clean)
+        budget = float(price_match.group()) if price_match else 0.0
+        
+        history = ProposalHistoryModel(
+            user_id=user_id,
+            project_id=project_id,
+            project_title=project_title,
+            project_url=project_url,
+            budget=budget,
+            deadline_days=7,  # Padrão
+            message=proposal_text,
+            status="generated"
+        )
+        session.add(history)
+        await session.commit()
+        await session.refresh(history)
+        return history.id
+
+
+async def get_proposal_history(user_id: Any, limit: int = 50) -> List[ProposalHistory]:
+    """Obtém o histórico de propostas do usuário."""
     async with async_session() as session:
         result = await session.execute(
             select(ProposalHistoryModel)
+            .where(ProposalHistoryModel.user_id == user_id)
             .order_by(ProposalHistoryModel.sent_at.desc())
             .limit(limit)
         )
@@ -276,23 +345,44 @@ async def get_proposal_history(limit: int = 50) -> List[ProposalHistory]:
                 id=h.id,
                 project_id=h.project_id,
                 project_title=h.project_title,
+                project_url=h.project_url,
                 budget=h.budget,
                 deadline_days=h.deadline_days,
                 status=h.status,
-                sent_at=h.sent_at,
-                message_preview=h.message[:100] if h.message else None
+                sent_at=h.sent_at
             )
             for h in history
         ]
 
 
-async def get_daily_stats() -> Dict[str, int]:
-    """Obtém estatísticas diárias."""
+async def update_proposal_status(user_id: Any, proposal_id: int, status: str) -> bool:
+    """Atualiza o status de uma proposta do usuário."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(ProposalHistoryModel)
+            .where(and_(ProposalHistoryModel.id == proposal_id, ProposalHistoryModel.user_id == user_id))
+        )
+        proposal = result.scalar_one_or_none()
+        
+        if proposal:
+            proposal.status = status
+            await session.commit()
+            return True
+        return False
+
+
+async def get_daily_stats(user_id: Any) -> Dict[str, int]:
+    """Obtém estatísticas diárias do usuário."""
     async with async_session() as session:
         today = datetime.utcnow().date()
         result = await session.execute(
             select(func.count(ProposalHistoryModel.id))
-            .where(func.date(ProposalHistoryModel.sent_at) == today)
+            .where(
+                and_(
+                    func.date(ProposalHistoryModel.sent_at) == today,
+                    ProposalHistoryModel.user_id == user_id
+                )
+            )
         )
         proposals_today = result.scalar() or 0
         
@@ -301,142 +391,225 @@ async def get_daily_stats() -> Dict[str, int]:
 
 # ==================== Dashboard ====================
 
-async def get_dashboard_stats() -> DashboardStats:
-    """Obtém estatísticas do dashboard."""
+async def get_dashboard_stats(user_id: Any) -> DashboardStats:
+    """Obtém estatísticas do dashboard com filtragem por user_id."""
     async with async_session() as session:
         now = datetime.utcnow()
-        today = now.date()
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
         week_ago = now - timedelta(days=7)
         month_ago = now - timedelta(days=30)
         
-        # Total de propostas
-        total = await session.execute(select(func.count(ProposalHistoryModel.id)))
-        total_proposals = total.scalar() or 0
-        
-        # Propostas hoje
-        today_result = await session.execute(
-            select(func.count(ProposalHistoryModel.id))
-            .where(func.date(ProposalHistoryModel.sent_at) == today)
+        # Obter estatísticas diárias de hoje
+        stats_today_result = await session.execute(
+            select(DailyStatisticsModel).where(
+                and_(DailyStatisticsModel.date == today, DailyStatisticsModel.user_id == user_id)
+            )
         )
-        proposals_today = today_result.scalar() or 0
+        stats_today = stats_today_result.scalar_one_or_none()
         
-        # Propostas esta semana
+        # Encontrados (Total) -> Total de projetos na tabela projects do usuário
+        total_projects_res = await session.execute(
+            select(func.count(ProjectModel.id)).where(ProjectModel.user_id == user_id)
+        )
+        total_projects = total_projects_res.scalar() or 0
+        
+        # Buscas Hoje -> searches_count de hoje
+        searches_today = stats_today.searches_count if stats_today else 0
+        
+        # Propostas este mês/semana do usuário
         week_result = await session.execute(
             select(func.count(ProposalHistoryModel.id))
-            .where(ProposalHistoryModel.sent_at >= week_ago)
+            .where(
+                and_(
+                    ProposalHistoryModel.sent_at >= week_ago,
+                    ProposalHistoryModel.user_id == user_id
+                )
+            )
         )
         proposals_week = week_result.scalar() or 0
         
-        # Propostas este mês
         month_result = await session.execute(
             select(func.count(ProposalHistoryModel.id))
-            .where(ProposalHistoryModel.sent_at >= month_ago)
+            .where(
+                and_(
+                    ProposalHistoryModel.sent_at >= month_ago,
+                    ProposalHistoryModel.user_id == user_id
+                )
+            )
         )
         proposals_month = month_result.scalar() or 0
         
-        # Aceitas
-        accepted_result = await session.execute(
-            select(func.count(ProposalHistoryModel.id))
-            .where(ProposalHistoryModel.status == "accepted")
+        # Projetos favoritos / salvos do usuário
+        favorites_res = await session.execute(
+            select(func.count(ProjectModel.id))
+            .where(and_(ProjectModel.is_favorite == True, ProjectModel.user_id == user_id))
         )
-        accepted = accepted_result.scalar() or 0
+        saved_projects = favorites_res.scalar() or 0
         
-        # Última atividade
+        # Taxa de resposta (response_rate)
+        accepted_res = await session.execute(
+            select(func.count(ProposalHistoryModel.id))
+            .where(and_(ProposalHistoryModel.status == "accepted", ProposalHistoryModel.user_id == user_id))
+        )
+        accepted = accepted_res.scalar() or 0
+        
+        total_proposals_res = await session.execute(
+            select(func.count(ProposalHistoryModel.id)).where(ProposalHistoryModel.user_id == user_id)
+        )
+        total_proposals = total_proposals_res.scalar() or 0
+        response_rate = (accepted / total_proposals * 100) if total_proposals > 0 else 0.0
+        
+        # Última atividade do usuário
         last_activity_result = await session.execute(
-            select(ProposalHistoryModel.sent_at)
-            .order_by(ProposalHistoryModel.sent_at.desc())
+            select(ActivityLogModel.created_at)
+            .where(ActivityLogModel.user_id == user_id)
+            .order_by(ActivityLogModel.created_at.desc())
             .limit(1)
         )
         last_activity = last_activity_result.scalar_one_or_none()
         
-        # Taxa de resposta
-        response_rate = (accepted / total_proposals * 100) if total_proposals > 0 else 0.0
+        # Gamification (Métricas do Perfil)
+        config_result = await session.execute(
+            select(ProfileConfigModel).where(ProfileConfigModel.user_id == user_id).limit(1)
+        )
+        config = config_result.scalar_one_or_none()
+        
+        xp, lp, tier, division = 0, 0, "Ferro", "IV"
+        if config:
+            metrics_result = await session.execute(
+                select(ProfileMetricsModel)
+                .where(and_(ProfileMetricsModel.profile_url == config.profile_url, ProfileMetricsModel.user_id == user_id))
+                .order_by(ProfileMetricsModel.scraped_at.desc())
+                .limit(1)
+            )
+            metrics = metrics_result.scalar_one_or_none()
+            if metrics:
+                xp = metrics.xp or 0
+                tier, division, lp = calculate_rank(xp)
         
         return DashboardStats(
-            total_proposals_sent=total_proposals,
-            proposals_today=proposals_today,
+            total_proposals_sent=total_projects, # Exibido como "Encontrados"
+            proposals_today=searches_today,      # Exibido como "Buscas Hoje"
             proposals_this_week=proposals_week,
             proposals_this_month=proposals_month,
             response_rate=round(response_rate, 1),
-            accepted_proposals=accepted,
+            accepted_proposals=saved_projects,   # Exibido como "Salvos"
             pending_proposals=total_proposals - accepted,
-            last_activity=last_activity
+            last_activity=last_activity,
+            xp=xp,
+            lp=lp,
+            rank_tier=tier,
+            rank_division=division
         )
 
 
 # ==================== Configuração de Automação ====================
 
-async def get_automation_config() -> Dict[str, Any]:
-    """Obtém configurações de automação."""
+async def get_automation_config(user_id: Any) -> Dict[str, Any]:
+    """Obtém configurações de automação. Se não existirem, inicializa-as para o usuário."""
     async with async_session() as session:
-        result = await session.execute(select(AutomationConfigModel).limit(1))
+        result = await session.execute(
+            select(AutomationConfigModel).where(AutomationConfigModel.user_id == user_id).limit(1)
+        )
         config = result.scalar_one_or_none()
         
-        if config:
-            return {
-                "headless": config.headless,
-                "delay_between_actions_ms": config.delay_between_actions_ms,
-                "max_proposals_per_day": config.max_proposals_per_day,
-                "auto_apply": config.auto_apply,
-                "preferred_template_id": config.preferred_template_id
-            }
+        if not config:
+            config = AutomationConfigModel(
+                user_id=user_id,
+                headless=True,
+                delay_between_actions_ms=2000,
+                max_proposals_per_day=10,
+                auto_apply=False,
+                preferred_template_id=None,
+                gemini_api_key=None,
+                user_full_name=None
+            )
+            session.add(config)
+            await session.commit()
+            await session.refresh(config)
         
-        # Configurações padrão
+        gemini_key = None
+        if config.gemini_api_key:
+            try:
+                gemini_key = _decrypt(config.gemini_api_key)
+            except Exception:
+                logger.error("Erro ao descriptografar chave Gemini. A chave será resetada.")
+                gemini_key = None
+
         return {
-            "headless": True,
-            "delay_between_actions_ms": 2000,
-            "max_proposals_per_day": 10,
-            "auto_apply": False,
-            "preferred_template_id": None
+            "headless": config.headless,
+            "delay_between_actions_ms": config.delay_between_actions_ms,
+            "max_proposals_per_day": config.max_proposals_per_day,
+            "auto_apply": config.auto_apply,
+            "preferred_template_id": config.preferred_template_id,
+            "gemini_api_key": gemini_key,
+            "user_full_name": config.user_full_name
         }
 
 
-async def save_automation_config(config: Dict[str, Any]):
-    """Salva configurações de automação."""
+async def save_automation_config(user_id: Any, config: Dict[str, Any]):
+    """Salva ou cria configurações de automação de um usuário."""
     async with async_session() as session:
-        result = await session.execute(select(AutomationConfigModel).limit(1))
+        result = await session.execute(
+            select(AutomationConfigModel).where(AutomationConfigModel.user_id == user_id).limit(1)
+        )
         db_config = result.scalar_one_or_none()
+        
+        gemini_api_key = config.get("gemini_api_key")
+        encrypted_gemini = _encrypt(gemini_api_key) if gemini_api_key else None
         
         if db_config:
             db_config.headless = config.get("headless", True)
             db_config.delay_between_actions_ms = config.get("delay_between_actions_ms", 2000)
             db_config.max_proposals_per_day = config.get("max_proposals_per_day", 10)
             db_config.auto_apply = config.get("auto_apply", False)
-            db_config.preferred_template_id = config.get("preferred_template_id")
+            if "preferred_template_id" in config:
+                db_config.preferred_template_id = config.get("preferred_template_id")
+            if gemini_api_key is not None:
+                db_config.gemini_api_key = encrypted_gemini
+            if "user_full_name" in config:
+                db_config.user_full_name = config.get("user_full_name")
+            db_config.updated_at = datetime.utcnow()
         else:
             db_config = AutomationConfigModel(
+                user_id=user_id,
                 headless=config.get("headless", True),
                 delay_between_actions_ms=config.get("delay_between_actions_ms", 2000),
                 max_proposals_per_day=config.get("max_proposals_per_day", 10),
                 auto_apply=config.get("auto_apply", False),
-                preferred_template_id=config.get("preferred_template_id")
+                preferred_template_id=config.get("preferred_template_id"),
+                gemini_api_key=encrypted_gemini,
+                user_full_name=config.get("user_full_name")
             )
             session.add(db_config)
-        
+            
         await session.commit()
 
 
 # ==================== Projetos ====================
 
-async def save_project(project_data: Dict[str, Any]) -> int:
-    """Salva ou atualiza um projeto encontrado."""
+async def save_project(user_id: Any, project_data: Dict[str, Any]) -> int:
+    """Salva ou atualiza um projeto encontrado para um usuário específico."""
     async with async_session() as session:
-        # Verificar se já existe
+        # Verificar se já existe para este usuário
         result = await session.execute(
-            select(ProjectModel).where(ProjectModel.workana_id == project_data.get("workana_id"))
+            select(ProjectModel).where(
+                and_(ProjectModel.workana_id == project_data.get("workana_id"), ProjectModel.user_id == user_id)
+            )
         )
         existing = result.scalar_one_or_none()
         
         if existing:
             # Atualizar projeto existente
             for key, value in project_data.items():
-                if hasattr(existing, key) and key != "id":
+                if hasattr(existing, key) and key != "id" and key != "user_id":
                     setattr(existing, key, value)
             existing.updated_at = datetime.utcnow()
             await session.commit()
             return existing.id
         else:
             # Criar novo projeto
+            project_data["user_id"] = user_id
             project = ProjectModel(**project_data)
             session.add(project)
             await session.commit()
@@ -445,15 +618,16 @@ async def save_project(project_data: Dict[str, Any]) -> int:
 
 
 async def get_projects(
+    user_id: Any,
     limit: int = 50,
     offset: int = 0,
     only_favorites: bool = False,
     only_not_applied: bool = False,
     category: Optional[str] = None
 ) -> List[Dict[str, Any]]:
-    """Lista projetos salvos com filtros."""
+    """Lista projetos salvos de um usuário com filtros."""
     async with async_session() as session:
-        query = select(ProjectModel)
+        query = select(ProjectModel).where(ProjectModel.user_id == user_id)
         
         if only_favorites:
             query = query.where(ProjectModel.is_favorite == True)
@@ -495,11 +669,11 @@ async def get_projects(
         ]
 
 
-async def get_project(project_id: int) -> Optional[Dict[str, Any]]:
-    """Obtém um projeto específico."""
+async def get_project(user_id: Any, project_id: int) -> Optional[Dict[str, Any]]:
+    """Obtém um projeto específico de um usuário."""
     async with async_session() as session:
         result = await session.execute(
-            select(ProjectModel).where(ProjectModel.id == project_id)
+            select(ProjectModel).where(and_(ProjectModel.id == project_id, ProjectModel.user_id == user_id))
         )
         p = result.scalar_one_or_none()
         
@@ -532,11 +706,11 @@ async def get_project(project_id: int) -> Optional[Dict[str, Any]]:
         return None
 
 
-async def toggle_project_favorite(project_id: int) -> bool:
-    """Alterna o status de favorito de um projeto."""
+async def toggle_project_favorite(user_id: Any, project_id: int) -> bool:
+    """Alterna o status de favorito de um projeto de um usuário específico."""
     async with async_session() as session:
         result = await session.execute(
-            select(ProjectModel).where(ProjectModel.id == project_id)
+            select(ProjectModel).where(and_(ProjectModel.id == project_id, ProjectModel.user_id == user_id))
         )
         project = result.scalar_one_or_none()
         
@@ -547,11 +721,11 @@ async def toggle_project_favorite(project_id: int) -> bool:
         return False
 
 
-async def mark_project_applied(project_id: int):
-    """Marca um projeto como aplicado."""
+async def mark_project_applied(user_id: Any, project_id: int):
+    """Marca um projeto de um usuário como aplicado."""
     async with async_session() as session:
         result = await session.execute(
-            select(ProjectModel).where(ProjectModel.id == project_id)
+            select(ProjectModel).where(and_(ProjectModel.id == project_id, ProjectModel.user_id == user_id))
         )
         project = result.scalar_one_or_none()
         
@@ -561,11 +735,11 @@ async def mark_project_applied(project_id: int):
             await session.commit()
 
 
-async def ignore_project(project_id: int):
-    """Ignora um projeto."""
+async def ignore_project(user_id: Any, project_id: int):
+    """Ignora um projeto de um usuário específico."""
     async with async_session() as session:
         result = await session.execute(
-            select(ProjectModel).where(ProjectModel.id == project_id)
+            select(ProjectModel).where(and_(ProjectModel.id == project_id, ProjectModel.user_id == user_id))
         )
         project = result.scalar_one_or_none()
         
@@ -574,11 +748,11 @@ async def ignore_project(project_id: int):
             await session.commit()
 
 
-async def update_project_notes(project_id: int, notes: str):
-    """Atualiza notas de um projeto."""
+async def update_project_notes(user_id: Any, project_id: int, notes: str):
+    """Atualiza notas de um projeto do usuário."""
     async with async_session() as session:
         result = await session.execute(
-            select(ProjectModel).where(ProjectModel.id == project_id)
+            select(ProjectModel).where(and_(ProjectModel.id == project_id, ProjectModel.user_id == user_id))
         )
         project = result.scalar_one_or_none()
         
@@ -591,6 +765,7 @@ async def update_project_notes(project_id: int, notes: str):
 # ==================== Log de Atividades ====================
 
 async def log_activity(
+    user_id: Any,
     action_type: str,
     description: str,
     details: Optional[Dict[str, Any]] = None,
@@ -599,9 +774,10 @@ async def log_activity(
     error_message: Optional[str] = None,
     duration_ms: Optional[int] = None
 ):
-    """Registra uma atividade no log."""
+    """Registra uma atividade no log vinculada ao user_id."""
     async with async_session() as session:
         log = ActivityLogModel(
+            user_id=user_id,
             action_type=action_type,
             action_description=description,
             details=details,
@@ -614,17 +790,71 @@ async def log_activity(
         await session.commit()
         
         # Atualizar estatísticas diárias
-        await _update_daily_stats(action_type, status)
+        increment = 1
+        if details and "count" in details:
+            try:
+                increment = int(details["count"])
+            except:
+                pass
+        await _update_daily_stats(user_id, action_type, status, increment=increment)
+        
+        # Ganhar XP por ações de sucesso
+        if status == "success":
+            xp_map = {
+                "search": 15,
+                "apply": 50,
+                "proposal_sent": 50,
+                "login": 10,
+                "project_found": 5,
+                "project_view": 2
+            }
+            xp_to_add = xp_map.get(action_type, 0)
+            if xp_to_add > 0:
+                await add_xp(user_id, xp_to_add)
+
+
+async def add_xp(user_id: Any, amount: int):
+    """Adiciona XP ao perfil atual de um usuário específico e calcula seu rank."""
+    async with async_session() as session:
+        # Buscar config para saber qual perfil usar
+        config_result = await session.execute(
+            select(ProfileConfigModel).where(ProfileConfigModel.user_id == user_id).limit(1)
+        )
+        config = config_result.scalar_one_or_none()
+        
+        if not config:
+            return
+            
+        metrics_result = await session.execute(
+            select(ProfileMetricsModel)
+            .where(and_(ProfileMetricsModel.profile_url == config.profile_url, ProfileMetricsModel.user_id == user_id))
+            .order_by(ProfileMetricsModel.scraped_at.desc())
+            .limit(1)
+        )
+        metrics = metrics_result.scalar_one_or_none()
+        
+        if metrics:
+            current_xp = (metrics.xp or 0) + amount
+            tier, division, lp = calculate_rank(current_xp)
+            
+            metrics.xp = current_xp
+            metrics.lp = lp
+            metrics.rank_tier = tier
+            metrics.rank_division = division
+            
+            await session.commit()
+            logger.info(f"[User {user_id}] XP Adicionado: +{amount}. Novo XP: {current_xp} ({tier} {division} {lp}LP)")
 
 
 async def get_activity_logs(
+    user_id: Any,
     limit: int = 100,
     action_type: Optional[str] = None,
     status: Optional[str] = None
 ) -> List[Dict[str, Any]]:
-    """Obtém logs de atividade."""
+    """Obtém logs de atividade de um usuário específico."""
     async with async_session() as session:
-        query = select(ActivityLogModel)
+        query = select(ActivityLogModel).where(ActivityLogModel.user_id == user_id)
         
         if action_type:
             query = query.where(ActivityLogModel.action_type == action_type)
@@ -654,47 +884,49 @@ async def get_activity_logs(
 
 # ==================== Estatísticas Diárias ====================
 
-async def _update_daily_stats(action_type: str, status: str):
-    """Atualiza estatísticas diárias internas."""
+async def _update_daily_stats(user_id: Any, action_type: str, status: str, increment: int = 1):
+    """Atualiza estatísticas diárias internas de um usuário específico."""
     async with async_session() as session:
         today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         
         result = await session.execute(
-            select(DailyStatisticsModel).where(DailyStatisticsModel.date == today)
+            select(DailyStatisticsModel).where(
+                and_(DailyStatisticsModel.date == today, DailyStatisticsModel.user_id == user_id)
+            )
         )
         stats = result.scalar_one_or_none()
         
         if not stats:
-            stats = DailyStatisticsModel(date=today)
+            stats = DailyStatisticsModel(user_id=user_id, date=today)
             session.add(stats)
         
         # Atualizar contadores baseado no tipo de ação
         if action_type == "login":
-            stats.logins_count += 1
+            stats.logins_count = (stats.logins_count or 0) + increment
         elif action_type == "search":
-            stats.searches_count += 1
+            stats.searches_count = (stats.searches_count or 0) + increment
         elif action_type == "apply":
-            stats.proposals_sent += 1
+            stats.proposals_sent = (stats.proposals_sent or 0) + increment
         elif action_type == "project_found":
-            stats.projects_found += 1
+            stats.projects_found = (stats.projects_found or 0) + increment
         elif action_type == "project_view":
-            stats.projects_viewed += 1
+            stats.projects_viewed = (stats.projects_viewed or 0) + increment
         
         if status == "error":
-            stats.errors_count += 1
+            stats.errors_count = (stats.errors_count or 0) + increment
         
         stats.updated_at = datetime.utcnow()
         await session.commit()
 
 
-async def get_statistics(days: int = 30) -> List[Dict[str, Any]]:
-    """Obtém estatísticas dos últimos N dias."""
+async def get_statistics(user_id: Any, days: int = 30) -> List[Dict[str, Any]]:
+    """Obtém estatísticas dos últimos N dias de um usuário específico."""
     async with async_session() as session:
         start_date = datetime.utcnow() - timedelta(days=days)
         
         result = await session.execute(
             select(DailyStatisticsModel)
-            .where(DailyStatisticsModel.date >= start_date)
+            .where(and_(DailyStatisticsModel.date >= start_date, DailyStatisticsModel.user_id == user_id))
             .order_by(DailyStatisticsModel.date.desc())
         )
         stats = result.scalars().all()
@@ -715,8 +947,8 @@ async def get_statistics(days: int = 30) -> List[Dict[str, Any]]:
         ]
 
 
-async def get_statistics_summary() -> Dict[str, Any]:
-    """Obtém resumo das estatísticas."""
+async def get_statistics_summary(user_id: Any) -> Dict[str, Any]:
+    """Obtém resumo das estatísticas de um usuário específico."""
     async with async_session() as session:
         now = datetime.utcnow()
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -725,7 +957,9 @@ async def get_statistics_summary() -> Dict[str, Any]:
         
         # Hoje
         today_result = await session.execute(
-            select(DailyStatisticsModel).where(DailyStatisticsModel.date == today)
+            select(DailyStatisticsModel).where(
+                and_(DailyStatisticsModel.date == today, DailyStatisticsModel.user_id == user_id)
+            )
         )
         today_stats = today_result.scalar_one_or_none()
         
@@ -735,7 +969,7 @@ async def get_statistics_summary() -> Dict[str, Any]:
                 func.sum(DailyStatisticsModel.proposals_sent),
                 func.sum(DailyStatisticsModel.projects_found),
                 func.sum(DailyStatisticsModel.searches_count)
-            ).where(DailyStatisticsModel.date >= week_ago)
+            ).where(and_(DailyStatisticsModel.date >= week_ago, DailyStatisticsModel.user_id == user_id))
         )
         week_stats = week_result.one()
         
@@ -744,7 +978,7 @@ async def get_statistics_summary() -> Dict[str, Any]:
             select(
                 func.sum(DailyStatisticsModel.proposals_sent),
                 func.sum(DailyStatisticsModel.projects_found)
-            ).where(DailyStatisticsModel.date >= month_ago)
+            ).where(and_(DailyStatisticsModel.date >= month_ago, DailyStatisticsModel.user_id == user_id))
         )
         month_stats = month_result.one()
         
@@ -769,10 +1003,11 @@ async def get_statistics_summary() -> Dict[str, Any]:
 
 # ==================== Clientes Bloqueados ====================
 
-async def add_blacklisted_client(client_name: str, reason: Optional[str] = None):
-    """Adiciona um cliente à lista negra."""
+async def add_blacklisted_client(user_id: Any, client_name: str, reason: Optional[str] = None):
+    """Adiciona um cliente à lista negra de um usuário específico."""
     async with async_session() as session:
         client = BlacklistedClientModel(
+            user_id=user_id,
             client_name=client_name,
             reason=reason
         )
@@ -780,11 +1015,13 @@ async def add_blacklisted_client(client_name: str, reason: Optional[str] = None)
         await session.commit()
 
 
-async def get_blacklisted_clients() -> List[Dict[str, Any]]:
-    """Lista clientes na lista negra."""
+async def get_blacklisted_clients(user_id: Any) -> List[Dict[str, Any]]:
+    """Lista clientes na lista negra de um usuário específico."""
     async with async_session() as session:
         result = await session.execute(
-            select(BlacklistedClientModel).order_by(BlacklistedClientModel.created_at.desc())
+            select(BlacklistedClientModel)
+            .where(BlacklistedClientModel.user_id == user_id)
+            .order_by(BlacklistedClientModel.created_at.desc())
         )
         clients = result.scalars().all()
         
@@ -799,21 +1036,25 @@ async def get_blacklisted_clients() -> List[Dict[str, Any]]:
         ]
 
 
-async def remove_blacklisted_client(client_id: int):
-    """Remove um cliente da lista negra."""
+async def remove_blacklisted_client(user_id: Any, client_id: int):
+    """Remove um cliente da lista negra de um usuário específico."""
     async with async_session() as session:
         await session.execute(
-            delete(BlacklistedClientModel).where(BlacklistedClientModel.id == client_id)
+            delete(BlacklistedClientModel)
+            .where(and_(BlacklistedClientModel.id == client_id, BlacklistedClientModel.user_id == user_id))
         )
         await session.commit()
 
 
-async def is_client_blacklisted(client_name: str) -> bool:
-    """Verifica se um cliente está na lista negra."""
+async def is_client_blacklisted(user_id: Any, client_name: str) -> bool:
+    """Verifica se um cliente está na lista negra de um usuário específico."""
     async with async_session() as session:
         result = await session.execute(
             select(BlacklistedClientModel).where(
-                BlacklistedClientModel.client_name.ilike(f"%{client_name}%")
+                and_(
+                    BlacklistedClientModel.client_name.ilike(f"%{client_name}%"),
+                    BlacklistedClientModel.user_id == user_id
+                )
             )
         )
         return result.scalar_one_or_none() is not None
