@@ -1,8 +1,43 @@
+import asyncio
+import os
+import tempfile
+from pathlib import Path
+
 import pytest
+from uuid import UUID
+
+# Configure o banco antes de importar a aplicação/settings. A suíte nunca deve
+# ler ou alterar o workana.db real do desenvolvedor.
+TEST_DB_PATH = Path(tempfile.gettempdir()) / f"workana-accelerator-tests-{os.getpid()}.db"
+os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{TEST_DB_PATH.as_posix()}"
+
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, MagicMock
 from app.main import app
+from app.auth import get_current_user
 from app.automation.browser import WorkanaAutomation
+from app.database.models import engine, init_db
+
+TEST_USER = {
+    "user_id": UUID("00000000-0000-0000-0000-000000000001"),
+    "email": "test@example.com",
+}
+
+
+@pytest.fixture(scope="session", autouse=True)
+def isolated_database():
+    asyncio.run(init_db())
+    yield
+    asyncio.run(engine.dispose())
+    TEST_DB_PATH.unlink(missing_ok=True)
+
+
+@pytest.fixture(autouse=True)
+def authenticated_user():
+    """Isola testes de API da rede/JWKS sem desativar auth em produção."""
+    app.dependency_overrides[get_current_user] = lambda: TEST_USER
+    yield TEST_USER
+    app.dependency_overrides.pop(get_current_user, None)
 
 @pytest.fixture
 def client():

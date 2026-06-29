@@ -15,7 +15,7 @@ class ProposalAgent:
         # Lazy loading or init check could be done here, but factory handles creation.
         self.model = None
 
-    async def generate_proposal(self, project_details: dict) -> dict:
+    async def generate_proposal(self, user_id: str, project_details: dict) -> dict:
         """
         Gera uma proposta irrecusável e um valor estipulado para o projeto.
         """
@@ -27,7 +27,7 @@ class ProposalAgent:
 
         # Sempre buscar a chave mais atualizada das configurações do banco
         from app.database import crud
-        config = await crud.get_automation_config()
+        config = await crud.get_automation_config(user_id)
         api_key = config.get("gemini_api_key") or settings.gemini_api_key
         
         if not api_key:
@@ -36,17 +36,16 @@ class ProposalAgent:
                 "error": "Chave da API do Gemini não configurada. Configure na página de Configurações."
             }
 
-        # Configurar ou reconfigurar o modelo se a chave mudou ou modelo não existe
-        if not self.model or self.api_key != api_key:
-            try:
-                from app.services.gemini_factory import GeminiFactory
-                self.model = GeminiFactory.create(api_key)
-                self.api_key = api_key
-            except Exception as e:
-                return {
-                    "success": False,
-                    "error": f"Erro ao configurar IA: {str(e)}"
-                }
+        # O modelo é local à requisição para não compartilhar uma API key entre
+        # usuários concorrentes do processo FastAPI.
+        try:
+            from app.services.gemini_factory import GeminiFactory
+            model = GeminiFactory.create(api_key)
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Erro ao configurar IA: {str(e)}"
+            }
 
         # Importar o builder
         from app.services.prompt_builder import ProposalPromptBuilder
@@ -57,7 +56,7 @@ class ProposalAgent:
         )
 
         try:
-            response = self.model.generate_content(prompt)
+            response = model.generate_content(prompt)
             # Tenta extrair o JSON da resposta (Gemini às vezes coloca em blocos de código)
             content = response.text.strip()
             if "```json" in content:

@@ -176,11 +176,6 @@ class DashboardStats(BaseModel):
     pending_proposals: int = 0
     last_activity: Optional[datetime] = None
     
-    # Gamification
-    xp: int = 0
-    lp: int = 0
-    rank_tier: str = "Ferro"
-    rank_division: str = "IV"
 
 
 # ==================== Automação ====================
@@ -354,16 +349,6 @@ class ProfileMetricsResponse(BaseModel):
     profile_url: Optional[str] = None
     username: Optional[str] = None
     display_name: Optional[str] = None
-    ranking_general: Optional[int] = None
-    ranking_category: Optional[str] = None
-    level: Optional[str] = None  # Nível original
-    
-    # Novos campos
-    xp: int = 0
-    lp: int = 0
-    rank_tier: str = "Ferro"
-    rank_division: str = "IV"
-    
     projects_completed: int = 0
     projects_in_progress: int = 0
     hours_worked: int = 0
@@ -400,11 +385,9 @@ class ProfileMetricsHistory(BaseModel):
     """Histórico de métricas do perfil."""
     id: int
     profile_url: str
-    level: Optional[str] = None
     projects_completed: int = 0
     average_rating: Optional[float] = None
     total_reviews: int = 0
-    ranking_general: Optional[int] = None
     scraped_at: datetime
 
 

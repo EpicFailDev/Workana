@@ -77,9 +77,8 @@ class ProfileScraperService:
                 html = response.text
                 metrics = cls._parse_profile_html(html, profile_url)
                 
-                # Se não conseguiu extrair dados essenciais (Ranking e Projetos), tentar com Playwright
-                # HEROs e perfis complexos podem ter o 'level' no HTML mas métricas via JS
-                if not metrics.get("level") or (not metrics.get("projects_completed")) or (not metrics.get("ranking_general")):
+                # Se não conseguiu extrair dados profissionais, tentar com Playwright.
+                if not metrics.get("display_name") or not metrics.get("projects_completed"):
                     logger.info("Dados incompletos ou zerados via HTTP, tentando com Playwright...")
                     metrics = await cls._fetch_with_playwright(profile_url)
                 
@@ -116,9 +115,6 @@ class ProfileScraperService:
             "profile_url": profile_url,
             "username": cls._extract_username(profile_url),
             "display_name": None,
-            "ranking_general": None,
-            "ranking_category": None,
-            "level": None,
             "projects_completed": 0,
             "projects_in_progress": 0,
             "hours_worked": 0,
@@ -233,10 +229,6 @@ class ProfileScraperService:
                     const hMatch = getMetric("(?:Horas trabalhadas|Hours worked)[\\s\\n]*(\\d+)");
                     if (hMatch) result.hours_worked = parseInt(hMatch);
                     
-                    // Ranking
-                    const rMatch = getMetric("(?:Ranking Workana|Ranking).*?([\\d.]+)");
-                    if (rMatch) result.ranking_general = parseInt(rMatch);
-                    
                     // Reviews
                     const revMatch = bodyText.match(/(?:Classificações dos clientes|Ratings from clients)[\s\n]*\(?(\d+)\)?/i) || 
                                      bodyText.match(/(\d+)[\s\n]*(?:reviews|classificaç|ratings)/i) ||
@@ -254,10 +246,6 @@ class ProfileScraperService:
                     // Último login
                     const lMatch = bodyText.match(/(?:Último login|Last login)[\s\n]+([^\n]{3,30})/i);
                     if (lMatch) result.last_login = lMatch[1].trim();
-                    
-                    // 5. Nível
-                    const levelMatch = bodyText.match(/(HERO|PLATINUM|PLATINA|GOLD|OURO|SILVER|PRATA|BRONZE|IRON|FERRO)/i);
-                    if (levelMatch) result.level = levelMatch[1].toUpperCase();
                     
                     // 6. Rating
                     const ratMatch = bodyText.match(/(\d+[.,]?\d*)[\s\n]*\/[\s\n]*5/);
@@ -291,8 +279,8 @@ class ProfileScraperService:
                     logger.warning("Nome não encontrado no scraping. Tentando novamente...")
                     raise Exception("Nome não encontrado")
                     
-                if metrics.get("projects_completed") == 0 and metrics.get("ranking_general") is None:
-                    # Se ambos forem zero/none, provavelmente falhou a extração
+                if metrics.get("projects_completed") == 0 and not metrics.get("skills"):
+                    # Sem projetos ou habilidades, provavelmente falhou a extração.
                     logger.warning("Métricas zeradas encontradas. Tentando novamente...")
                     raise Exception("Métricas zeradas - provável falha de carregamento")
                 
@@ -323,9 +311,6 @@ class ProfileScraperService:
             "profile_url": profile_url,
             "username": cls._extract_username(profile_url),
             "display_name": None,
-            "ranking_general": None,
-            "ranking_category": None,
-            "level": None,
             "projects_completed": 0,
             "projects_in_progress": 0,
             "hours_worked": 0,
@@ -365,11 +350,7 @@ class ProfileScraperService:
                 if src and "placeholder" not in src:
                     metrics["profile_photo_url"] = src
             
-            # === NÍVEL WORKANA (Bilíngue) ===
             body_text = soup.get_text()
-            level_match = re.search(r'(HERO|PLATINUM|PLATINA|GOLD|OURO|SILVER|PRATA|BRONZE|IRON|FERRO)', body_text, re.IGNORECASE)
-            if level_match:
-                metrics["level"] = level_match.group(1).upper()
             
             # === PAÍS e LOCALIZAÇÃO ===
             country_link = soup.select_one(".profile-header a[href*='/freelancers/'], .profile-view a[href*='/freelancers/']")
@@ -383,13 +364,6 @@ class ProfileScraperService:
                 p_text = projects_elem.parent.get_text()
                 match = re.search(r'(\d+)', p_text)
                 if match: metrics["projects_completed"] = int(match.group(1))
-            
-            # Ranking
-            ranking_elem = soup.find(text=re.compile(r'Ranking Workana', re.IGNORECASE))
-            if ranking_elem:
-                r_text = ranking_elem.parent.get_text()
-                match = re.search(r'([\d.]+)', r_text)
-                if match: metrics["ranking_general"] = int(match.group(1).replace(".", ""))
             
             # Ingressou / Joined / Member since
             joined_elem = soup.find(text=re.compile(r'Ingressou|Joined|Member since', re.IGNORECASE))

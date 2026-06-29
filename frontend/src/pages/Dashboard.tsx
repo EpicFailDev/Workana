@@ -9,17 +9,6 @@ import CyberHeader from "../components/CyberHeader";
 import SystemLog from "../components/SystemLog";
 import { useCounter } from "../hooks/useCounter";
 
-// --- Gamification Helper ---
-const calculateNextLevelXp = (level: number) => Math.pow(level, 2) * 100;
-
-import RankBadge from "../components/RankBadge";
-
-const DAILY_MISSIONS = [
-    { id: 1, title: 'Postar 5 Propostas', target: 5, current: 2, xp: 50, icon: '📝' },
-    { id: 2, title: 'Pesquisar Projetos', target: 1, current: 1, xp: 20, icon: '🔍' },
-    { id: 3, title: 'Manter Streak (3 dias)', target: 1, current: 1, xp: 100, icon: '🔥' },
-];
-
 // Garante que a URL base sempre termine com /api
 const rawBaseUrl = import.meta.env.VITE_API_URL || "";
 const API_BASE = rawBaseUrl 
@@ -38,10 +27,6 @@ interface DashboardStats {
     active_projects?: number;
     earnings_simulated?: number;
     success_rate?: number;
-    xp: number;
-    lp: number;
-    rank_tier: string;
-    rank_division: string;
 }
 
 interface AutomationStatus {
@@ -57,12 +42,6 @@ export default function Dashboard() {
     // Temporary mock until AuthContext is fully implemented
     const user = { name: 'Comandante' };
     
-    // Gamification State (Now from API)
-    const [xp, setXp] = useState(0); 
-    const [lp, setLp] = useState(0);
-    const [rankTier, setRankTier] = useState("Ferro");
-    const [rankDivision, setRankDivision] = useState("IV");
-
     // Stats / Metrics State
     const [metrics, setMetrics] = useState<DashboardStats>({
         total_proposals_sent: 0,
@@ -75,11 +54,7 @@ export default function Dashboard() {
         last_activity: null,
         active_projects: 3, 
         earnings_simulated: 1250, 
-        success_rate: 15,
-        xp: 0,
-        lp: 0,
-        rank_tier: 'Ferro',
-        rank_division: 'IV'
+        success_rate: 15
     });
 
     const [automationStatus, setAutomationStatus] = useState<AutomationStatus>({
@@ -98,8 +73,6 @@ export default function Dashboard() {
     const animatedActiveProjects = useCounter(metrics.active_projects || 0);
     const animatedResponseRate = useCounter(metrics.response_rate);
     const animatedEarnings = useCounter(metrics.earnings_simulated || 0);
-    const animatedXp = useCounter(xp);
-    const animatedLp = useCounter(lp);
 
     useEffect(() => {
         fetchDashboardData();
@@ -121,12 +94,6 @@ export default function Dashboard() {
                 success_rate: statsData.response_rate || prev.success_rate
             }));
             
-            // Update Rank State
-            setXp(statsData.xp);
-            setLp(statsData.lp);
-            setRankTier(statsData.rank_tier);
-            setRankDivision(statsData.rank_division);
-
             setError(null);
         } catch (err: any) {
             if (isLoading) {
@@ -136,9 +103,6 @@ export default function Dashboard() {
             setIsLoading(false);
         }
     };
-
-    const levelProgress = lp; // Use LP for progress bar directly (0-100)
-    const progressPercent = Math.max(0, Math.min(100, levelProgress)); 
 
     if (isLoading) {
         return <Loader type="overlay" message="Sincronizando seu dashboard..." />;
@@ -151,63 +115,6 @@ export default function Dashboard() {
                 subtitle="SYSTEM_READY // INITIATE_SEARCH"
                 description={`Bem-vindo de volta, Agente ${user?.name || 'Guest'}. Identifique e capture as melhores oportunidades do mercado.`}
             />
-
-            {/* --- COMMAND CENTER (GAMIFICATION) --- */}
-            <div className={styles.commandCenter}>
-                {/* Profile & Level Card */}
-                <div className={`${styles.profileCard} holo-card`}>
-                    <div className={styles.avatarContainer}>
-                        <div className={styles.avatar} /> 
-                    </div>
-                    
-                    <RankBadge 
-                        tier={rankTier} 
-                        division={rankDivision} 
-                        lp={animatedLp}
-                        size="md"
-                    />
-
-                    <div className={styles.xpContainer} style={{ marginTop: '1rem' }}>
-                        <div className={styles.xpHeader}>
-                            <span>Total XP: {animatedXp}</span>
-                            <span>PDL para Promo: 100</span>
-                        </div>
-                        <div className={styles.xpTrack}>
-                            <div className={styles.xpFill} style={{ width: `${progressPercent}%` }}></div>
-                        </div>
-                    </div>
-                    
-                    <button className="btn btn-outline btn-sm w-full" style={{ marginTop: 'auto' }}>
-                        Ver Perfil Completo
-                    </button>
-                </div>
-
-                {/* Daily Missions & Quick Stats */}
-                <div className={`${styles.missionsCard} holo-card`}>
-                    <h3 style={{ fontSize: '1.2rem', fontWeight: 'bold', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span>🎯</span> Objetivos do Dia
-                    </h3>
-                    
-                    <div className={styles.missionList}>
-                        {DAILY_MISSIONS.map(mission => (
-                            <div key={mission.id} className={`${styles.missionItem} ${mission.current >= mission.target ? styles.completed : ''}`}>
-                                <div className={styles.missionIcon}>{mission.icon}</div>
-                                <div className={styles.missionInfo}>
-                                    <div className={styles.missionTitle}>{mission.title}</div>
-                                    <div className={styles.missionProgress}>
-                                        Progresso: {mission.current} / {mission.target}
-                                    </div>
-                                </div>
-                                {mission.current >= mission.target ? (
-                                    <div className={styles.xpReward} style={{ background: 'var(--color-success)', color: 'white' }}>COMPLETO</div>
-                                ) : (
-                                    <div className={styles.xpReward}>+{mission.xp} XP</div>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            </div>
 
             {/* Standard Metrics Grid */}
             <div className={styles.grid}>

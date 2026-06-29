@@ -438,11 +438,11 @@ MAX_PROPOSALS_PER_DAY=10
 DELAY_BETWEEN_ACTIONS_MS=2000
 
 # Conexão Postgres (Supabase)
-DATABASE_URL=postgresql+asyncpg://postgres:[SENHA_DO_BANCO]@db.omfrvmbsazgfwhapsaur.supabase.co:5432/postgres?pgbouncer=true&pool_mode=session
+DATABASE_URL=postgresql+asyncpg://postgres.omfrvmbsazgfwhapsaur:[SENHA_DO_BANCO]@aws-1-sa-east-1.pooler.supabase.com:5432/postgres
 
 # Supabase Auth
 SUPABASE_URL=https://omfrvmbsazgfwhapsaur.supabase.co
-SUPABASE_JWKS_URL=https://omfrvmbsazgfwhapsaur.supabase.co/auth/v1/jwks
+SUPABASE_JWKS_URL=https://omfrvmbsazgfwhapsaur.supabase.co/auth/v1/.well-known/jwks.json
 ```
 
 #### Frontend (`frontend/.env`)
@@ -456,12 +456,16 @@ VITE_API_URL=http://localhost:8000/api
 
 Para integrar o ambiente do desenvolvedor com o MCP (Model Context Protocol) do Supabase:
 
-1. Faça login na Supabase CLI:
+1. No ZCode, habilite o servidor `supabase` definido em `.mcp.json`, conclua o OAuth 2.1 no navegador e recarregue a sessão.
+2. Para usar a CLI separadamente, instale-a e autentique:
    ```bash
    supabase login
    ```
-2. O arquivo `.mcp.json` na raiz do projeto está pré-configurado para conectar o ZCode ao Supabase MCP do projeto `omfrvmbsazgfwhapsaur`.
-3. Para migrar dados existentes do SQLite local para o Supabase Postgres, execute o script de migração:
+3. Em **Project Settings > API Keys**, crie/rotacione uma publishable key para o frontend. Nunca use uma `sb_secret_` em arquivos `VITE_*`, no Git ou no navegador.
+4. Em **Authentication > Signing Keys**, confirme que uma chave assimétrica está ativa; o backend valida os access tokens pelo endpoint JWKS.
+5. Aplique `supabase/migrations/0001_initial_schema.sql` com `supabase db push` ou pelo MCP e execute os database advisors antes do deploy.
+6. Depois da migration, regenere `frontend/src/integrations/supabase/types.ts` com o MCP `get_typescript_types` (ou `supabase gen types typescript --project-id omfrvmbsazgfwhapsaur`).
+7. Para migrar dados existentes do SQLite local para o Supabase Postgres, execute opcionalmente:
    ```bash
    python backend/scripts/migrate_sqlite_to_supabase.py
    ```
