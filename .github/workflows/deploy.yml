@@ -1,0 +1,184 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE_NAME: ${{ github.repository }}/backend
+  FRONTEND_IMAGE_NAME: ${{ github.repository }}/frontend
+
+jobs:
+  ci-backend:
+    name: Backend CI (Tests & Lint)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+
+      - name: Run Pytest
+        run: |
+          cd backend
+          python -m pytest
+
+  ci-frontend:
+    name: Frontend CI (Types & Build)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Validate TypeScript & Build
+        run: |
+          cd frontend
+          # Variáveis dummy apenas para passar na validação de compilação em desenvolvimento/CI
+          export VITE_SUPABASE_URL="https://omfrvmbsazgfwhapsaur.supabase.co"
+          export VITE_SUPABASE_PUBLISHABLE_KEY="sb_publishable_dummy_key"
+          npm run build
+
+  build-and-push:
+    name: Build & Push Docker Images
+    needs: [ci-backend, ci-frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for backend
+        id: meta-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}
+          tags: |
+            type=sha,format=long
+            type=raw,value=latest
+
+      - name: Extract metadata for frontend
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}
+          tags: |
+            type=sha,format=long
+            type=raw,value=latest
+
+      - name: Build and Push Backend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+
+      - name: Build and Push Frontend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          build-args: |
+            VITE_SUPABASE_URL=https://omfrvmbsazgfwhapsaur.supabase.co
+            VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+
+  deploy:
+    name: Deploy to VPS
+    needs: build-and-push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Execute Remote Deploy Commands via SSH
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+            cd /app/workana
+            
+            # Salva a tag atual para possibilitar rollback em caso de falha
+            OLD_TAG=$(grep "TAG_IMAGEM=" .env | cut -d'=' -f2 || echo "latest")
+            NEW_TAG="sha-${{ github.sha }}"
+            
+            # Backup de segurança do .env local da VPS
+            cp .env .env.bak
+            
+            # Atualiza a variável da tag de imagem no .env
+            sed -i "s/TAG_IMAGEM=.*/TAG_IMAGEM=${NEW_TAG}/" .env
+            
+            # Loga no GHCR da VPS
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            # Pull das novas imagens imutáveis
+            docker compose pull
+            
+            # Executa as migrations do Supabase usando CLI em container isolado
+            docker run --rm \
+              -v $(pwd)/supabase:/supabase \
+              supabase/cli:1.145.4 \
+              db push --db-url "${{ secrets.MIGRATIONS_DATABASE_URL }}"
+              
+            # Atualiza os containers com a nova imagem e configurações
+            docker compose up -d --remove-orphans
+            
+            # Aguarda inicialização para validação de healthcheck
+            echo "Aguardando inicialização para verificação de integridade..."
+            sleep 25
+            
+            # Verifica o status dos containers ativos
+            HEALTHY_COUNT=$(docker compose ps --filter "status=running" --format json | jq '. | length' || docker compose ps | grep -c "Up")
+            
+            if [ "$HEALTHY_COUNT" -lt 4 ]; then
+              echo "❌ Erro: Nem todos os containers iniciaram saudáveis! Executando Rollback..."
+              mv .env.bak .env
+              docker compose pull
+              docker compose up -d --remove-orphans
+              exit 1
+            else
+              echo "✅ Sucesso: Deploy bem-sucedido e containers saudáveis!"
+              rm -f .env.bak
+            fi
+          EOF

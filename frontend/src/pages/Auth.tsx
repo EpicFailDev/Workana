@@ -7,24 +7,24 @@ import { AuthFormSplitScreen } from '@/components/ui/login';
 export default function Auth() {
     const location = useLocation();
     const navigate = useNavigate();
-    const { signIn, signUp } = useAuth();
+    const { signIn, signUp, signInWithGoogle } = useAuth();
     const { toast } = useToast();
     const [mode, setMode] = useState<'login' | 'register'>('login');
 
     useEffect(() => {
-        if (location.hash === '#register') {
+        if (location.pathname === '/auth/cadastro' || location.hash === '#register') {
             setMode('register');
         } else {
             setMode('login');
         }
-    }, [location.hash]);
+    }, [location.pathname, location.hash]);
 
     const handleLoginSubmit = async (data: any) => {
         try {
-            const { error } = await signIn(data.email, data.password);
-            if (error) {
-                toast.error(error.message, 'Erro ao Entrar');
-                throw error;
+            const response = await signIn(data.email, data.password);
+            if (response.error) {
+                toast.error(response.error.message, 'Erro ao Entrar');
+                throw response.error;
             } else {
                 toast.success('Acesso autorizado. Bem-vindo de volta!', 'Sucesso');
                 navigate('/');
@@ -37,22 +37,33 @@ export default function Auth() {
 
     const handleRegisterSubmit = async (data: any) => {
         try {
-            const { data: signUpData, error } = await signUp(data.email, data.password);
-            if (error) {
-                toast.error(error.message, 'Erro ao Registrar');
-                throw error;
+            const response = await signUp(data.email, data.password);
+            if (response.error) {
+                toast.error(response.error.message, 'Erro ao Registrar');
+                throw response.error;
             } else {
-                if (signUpData?.session) {
+                if (response.data?.session) {
                     toast.success('Conta criada e logada com sucesso!', 'Sucesso');
                     navigate('/');
                 } else {
                     toast.success('Conta criada com sucesso! Verifique seu email para confirmação, se necessário.', 'Conta Criada');
-                    navigate('#login');
+                    navigate('/auth/login');
                 }
             }
         } catch (err: any) {
             console.error(err);
             throw err;
+        }
+    };
+
+    const handleGoogleLogin = async () => {
+        try {
+            const { error } = await signInWithGoogle(true);
+            if (error) {
+                toast.error(error.message, 'Erro Google OAuth');
+            }
+        } catch (err: any) {
+            toast.error('Erro ao iniciar fluxo Google OAuth.', 'Erro');
         }
     };
 
@@ -94,14 +105,15 @@ export default function Auth() {
                     ? 'Your intelligent partner for freelance success.' 
                     : 'Join the future of freelance automation.'
             }
-            imageSrc="/Design_sem_nome_10.png"
+            imageSrc="/bglogin.png"
             imageAlt="Login background image"
             onSubmit={isLogin ? handleLoginSubmit : handleRegisterSubmit}
-            forgotPasswordHref="#"
-            createAccountHref={isLogin ? '#register' : '#login'}
+            forgotPasswordHref="/auth/recuperar"
+            createAccountHref={isLogin ? '/auth/cadastro' : '/auth/login'}
             footerLabelText={isLogin ? "Don't have an account?" : 'Already have an account?'}
             footerLinkText={isLogin ? 'Create one' : 'Sign in'}
             showRememberMe={isLogin}
+            onGoogleClick={handleGoogleLogin}
         />
     );
 }

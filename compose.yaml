@@ -1,0 +1,126 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_SUPABASE_URL=${SUPABASE_URL}
+        - VITE_SUPABASE_PUBLISHABLE_KEY=${SUPABASE_PUBLISHABLE_KEY}
+    restart: unless-stopped
+    networks:
+      - app-network
+    environment:
+      - TZ=America/Cuiaba
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --loop asyncio
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_JWKS_URL=${SUPABASE_JWKS_URL}
+      - SECRET_KEY=${SECRET_KEY}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - DEBUG=${DEBUG:-false}
+      - WORKANA_EMAIL=${WORKANA_EMAIL}
+      - WORKANA_PASSWORD=${WORKANA_PASSWORD}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - HEADLESS=${HEADLESS:-true}
+      - PROXY_URL=${PROXY_URL}
+      - CAPTCHA_PROVIDER=${CAPTCHA_PROVIDER}
+      - CAPTCHA_API_KEY=${CAPTCHA_API_KEY}
+      - TZ=America/Cuiaba
+    networks:
+      - app-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: python run_worker.py
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_JWKS_URL=${SUPABASE_JWKS_URL}
+      - SECRET_KEY=${SECRET_KEY}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - DEBUG=${DEBUG:-false}
+      - WORKANA_EMAIL=${WORKANA_EMAIL}
+      - WORKANA_PASSWORD=${WORKANA_PASSWORD}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - HEADLESS=${HEADLESS:-true}
+      - PROXY_URL=${PROXY_URL}
+      - CAPTCHA_PROVIDER=${CAPTCHA_PROVIDER}
+      - CAPTCHA_API_KEY=${CAPTCHA_API_KEY}
+      - TZ=America/Cuiaba
+    networks:
+      - app-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+    healthcheck:
+      test: ["CMD-SHELL", "ps aux | grep run_worker.py || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - APP_DOMAIN=${APP_DOMAIN:-localhost}
+      - ACME_EMAIL=${ACME_EMAIL:-admin@example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - api
+    networks:
+      - app-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:

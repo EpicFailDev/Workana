@@ -47,7 +47,7 @@ class ApiService {
         if (response.status === 401) {
             // Token inválido/expirado -> limpa sessão local e redireciona para login
             await supabase.auth.signOut();
-            window.location.href = "/auth";
+            window.location.href = "/auth/login";
             throw new Error("Sessão expirada. Faça login novamente.");
         }
 

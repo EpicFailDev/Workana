@@ -34,8 +34,6 @@ async def get_profile_metrics(user: dict = Depends(get_current_user)):
             config_result = await session.execute(
                 select(ProfileConfig)
                 .where(ProfileConfig.user_id == user["user_id"])
-                .order_by(desc(ProfileConfig.id))
-                .limit(1)
             )
             config = config_result.scalar_one_or_none()
             
@@ -103,8 +101,6 @@ async def sync_profile_metrics(force: bool = False, user: dict = Depends(get_cur
             config_result = await session.execute(
                 select(ProfileConfig)
                 .where(ProfileConfig.user_id == user["user_id"])
-                .order_by(desc(ProfileConfig.id))
-                .limit(1)
             )
             config = config_result.scalar_one_or_none()
             
@@ -193,8 +189,6 @@ async def get_profile_config(user: dict = Depends(get_current_user)):
             result = await session.execute(
                 select(ProfileConfig)
                 .where(ProfileConfig.user_id == user["user_id"])
-                .order_by(desc(ProfileConfig.id))
-                .limit(1)
             )
             config = result.scalar_one_or_none()
             
@@ -232,8 +226,6 @@ async def update_profile_config(config_update: ProfileConfigUpdate, user: dict =
             result = await session.execute(
                 select(ProfileConfig)
                 .where(ProfileConfig.user_id == user["user_id"])
-                .order_by(desc(ProfileConfig.id))
-                .limit(1)
             )
             config = result.scalar_one_or_none()
             
@@ -337,7 +329,8 @@ async def validate_profile_url(url: str, user: dict = Depends(get_current_user))
         return {
             "valid": True,
             "display_name": metrics.get("display_name"),
-            "username": metrics.get("username")
+            "username": metrics.get("username"),
+            "metrics": metrics
         }
         
     except Exception as e:

@@ -18,7 +18,7 @@ def test_get_current_user_accepts_supabase_es256(monkeypatch):
         ),
     )
 
-    def fake_decode(token, key, algorithms, audience, issuer):
+    def fake_decode(token, key, algorithms, audience, issuer, **kwargs):
         assert token == "valid-token"
         assert algorithms == ["ES256"]
         assert audience == "authenticated"
@@ -29,6 +29,7 @@ def test_get_current_user_accepts_supabase_es256(monkeypatch):
         }
 
     monkeypatch.setattr(auth.jwt, "decode", fake_decode)
+    monkeypatch.setattr(auth.jwt, "get_unverified_header", lambda _token: {"alg": "ES256"})
 
     user = auth.get_current_user("Bearer valid-token")
 

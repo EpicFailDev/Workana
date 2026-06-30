@@ -1,0 +1,15 @@
+{
+    # Bloco de configuração global do Caddy
+    email {$ACME_EMAIL:admin@example.com}
+}
+
+{$APP_DOMAIN:localhost} {
+    # Compressão de arquivos para melhor performance
+    encode gzip zstd
+
+    # Roteamento da API para o container do backend
+    reverse_proxy /api/* api:8000
+
+    # Roteamento de todos os outros caminhos para o container do frontend
+    reverse_proxy * frontend:80
+}

@@ -9,6 +9,12 @@ import Settings from './pages/Settings'
 import Templates from './pages/Templates'
 import Profile from './pages/Profile'
 import Auth from './pages/Auth'
+import Recuperar from './pages/Recuperar'
+import VerificarOtp from './pages/VerificarOtp'
+import NovaSenha from './pages/NovaSenha'
+import AuthCallback from './pages/AuthCallback'
+import Termos from './pages/Termos'
+import Privacidade from './pages/Privacidade'
 import { useAuth } from './context/AuthContext'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -47,7 +53,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     }
 
     if (!user) {
-        return <Navigate to="/auth" replace />;
+        return <Navigate to="/auth/login" replace />;
     }
 
     return <>{children}</>;
@@ -56,8 +62,16 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function App() {
     return (
         <Routes>
-            {/* Rota pública de autenticação */}
-            <Route path="/auth" element={<Auth />} />
+            {/* Rotas públicas de autenticação */}
+            <Route path="/auth" element={<Navigate to="/auth/login" replace />} />
+            <Route path="/auth/login" element={<Auth />} />
+            <Route path="/auth/cadastro" element={<Auth />} />
+            <Route path="/auth/recuperar" element={<Recuperar />} />
+            <Route path="/auth/verificar-otp" element={<VerificarOtp />} />
+            <Route path="/auth/nova-senha" element={<NovaSenha />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
+            <Route path="/termos" element={<Termos />} />
+            <Route path="/privacidade" element={<Privacidade />} />
 
             {/* Rotas protegidas */}
             <Route 
@@ -90,3 +104,4 @@ function App() {
 }
 
 export default App
+

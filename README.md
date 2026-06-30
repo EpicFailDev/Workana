@@ -1,536 +1,252 @@
-# 🚀 Workana Automation
+# 🚀 Workana Accelerator
 
-<div align="center">
+**Sistema inteligente e containerizado de automação para busca e envio de propostas no Workana**
 
-![Logo](https://img.shields.io/badge/🤖-Workana_Automation-6366f1?style=for-the-badge)
-
-**Sistema inteligente de automação para busca e envio de propostas no Workana**
-
-[![Status](https://img.shields.io/badge/status-em%20desenvolvimento-yellow?style=flat-square)](/)
-[![Python](https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
-[![Next.js](https://img.shields.io/badge/next.js-14-000000?style=flat-square&logo=next.js&logoColor=white)](https://nextjs.org)
-[![FastAPI](https://img.shields.io/badge/fastapi-0.109-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![Playwright](https://img.shields.io/badge/playwright-1.41-2EAD33?style=flat-square&logo=playwright&logoColor=white)](https://playwright.dev)
-
-</div>
+Este projeto foi completamente modernizado para rodar em produção de forma profissional em uma VPS (Virtual Private Server) usando **Docker Compose**, **Caddy** (com SSL/HTTPS automático) e o **Supabase** (PostgreSQL e Auth) na nuvem. O banco de dados SQLite local foi totalmente removido do runtime para garantir integridade transacional e isolamento multitenant (RLS).
 
 ---
 
 ## 📋 Índice
 
-- [✨ Funcionalidades](#-funcionalidades)
 - [🛠️ Stack Tecnológica](#️-stack-tecnológica)
-- [📁 Estrutura do Projeto](#-estrutura-do-projeto)
-- [🚀 Instalação](#-instalação)
-- [▶️ Executar](#️-executar)
-- [📖 Como Usar](#-como-usar)
-- [🔌 API Endpoints](#-api-endpoints)
-- [📝 Variáveis de Template](#-variáveis-de-template)
-- [⚙️ Configurações](#️-configurações)
-- [⚠️ Avisos Importantes](#️-avisos-importantes)
-
----
-
-## ✨ Funcionalidades
-
-| Funcionalidade | Descrição |
-|----------------|-----------|
-| 🔐 **Login Automático** | Acesse sua conta Workana automaticamente |
-| 🔍 **Busca Inteligente** | Filtros avançados por categoria, orçamento, skills |
-| 📝 **Templates Dinâmicos** | Propostas personalizáveis com variáveis |
-| 📊 **Dashboard** | Estatísticas e métricas em tempo real |
-| 📜 **Histórico** | Acompanhe todas as propostas enviadas |
-| 💾 **Filtros Salvos** | Reutilize suas buscas favoritas |
-| ⚙️ **Anti-Detecção** | Delays configuráveis para simular comportamento humano |
-| 🔒 **Segurança** | Credenciais armazenadas com criptografia Fernet |
+- [⚙️ Requisitos e Configuração](#️-requisitos-e-configuração)
+- [▶️ Comandos de Desenvolvimento Local](#️-comandos-de-desenvolvimento-local)
+- [🐳 Execução Local Completa com Docker](#-execução-local-completa-com-docker)
+- [🖥️ Preparação da VPS Ubuntu LTS](#️-preparação-da-vps-ubuntu-lts)
+- [🚀 Comandos de Deploy, Atualização e Rollback](#-comandos-de-deploy-atualização-e-rollback)
+- [📊 Diagnóstico e Logs](#-diagnóstico-e-logs)
+- [⚠️ Boas Práticas e Segurança](#️-boas-práticas-e-segurança)
 
 ---
 
 ## 🛠️ Stack Tecnológica
 
-### Backend
-| Tecnologia | Versão | Uso |
-|------------|--------|-----|
-| **Python** | 3.10+ | Runtime principal |
-| **FastAPI** | 0.109 | API REST de alta performance |
-| **Playwright** | 1.41 | Automação de navegador |
-| **SQLAlchemy** | 2.0 | ORM para banco de dados |
-| **SQLite** | - | Banco de dados local |
-| **Pydantic** | 2.5 | Validação de dados |
-| **Loguru** | 0.7 | Logging estruturado |
+### Backend (Processos Separados)
+* **FastAPI (API REST)**: Processa requisições HTTP, valida JWTs locais emitidos pelo Supabase Auth (via JWKS) e propaga o ID do usuário autenticado no contexto da transação SQL.
+* **Worker (Automação/Playwright/APScheduler)**: Roda buscas agendadas robustas em background, gerencia anti-ban por usuário, gera propostas automáticas via IA (Gemini API) e envia para o Workana usando Playwright.
+* **SQLAlchemy & asyncpg**: Pool de conexões altamente resiliente conectado ao Supabase com validação de saúde das conexões (`pool_pre_ping`).
+* **PostgreSQL Advisory Locks**: Impede execuções concorrentes do mesmo job agendado entre múltiplas instâncias de workers.
 
 ### Frontend
-| Tecnologia | Versão | Uso |
-|------------|--------|-----|
-| **Vite** | 6.x | Build Tool & Dev Server |
-| **React** | 18 | Biblioteca de UI |
-| **TypeScript** | 5.x | Tipagem estática |
-| **Tailwind CSS** | 4.x | Framework de CSS |
-| **Lucide React** | - | Ícones |
+* **React, Vite & TypeScript**: Interface SPA de alta performance integrada ao Supabase Auth e consumindo a API REST do backend via caminhos relativos em produção.
+
+### Proxy & Infraestrutura
+* **Caddy**: Servidor web de borda com geração automática de certificados SSL (HTTPS gratuito por Let's Encrypt/ZeroSSL), encaminhando requisições `/api/*` para o backend e demais caminhos para o frontend estático.
+* **Nginx (Frontend Container)**: Servidor web minimalista embarcado no container do frontend para entrega eficiente de arquivos estáticos com cache de longa duração e SPA fallback configurado.
 
 ---
 
-## 📁 Estrutura do Projeto
+## ⚙️ Requisitos e Configuração
 
-```
-workana-automation/
-│
-├── 📂 backend/                    # Servidor Python
-│   ├── 📂 app/
-│   │   ├── 📂 api/
-│   │   │   ├── __init__.py
-│   │   │   ├── routes.py          # 15+ endpoints REST
-│   │   │   └── schemas.py         # Modelos Pydantic
-│   │   │
-│   │   ├── 📂 automation/
-│   │   │   ├── __init__.py
-│   │   │   └── browser.py         # Automação Playwright
-│   │   │
-│   │   ├── 📂 database/
-│   │   │   ├── __init__.py
-│   │   │   ├── models.py          # Modelos SQLAlchemy
-│   │   │   └── crud.py            # Operações CRUD
-│   │   │
-│   │   ├── __init__.py
-│   │   ├── config.py              # Configurações centralizadas
-│   │   └── main.py                # Aplicação FastAPI
-│   │
-│   ├── .env.example               # Template de variáveis
-│   └── requirements.txt           # Dependências Python
-│
-├── 📂 frontend/                   # Interface Next.js
-│   ├── 📂 src/
-│   │   ├── 📂 app/
-│   │   │   ├── layout.tsx         # Layout principal
-│   │   │   ├── page.tsx           # Dashboard
-│   │   │   ├── globals.css        # Design System
-│   │   │   ├── 📂 projects/       # Busca de projetos
-│   │   │   ├── 📂 templates/      # Templates de proposta
-│   │   │   ├── 📂 filters/        # Filtros salvos
-│   │   │   ├── 📂 history/        # Histórico
-│   │   │   └── 📂 settings/       # Configurações
-│   │   │
-│   │   ├── 📂 components/
-│   │   │   ├── Sidebar.tsx
-│   │   │   └── Sidebar.module.css
-│   │   │
-│   │   └── 📂 services/
-│   │       └── api.ts             # Cliente API
-│   │
-│   └── package.json
-│
-└── README.md                      # Este arquivo
-```
+Certifique-se de ter instalado localmente para desenvolvimento:
+* **Python 3.10+** (com `pip` e `venv`)
+* **Node.js 18+** (com `npm`)
+* **Docker Engine** e **Docker Compose Plugin** (para execução em containers)
 
----
-
-## 🚀 Instalação
-
-### Pré-requisitos
-
-Certifique-se de ter instalado:
-- ✅ **Python 3.10+** ([Download](https://python.org/downloads))
-- ✅ **Node.js 18+** ([Download](https://nodejs.org))
-- ✅ **Git** ([Download](https://git-scm.com))
-
----
-
-### ⚡ Instalação Rápida (1 Comando)
-
-```powershell
-# Clone e instale tudo automaticamente
-git clone https://github.com/seu-usuario/workana-automation.git
-cd workana-automation
-.\setup.ps1
-```
-
-O script `setup.ps1` faz automaticamente:
-- ✅ Cria ambiente virtual Python
-- ✅ Instala dependências do backend
-- ✅ Instala Playwright/Chromium
-- ✅ Configura arquivo `.env`
-- ✅ Instala dependências do frontend
-
----
-
-## ▶️ Executar
-
-### ⚡ Início Rápido (1 Comando)
-
-```powershell
-.\start.ps1
-```
-
-Este comando:
-- 🐍 Inicia o Backend (FastAPI) na porta 8000
-- ⚛️ Inicia o Frontend (Next.js) na porta 3000
-- 🌐 Abre o navegador automaticamente
-
-| URL | Descrição |
-|-----|-----------|
-| http://localhost:3000 | Interface Web |
-| http://localhost:8000 | API REST |
-| http://localhost:8000/docs | Documentação Swagger |
-
----
-
-### 📋 Instalação Manual (Opcional)
-
-<details>
-<summary>Clique para ver os passos manuais</summary>
-
-#### Passo 1: Configurar Backend
-
-```powershell
-# Entrar na pasta do backend
-cd backend
-
-# Criar ambiente virtual Python
-python -m venv venv
-
-# Ativar ambiente virtual (Windows PowerShell)
-.\venv\Scripts\activate
-
-# Ativar ambiente virtual (Linux/macOS)
-# source venv/bin/activate
-
-# Instalar dependências Python
-pip install -r requirements.txt
-
-# Instalar navegador Chromium para Playwright
-playwright install chromium
-
-# Criar arquivo de configuração
-copy .env.example .env
-```
-
-#### Passo 2: Configurar Frontend
-
-```powershell
-# Voltar para raiz e entrar no frontend
-cd ../frontend
-
-# Instalar dependências Node.js
-npm install
-```
-
-#### Iniciar Backend Manualmente
-
-```powershell
-cd backend
-.\venv\Scripts\activate
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-#### Iniciar Frontend Manualmente
-
-```powershell
-cd frontend
-npm run dev
-```
-
-</details>
-
----
-
-## 📖 Como Usar
-
-### 1️⃣ Configurar Credenciais
-Acesse **Configurações** e insira seu email e senha do Workana. As credenciais são armazenadas localmente com criptografia.
-
-### 2️⃣ Fazer Login
-No **Dashboard**, clique em "Fazer Login" para conectar ao Workana.
-
-### 3️⃣ Criar Templates
-Em **Templates**, crie modelos de proposta com variáveis dinâmicas que serão substituídas automaticamente.
-
-### 4️⃣ Buscar Projetos
-Use a página **Projetos** para pesquisar com filtros por categoria, orçamento, skills, etc.
-
-### 5️⃣ Enviar Propostas
-Selecione um projeto e envie sua proposta usando um template ou mensagem personalizada.
-
-### 6️⃣ Acompanhar
-Veja o status das suas propostas no **Histórico**.
-
----
-
-## 🔌 API Endpoints
-
-### Autenticação e Automação
-| Método | Endpoint | Descrição |
-|--------|----------|-----------|
-| `POST` | `/api/credentials` | Salvar credenciais |
-| `GET` | `/api/credentials/status` | Verificar se configurado |
-| `POST` | `/api/automation/login` | Fazer login no Workana |
-| `POST` | `/api/automation/logout` | Desconectar |
-| `GET` | `/api/automation/status` | Status da automação |
-
-### Projetos
-| Método | Endpoint | Descrição |
-|--------|----------|-----------|
-| `POST` | `/api/projects/search` | Buscar projetos com filtros |
-| `GET` | `/api/projects/{id}` | Detalhes de um projeto |
-
-### Templates
-| Método | Endpoint | Descrição |
-|--------|----------|-----------|
-| `GET` | `/api/templates` | Listar templates |
-| `POST` | `/api/templates` | Criar template |
-| `PUT` | `/api/templates/{id}` | Atualizar template |
-| `DELETE` | `/api/templates/{id}` | Remover template |
-
-### Propostas
-| Método | Endpoint | Descrição |
-|--------|----------|-----------|
-| `POST` | `/api/proposals/send` | Enviar proposta |
-| `GET` | `/api/proposals/history` | Histórico de propostas |
-
-### Dashboard
-| Método | Endpoint | Descrição |
-|--------|----------|-----------|
-| `GET` | `/api/dashboard/stats` | Estatísticas gerais |
-
-### Projetos Salvos
-| Método | Endpoint | Descrição |
-|--------|----------|-----------|
-| `GET` | `/api/saved-projects` | Listar projetos salvos |
-| `GET` | `/api/saved-projects/{id}` | Detalhes de um projeto salvo |
-| `POST` | `/api/saved-projects` | Salvar um projeto |
-| `POST` | `/api/saved-projects/{id}/favorite` | Favoritar/desfavoritar |
-| `POST` | `/api/saved-projects/{id}/applied` | Marcar como aplicado |
-| `POST` | `/api/saved-projects/{id}/ignore` | Ignorar projeto |
-| `PUT` | `/api/saved-projects/{id}/notes` | Atualizar notas |
-
-### Logs de Atividade
-| Método | Endpoint | Descrição |
-|--------|----------|-----------|
-| `GET` | `/api/logs` | Listar logs de atividade |
-| `POST` | `/api/logs` | Criar log manual |
-
-### Estatísticas
-| Método | Endpoint | Descrição |
-|--------|----------|-----------|
-| `GET` | `/api/statistics` | Estatísticas dos últimos N dias |
-| `GET` | `/api/statistics/summary` | Resumo (hoje/semana/mês) |
-
-### Clientes Bloqueados
-| Método | Endpoint | Descrição |
-|--------|----------|-----------|
-| `GET` | `/api/blacklist` | Listar clientes bloqueados |
-| `POST` | `/api/blacklist` | Adicionar à lista negra |
-| `DELETE` | `/api/blacklist/{id}` | Remover da lista negra |
-| `GET` | `/api/blacklist/check/{nome}` | Verificar se está bloqueado |
-
-### Sistema Anti-Ban 🛡️
-| Método | Endpoint | Descrição |
-|--------|----------|-----------|
-| `GET` | `/api/antiban/status` | Status atual do sistema |
-| `GET` | `/api/antiban/config` | Configuração atual |
-| `PUT` | `/api/antiban/config` | Atualizar configuração |
-| `GET` | `/api/antiban/can-send-proposal` | Verificar se pode enviar |
-| `GET` | `/api/antiban/can-search` | Verificar se pode buscar |
-| `GET` | `/api/antiban/working-hours` | Horário de operação |
-
----
-
-## 🛡️ Sistema Anti-Ban
-
-O sistema inclui proteção avançada para evitar detecção e banimento:
-
-### Proteções Implementadas
-
-| Proteção | Descrição |
-|----------|-----------|
-| 🕐 **Delays Aleatórios** | 1.5s - 4s entre ações (variável) |
-| 📊 **Limites de Ações** | Máx. 8 propostas/dia, 3/hora |
-| ⏰ **Horário de Operação** | Apenas das 8h às 22h |
-| 🖱️ **Simulação Humana** | Movimentos de mouse, scroll aleatório |
-| 🔄 **Fingerprinting** | User-agents e resoluções aleatórias |
-| ⏸️ **Pausas Obrigatórias** | 10-30 min entre propostas |
-| 🚫 **Anti-Detecção** | Remove indicadores de automação |
-
-### Configurações Padrão
-
-```json
-{
-  "max_proposals_per_day": 8,
-  "max_proposals_per_hour": 3,
-  "max_searches_per_hour": 10,
-  "min_pause_between_proposals_minutes": 10,
-  "max_pause_between_proposals_minutes": 30,
-  "working_hours_start": 8,
-  "working_hours_end": 22
-}
-```
-
-### Como Configurar
-
-Via API:
+### Configurando o arquivo `.env`
+Copie o template `.env.example` da raiz e preencha as variáveis de ambiente necessárias:
 ```bash
-curl -X PUT http://localhost:8000/api/antiban/config \
-  -H "Content-Type: application/json" \
-  -d '{"max_proposals_per_day": 5, "min_pause_between_proposals_minutes": 15}'
+cp .env.example .env
 ```
+> [!IMPORTANT]
+> Em produção, certifique-se de definir `DEBUG=false` e definir senhas seguras para `SECRET_KEY` e `ENCRYPTION_KEY`. A aplicação rejeitará secrets inseguros e travará a inicialização caso detecte credenciais padrões em modo de produção.
 
 ---
 
-## 📝 Variáveis de Template
+## ▶️ Comandos de Desenvolvimento Local
 
-Use estas variáveis nos seus templates de proposta. Elas serão substituídas automaticamente:
+Para rodar os serviços nativamente de forma rápida durante o desenvolvimento:
 
-| Variável | Descrição | Exemplo |
-|----------|-----------|---------|
-| `{nome_cliente}` | Nome do cliente | João Silva |
-| `{titulo_projeto}` | Título do projeto | App Mobile React Native |
-| `{valor}` | Valor proposto | 5.000 |
-| `{prazo}` | Prazo em dias | 30 |
-| `{anos_experiencia}` | Sua experiência | 5 |
-| `{data_atual}` | Data de envio | 24/12/2024 |
+### 🐍 Backend & Worker (Nativo)
 
-### Exemplo de Template
-
-```text
-Olá {nome_cliente}!
-
-Vi o seu projeto "{titulo_projeto}" e fiquei muito interessado.
-
-Tenho {anos_experiencia} anos de experiência na área e posso 
-entregar um trabalho de qualidade.
-
-📌 Minha proposta:
-• Valor: R$ {valor}
-• Prazo: {prazo} dias
-• Entregas parciais para acompanhamento
-
-Podemos conversar para discutir os detalhes?
-
-Atenciosamente!
-```
-
----
-
-## ⚙️ Configurações
-
-### Variáveis de Ambiente (.env)
-
-Configure as seguintes variáveis no arquivo `.env` para habilitar a integração com o Supabase:
-
-#### Backend (`backend/.env`)
-```env
-# Credenciais Workana (opcional, pode configurar pela interface)
-WORKANA_EMAIL=seu@email.com
-WORKANA_PASSWORD=sua_senha
-
-# Segurança
-SECRET_KEY=sua_chave_secreta_aqui
-ENCRYPTION_KEY=chave_para_criptografia
-
-# API
-API_HOST=0.0.0.0
-API_PORT=8000
-DEBUG=true
-
-# Automação
-HEADLESS=true
-SLOW_MO=100
-MAX_PROPOSALS_PER_DAY=10
-DELAY_BETWEEN_ACTIONS_MS=2000
-
-# Conexão Postgres (Supabase)
-DATABASE_URL=postgresql+asyncpg://postgres.omfrvmbsazgfwhapsaur:[SENHA_DO_BANCO]@aws-1-sa-east-1.pooler.supabase.com:5432/postgres
-
-# Supabase Auth
-SUPABASE_URL=https://omfrvmbsazgfwhapsaur.supabase.co
-SUPABASE_JWKS_URL=https://omfrvmbsazgfwhapsaur.supabase.co/auth/v1/.well-known/jwks.json
-```
-
-#### Frontend (`frontend/.env`)
-```env
-VITE_SUPABASE_URL=https://omfrvmbsazgfwhapsaur.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_fOfKf_lvgTfGaltaAXOFYQ_xtsM2h4m
-VITE_API_URL=http://localhost:8000/api
-```
-
-### 🔌 Integração e MCP com Supabase
-
-Para integrar o ambiente do desenvolvedor com o MCP (Model Context Protocol) do Supabase:
-
-1. No ZCode, habilite o servidor `supabase` definido em `.mcp.json`, conclua o OAuth 2.1 no navegador e recarregue a sessão.
-2. Para usar a CLI separadamente, instale-a e autentique:
+1. Entre no diretório `backend` e configure o ambiente virtual:
    ```bash
-   supabase login
+   cd backend
+   python -m venv venv
+   # No Windows (PowerShell):
+   .\venv\Scripts\activate
+   # No Linux/macOS:
+   source venv/bin/activate
    ```
-3. Em **Project Settings > API Keys**, crie/rotacione uma publishable key para o frontend. Nunca use uma `sb_secret_` em arquivos `VITE_*`, no Git ou no navegador.
-4. Em **Authentication > Signing Keys**, confirme que uma chave assimétrica está ativa; o backend valida os access tokens pelo endpoint JWKS.
-5. Aplique `supabase/migrations/0001_initial_schema.sql` com `supabase db push` ou pelo MCP e execute os database advisors antes do deploy.
-6. Depois da migration, regenere `frontend/src/integrations/supabase/types.ts` com o MCP `get_typescript_types` (ou `supabase gen types typescript --project-id omfrvmbsazgfwhapsaur`).
-7. Para migrar dados existentes do SQLite local para o Supabase Postgres, execute opcionalmente:
+2. Instale as dependências e o navegador do Playwright:
    ```bash
-   python backend/scripts/migrate_sqlite_to_supabase.py
+   pip install -r requirements.txt
+   playwright install chromium
+   ```
+3. Copie o arquivo `.env` para a pasta do backend:
+   ```bash
+   cp ../.env .env
+   ```
+4. **Executar a API HTTP**:
+   ```bash
+   python run.py
+   ```
+   *(A API rodará na porta `8000`, expondo Swagger local em `http://localhost:8000/docs`)*
+
+5. **Executar o Worker de automação (em outro terminal)**:
+   ```bash
+   python run_worker.py
    ```
 
-### Configurações Recomendadas
+### ⚛️ Frontend (Nativo)
 
-| Configuração | Valor Recomendado | Descrição |
-|--------------|-------------------|-----------|
-| **Delay** | 2000-3000ms | Tempo entre ações para parecer humano |
-| **Limite Diário** | 5-10 | Propostas por dia |
-| **Modo Headless** | Ativado | Navegador invisível |
-| **Slow Motion** | 100ms | Velocidade de digitação |
-
----
-
-## ⚠️ Avisos Importantes
-
-> [!WARNING]
-> **Termos de Uso do Workana**
-> 
-> O uso de automação pode violar os Termos de Serviço do Workana. Use esta ferramenta por sua própria conta e risco. Recomendamos:
-> - Usar delays realistas entre ações
-> - Limitar o número de propostas diárias
-> - Não executar 24/7
-> - Monitorar sua conta regularmente
-
-> [!CAUTION]
-> **Risco de Suspensão**
-> 
-> Uso excessivo ou padrões detectáveis podem resultar em suspensão temporária ou permanente da sua conta Workana.
-
-> [!TIP]
-> **Melhores Práticas**
-> 
-> - Configure delays de pelo menos 2 segundos
-> - Limite a 5-10 propostas por dia
-> - Varie os horários de uso
-> - Personalize seus templates para cada tipo de projeto
+1. Entre no diretório `frontend`, instale as dependências e inicie o Vite:
+   ```bash
+   cd frontend
+   cp ../.env .env
+   npm install
+   npm run dev
+   ```
+   *(O frontend rodará na porta `8080` e utilizará o proxy do Vite para encaminhar requisições `/api` para `http://localhost:8000`)*
 
 ---
 
-## 🤝 Contribuição
+## 🐳 Execução Local Completa com Docker
 
-Contribuições são bem-vindas! Sinta-se à vontade para:
+Para simular o ambiente de produção completo em sua máquina local usando Docker Compose:
 
-1. 🍴 Fazer fork do projeto
-2. 🔧 Criar uma branch (`git checkout -b feature/nova-funcionalidade`)
-3. 💾 Commit suas mudanças (`git commit -m 'Adiciona nova funcionalidade'`)
-4. 📤 Push para a branch (`git push origin feature/nova-funcionalidade`)
-5. 📝 Abrir um Pull Request
-
----
-
-## 📄 Licença
-
-Este projeto é para **uso pessoal e educacional**.
-
-Não nos responsabilizamos pelo uso indevido desta ferramenta ou por qualquer consequência decorrente de seu uso.
+1. Suba todos os containers compilando as imagens:
+   ```bash
+   docker compose up --build -d
+   ```
+2. Isso iniciará:
+   * `frontend` em rede interna (porta 80)
+   * `api` em rede interna (porta 8000)
+   * `worker` rodando o scheduler e Playwright em rede interna
+   * `caddy` exposto nas portas locais **80** e **443**
+3. Acesse `http://localhost` no seu navegador. O Caddy roteará as requisições `/api` para o container backend e servirá o frontend SPA estaticamente nos demais caminhos.
 
 ---
 
-<div align="center">
+## 🖥️ Preparação da VPS Ubuntu LTS
 
-**Desenvolvido com ❤️ para freelancers**
+Recomendações detalhadas para configurar uma VPS limpa (Ubuntu 22.04 LTS AMD64) antes de realizar o deploy:
 
-⭐ Se este projeto te ajudou, deixe uma estrela!
+### 1. Atualizar o Sistema e Instalar o Docker
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y curl git apt-transport-https ca-certificates gnupg lsb-release
 
-</div>
+# Adicionar repositório oficial do Docker
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/whitelist.d/docker.list > /dev/null
+
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+sudo systemctl enable docker --now
+```
+
+### 2. Configurar Firewall (UFW)
+```bash
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow ssh
+sudo ufw allow http
+sudo ufw allow https
+sudo ufw enable
+```
+
+### 3. Configurar Swap (Recomendado para servidores de 1GB/2GB de RAM)
+O Playwright e as buscas na web podem consumir picos de memória. Crie um arquivo swap de 2GB:
+```bash
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+### 4. Acesso SSH por Chave Criptográfica
+Evite logins por senha na VPS. Adicione sua chave pública no arquivo `~/.ssh/authorized_keys` da VPS e desative o login por senha em `/etc/ssh/sshd_config` (`PasswordAuthentication no`).
+
+---
+
+## 🚀 Comandos de Deploy, Atualização e Rollback
+
+O fluxo de CI/CD pelo GitHub Actions automatiza o empacotamento em imagens Docker no **GitHub Container Registry (GHCR)** e executa os passos de deploy SSH na VPS de forma segura.
+
+### 📌 Deploy Inicial e Configuração na VPS
+
+1. Conecte-se na VPS e crie a pasta do projeto:
+   ```bash
+   mkdir -p /app/workana && cd /app/workana
+   ```
+2. Crie o arquivo `.env` na VPS contendo as chaves de produção corretas.
+3. Copie o arquivo `Caddyfile` e `compose.yaml` do Git para a VPS.
+4. Execute as migrations administrativas para inicializar o banco do Supabase:
+   ```bash
+   # Utilizando a CLI do Supabase local com a string administrativa do banco:
+   supabase db push --db-url "postgresql://postgres.omfrvmbsazgfwhapsaur:[SENHA]@aws-1-sa-east-1.pooler.supabase.com:5432/postgres"
+   ```
+5. Suba os containers na VPS:
+   ```bash
+   docker compose pull
+   docker compose up -d
+   ```
+
+### 🔄 Atualização em Produção (Sem Downtime Significativo)
+
+Durante novos commits na branch `main`, a pipeline atualiza a VPS automaticamente:
+1. Compila as imagens Docker marcadas com a tag do commit (ex: `sha-abcdef`).
+2. Faz o push para o GHCR.
+3. Conecta na VPS por SSH, atualiza a tag do container no `.env` da VPS.
+4. Roda as migrations do Supabase (com a conexão administrativa de migrations).
+5. Substitui os containers de forma segura:
+   ```bash
+   docker compose pull
+   docker compose up -d --remove-orphans
+   ```
+
+### ⏪ Rollback para a Versão Anterior
+
+Se a atualização apresentar erros críticos:
+1. Obtenha a tag anterior bem-sucedida (ex: `v1.0.0` ou o hash do commit anterior).
+2. Na VPS, atualize a tag da imagem no arquivo `.env`:
+   ```bash
+   sed -i 's/TAG_IMAGEM=.*/TAG_IMAGEM=hash_anterior/' .env
+   ```
+3. Aplique o rollback nos containers:
+   ```bash
+   docker compose up -d --force-recreate
+   ```
+4. Se necessário, reverta a migration no banco do Supabase.
+
+---
+
+## 📊 Diagnóstico e Logs
+
+Comandos essenciais para depuração e acompanhamento da aplicação na VPS:
+
+### Visualizar Logs em Tempo Real
+```bash
+# Todos os serviços
+docker compose logs -f
+
+# Apenas o Worker de automação
+docker compose logs -f worker
+
+# Apenas a API HTTP
+docker compose logs -f api
+
+# Logs de acesso e HTTPS do Caddy
+docker compose logs -f caddy
+```
+
+### Verificar Saúde dos Containers
+```bash
+docker compose ps
+```
+
+### Reiniciar Serviços Individuais
+```bash
+docker compose restart worker
+```
+
+---
+
+## ⚠️ Boas Práticas e Segurança
+
+* **Privilégios Mínimos**: Os containers `api` e `worker` utilizam credenciais do banco com papéis restritos (`api_role` e `worker_role`), sem permissões administrativas de DDL (como criar ou dropar tabelas).
+* **Row Level Security (RLS)**: Todas as tabelas públicas no Supabase têm RLS ativo. O backend valida a assinatura do token JWT e propaga o ID do usuário no escopo de cada transação, garantindo que nenhum usuário acesse dados de terceiros, mesmo efetuando requisições diretas na API do banco.
+* **Secrets Seguros**: Nunca armazene chaves `SECRET_KEY`, `ENCRYPTION_KEY`, senhas de banco ou logins do Workana no repositório Git. Use exclusivamente o GitHub Secrets (para CI/CD) e o arquivo `.env` local da VPS (com permissão `chmod 600`).

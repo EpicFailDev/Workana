@@ -62,10 +62,19 @@ def test_get_project_details(mock_automation):
     data = response.json()
     assert data["title"] == "Detalhe Teste"
 
-def test_dashboard_stats():
-    # Esse endpoint usa o banco, pode precisar de mock do CRUD se quisermos isolar
-    # Mas como o banco é sqlite local e autoiniciado, pode funcionar se init_db rodar.
-    # O TestClient com lifespan deve rodar o init_db.
+@patch("app.api.routers.dashboard.crud.get_dashboard_stats")
+def test_dashboard_stats(mock_stats):
+    from app.api.schemas import DashboardStats
+    mock_stats.return_value = DashboardStats(
+        total_proposals_sent=10,
+        proposals_today=2,
+        proposals_this_week=5,
+        proposals_this_month=8,
+        accepted_proposals=1,
+        pending_proposals=9,
+        response_rate=10.0,
+        last_activity="2026-06-30T12:00:00"
+    )
     response = client.get("/api/dashboard/stats")
     assert response.status_code == 200
     assert "total_proposals_sent" in response.json()

@@ -44,8 +44,11 @@ def get_current_user(authorization: Optional[str] = Header(default=None)) -> Use
     is_testing = "pytest" in sys.modules or os.getenv("TESTING") == "true"
     if settings.debug and is_testing and not settings.supabase_jwks_url:
         if token == "mock-token":
+            from app.database.models import current_user_id
+            user_uuid = UUID("00000000-0000-0000-0000-000000000000")
+            current_user_id.set(user_uuid)
             return {
-                "user_id": UUID("00000000-0000-0000-0000-000000000000"),
+                "user_id": user_uuid,
                 "email": "mock@example.com"
             }
         raise HTTPException(
@@ -63,8 +66,9 @@ def get_current_user(authorization: Optional[str] = Header(default=None)) -> Use
         # Recupera a chave pública apropriada para assinar esse JWT específico
         signing_key = jwks_client.get_signing_key_from_jwt(token)
         
-        algorithm = signing_key.algorithm_name
-        if algorithm not in ALLOWED_JWT_ALGORITHMS:
+        header = jwt.get_unverified_header(token)
+        algorithm = header.get("alg")
+        if not algorithm or algorithm not in ALLOWED_JWT_ALGORITHMS:
             raise _unauthorized("Algoritmo de assinatura JWT não permitido.")
 
         # Projetos novos usam normalmente ES256; RS256 permanece aceito para
@@ -75,6 +79,7 @@ def get_current_user(authorization: Optional[str] = Header(default=None)) -> Use
             algorithms=[algorithm],
             audience="authenticated",
             issuer=f"{settings.supabase_url.rstrip('/')}/auth/v1",
+            leeway=120,
         )
         
         user_id = payload.get("sub")
@@ -86,17 +91,25 @@ def get_current_user(authorization: Optional[str] = Header(default=None)) -> Use
         except (TypeError, ValueError):
             raise _unauthorized("Token inválido: subject não é um UUID.")
             
+        from app.database.models import current_user_id
+        current_user_id.set(user_uuid)
+            
         return {
             "user_id": user_uuid,
             "email": payload.get("email")
         }
         
-    except jwt.ExpiredSignatureError:
+    except jwt.ExpiredSignatureError as e:
+        from loguru import logger
+        logger.warning(f"JWT expirado: {e}")
         raise _unauthorized("Token expirado.")
     except HTTPException:
         raise
-    except jwt.InvalidTokenError:
+    except jwt.InvalidTokenError as e:
+        from loguru import logger
+        logger.warning(f"JWT inválido: {e}")
         raise _unauthorized("Token inválido.")
-    except Exception:
-        # Não exponha detalhes de rede, parsing ou chaves ao cliente.
+    except Exception as e:
+        from loguru import logger
+        logger.exception(f"Erro inesperado na validação do JWT: {e}")
         raise _unauthorized("Não foi possível validar o token.")

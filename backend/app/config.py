@@ -41,8 +41,21 @@ class Settings(BaseSettings):
     debug: bool = Field(default=False)
 
     @model_validator(mode="after")
-    def validate_security_keys(self) -> 'Settings':
-        """Garante que secret_key e encryption_key sejam seguros em produção."""
+    def validate_all_configs(self) -> 'Settings':
+        """Garante que todas as variáveis obrigatórias sejam seguras, válidas e PostgreSQL-only."""
+        # 1. Validar DATABASE_URL
+        if not self.database_url:
+            raise ValueError("DATABASE_URL é obrigatória e deve ser definida no ambiente.")
+        if "sqlite" in self.database_url.lower():
+            raise ValueError("O banco SQLite foi removido do runtime. Configure uma URL PostgreSQL válida.")
+
+        # 2. Validar Supabase Auth
+        if not self.supabase_url:
+            raise ValueError("SUPABASE_URL é obrigatória e deve ser definida no ambiente.")
+        if not self.supabase_jwks_url:
+            self.supabase_jwks_url = f"{self.supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json"
+
+        # 3. Chaves de segurança
         is_prod = not self.debug
         insecure_secret = "dev-secret-key-change-in-production"
         insecure_encrypt = "dev-encryption-key-32bytes!"
@@ -72,11 +85,28 @@ class Settings(BaseSettings):
     captcha_provider: Optional[str] = Field(default=None, description="Provedor de captcha ('2captcha' ou 'anti-captcha')")
     captcha_api_key: Optional[str] = Field(default=None, description="Chave de API do provedor de captcha")
 
-    # Banco de dados
-    database_url: str = Field(default="sqlite+aiosqlite:///./workana.db")
+    # Observabilidade / Logging
+    log_level: str = Field(default="INFO", description="Nível mínimo dos logs (DEBUG/INFO/WARNING/ERROR/CRITICAL)")
+    log_format: str = Field(
+        default="json",
+        description="Formato dos logs: 'json' (produção) ou 'console' (humano/colorido)"
+    )
+    environment: str = Field(
+        default="production",
+        description="Nome do ambiente (production/staging/development) incluído em cada log"
+    )
+    slow_query_ms: int = Field(default=500, description="Limiar (ms) para logar queries SQL lentas, sem parâmetros")
+    worker_heartbeat_max_age_seconds: int = Field(
+        default=90,
+        description="Idade máxima (s) do heartbeat do worker antes do healthcheck considerá-lo unhealthy"
+    )
+
+    # Banco de dados (obrigatório)
+    database_url: str = Field(..., description="URL de conexão com o banco de dados PostgreSQL")
+    sqlalchemy_echo: bool = Field(default=False, description="Habilitar echo do SQLAlchemy")
 
     # Supabase Auth
-    supabase_url: str = Field(default="", description="Supabase project URL")
+    supabase_url: str = Field(..., description="Supabase project URL")
     supabase_jwks_url: str = Field(default="", description="Supabase JWKS keys URL")
 
     # Scraper Settings

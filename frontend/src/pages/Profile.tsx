@@ -97,7 +97,7 @@ export default function Profile() {
             
             // 2. Sync immediately
             setIsLoading(true); // Show main loader
-            const data = await api.syncProfileMetrics(true);
+            const data = await api.syncProfileMetrics(false);
             setProfileMetrics(data);
             setIsChangingProfile(false);
             setNewProfileUrl("");
