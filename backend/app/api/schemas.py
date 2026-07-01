@@ -546,6 +546,42 @@ class CatalogProjectList(BaseModel):
     limit: int = 24
 
 
+class CatalogFilters(BaseModel):
+    """Filtros reutilizados por busca e seleção de todos os resultados."""
+    q: Optional[str] = None
+    category: Optional[str] = None
+    min_budget: Optional[float] = Field(default=None, ge=0)
+    max_budget: Optional[float] = Field(default=None, ge=0)
+    payment_verified: Optional[bool] = None
+    favorites_only: bool = False
+    hidden_only: bool = False
+
+
+class BulkStateRequest(BaseModel):
+    action: Literal["favorite", "unfavorite", "hide", "restore"]
+    project_ids: Optional[List[str]] = None
+    filters: Optional[CatalogFilters] = None
+    exclude_ids: List[str] = Field(default_factory=list)
+
+    @field_validator("project_ids", "exclude_ids")
+    @classmethod
+    def normalize_project_ids(cls, value):
+        if value is None:
+            return value
+        return list(dict.fromkeys(item.strip() for item in value if item and item.strip()))
+
+
+class BulkStateResult(BaseModel):
+    success: bool = True
+    updated: int
+    total: int
+
+
+class ProjectStateRequest(BaseModel):
+    action: Optional[Literal["favorite", "unfavorite", "hide", "restore"]] = None
+    notes: Optional[str] = Field(default=None, max_length=10000)
+
+
 class CatalogRefreshResult(BaseModel):
     """Resultado de uma coleta manual do catálogo."""
     success: bool

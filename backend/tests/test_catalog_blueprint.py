@@ -136,6 +136,109 @@ def test_manual_catalog_refresh_returns_409_when_locked(client):
     assert response.status_code == 409
 
 
+def test_bulk_state_endpoint_explicit_ids(client):
+    with (
+        patch(
+            "app.api.routers.projects.crud.resolve_target_workana_ids",
+            AsyncMock(return_value=["one", "two"]),
+        ) as resolve,
+        patch(
+            "app.api.routers.projects.crud.apply_bulk_state",
+            AsyncMock(return_value=2),
+        ) as apply,
+    ):
+        response = client.post(
+            "/api/projects/bulk-state",
+            json={"action": "hide", "project_ids": ["one", "two", "one"]},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"success": True, "updated": 2, "total": 2}
+    assert resolve.await_args.kwargs["project_ids"] == ["one", "two"]
+    apply.assert_awaited_once()
+
+
+def test_bulk_state_endpoint_requires_selection(client):
+    response = client.post("/api/projects/bulk-state", json={"action": "favorite"})
+    assert response.status_code == 422
+
+
+def test_single_state_and_notes_are_scoped_to_current_user(client, authenticated_user):
+    with (
+        patch("app.api.routers.projects.crud.catalog_project_exists", AsyncMock(return_value=True)),
+        patch("app.api.routers.projects.crud.apply_bulk_state", AsyncMock(return_value=1)) as apply,
+        patch("app.api.routers.projects.crud.set_catalog_project_notes", AsyncMock()) as notes,
+    ):
+        state_response = client.post(
+            "/api/projects/project-slug/state",
+            json={"action": "restore"},
+        )
+        notes_response = client.put(
+            "/api/projects/project-slug/notes",
+            json={"notes": "contatar amanhã"},
+        )
+
+    assert state_response.status_code == 200
+    assert notes_response.status_code == 200
+    assert apply.await_args.args == (
+        authenticated_user["user_id"],
+        ["project-slug"],
+        "restore",
+    )
+    assert notes.await_args.args[0] == authenticated_user["user_id"]
+
+
+@pytest.mark.asyncio
+async def test_filtered_target_resolution_respects_exclude_and_cap(monkeypatch):
+    projects = [
+        {"workana_id": "one"},
+        {"workana_id": "two"},
+        {"workana_id": "three"},
+    ]
+    search = AsyncMock(
+        return_value={"projects": projects, "total": 3, "page": 1, "limit": 2}
+    )
+    monkeypatch.setattr("app.database.crud.search_catalog", search)
+
+    result = await crud.resolve_target_workana_ids(
+        user_id=UUID("00000000-0000-0000-0000-000000000001"),
+        filters={"category": "TI", "hidden_only": True},
+        exclude_ids=["two"],
+        cap=2,
+    )
+
+    assert result == ["one", "three"]
+    assert search.await_args.kwargs["category"] == "TI"
+    assert search.await_args.kwargs["hidden_only"] is True
+    assert search.await_args.kwargs["limit"] == 2
+
+
+@pytest.mark.asyncio
+async def test_apply_bulk_restore_uses_user_scoped_upsert(monkeypatch):
+    session = AsyncMock()
+
+    class SessionContext:
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+    monkeypatch.setattr("app.database.crud.async_session", SessionContext)
+    user_id = UUID("00000000-0000-0000-0000-000000000001")
+
+    updated = await crud.apply_bulk_state(user_id, ["one", "two", "one"], "restore")
+
+    statement = session.execute.await_args.args[0]
+    assert updated == 2
+    assert "ON CONFLICT (user_id, workana_id)" in str(statement)
+    assert "is_hidden" in str(statement)
+    compiled = statement.compile().params
+    user_values = {value for key, value in compiled.items() if key.startswith("user_id")}
+    assert user_values == {user_id}
+    session.commit.assert_awaited_once()
+
+
 @pytest.mark.asyncio
 async def test_catalog_cycle_uses_anonymous_fallback_and_restores_context(monkeypatch):
     lock_result = MagicMock()

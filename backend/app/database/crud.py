@@ -1414,6 +1414,123 @@ async def search_catalog(
         return {"projects": projects, "total": total, "page": page, "limit": limit}
 
 
+async def resolve_target_workana_ids(
+    user_id: Any,
+    project_ids: Optional[List[str]] = None,
+    filters: Optional[Dict[str, Any]] = None,
+    exclude_ids: Optional[List[str]] = None,
+    cap: int = 2000,
+) -> List[str]:
+    """Resolve seleção explícita ou filtrada, mantendo o mesmo builder da busca."""
+    cap = max(1, min(cap, 2000))
+    excluded = set(exclude_ids or [])
+
+    if project_ids:
+        ordered_ids = list(dict.fromkeys(project_ids))[:cap]
+        async with async_session() as session:
+            result = await session.execute(
+                select(ProjectCatalogModel.workana_id).where(
+                    and_(
+                        ProjectCatalogModel.status == "active",
+                        ProjectCatalogModel.workana_id.in_(ordered_ids),
+                    )
+                )
+            )
+            existing = set(result.scalars().all())
+        return [item for item in ordered_ids if item in existing and item not in excluded]
+
+    filter_values = dict(filters or {})
+    result = await search_catalog(
+        user_id=user_id,
+        page=1,
+        limit=cap,
+        q=filter_values.get("q"),
+        category=filter_values.get("category"),
+        min_budget=filter_values.get("min_budget"),
+        max_budget=filter_values.get("max_budget"),
+        payment_verified=filter_values.get("payment_verified"),
+        favorites_only=filter_values.get("favorites_only", False),
+        hidden_only=filter_values.get("hidden_only", False),
+    )
+    return [
+        project["workana_id"]
+        for project in result["projects"]
+        if project["workana_id"] not in excluded
+    ][:cap]
+
+
+async def apply_bulk_state(user_id: Any, workana_ids: List[str], action: str) -> int:
+    """Upsert vetorizado do overlay sem sobrescrever o outro flag."""
+    if not workana_ids:
+        return 0
+
+    action_map = {
+        "favorite": ("is_favorite", True),
+        "unfavorite": ("is_favorite", False),
+        "hide": ("is_hidden", True),
+        "restore": ("is_hidden", False),
+    }
+    if action not in action_map:
+        raise ValueError(f"Ação de estado inválida: {action}")
+
+    field, value = action_map[action]
+    now = datetime.now(timezone.utc)
+    rows = [
+        {
+            "user_id": user_id,
+            "workana_id": workana_id,
+            field: value,
+            "created_at": now,
+            "updated_at": now,
+        }
+        for workana_id in dict.fromkeys(workana_ids)
+    ]
+    statement = pg_insert(UserProjectStateModel).values(rows)
+    statement = statement.on_conflict_do_update(
+        index_elements=[
+            UserProjectStateModel.user_id,
+            UserProjectStateModel.workana_id,
+        ],
+        set_={field: value, "updated_at": now},
+    )
+    async with async_session() as session:
+        await session.execute(statement)
+        await session.commit()
+    return len(rows)
+
+
+async def catalog_project_exists(workana_id: str) -> bool:
+    async with async_session() as session:
+        result = await session.execute(
+            select(ProjectCatalogModel.workana_id).where(
+                ProjectCatalogModel.workana_id == workana_id
+            )
+        )
+        return result.scalar_one_or_none() is not None
+
+
+async def set_catalog_project_notes(user_id: Any, workana_id: str, notes: str) -> None:
+    """Cria ou atualiza apenas as notas do overlay do usuário."""
+    now = datetime.now(timezone.utc)
+    statement = pg_insert(UserProjectStateModel).values(
+        user_id=user_id,
+        workana_id=workana_id,
+        notes=notes,
+        created_at=now,
+        updated_at=now,
+    )
+    statement = statement.on_conflict_do_update(
+        index_elements=[
+            UserProjectStateModel.user_id,
+            UserProjectStateModel.workana_id,
+        ],
+        set_={"notes": notes, "updated_at": now},
+    )
+    async with async_session() as session:
+        await session.execute(statement)
+        await session.commit()
+
+
 async def upsert_catalog_row(project_data: dict) -> None:
     """Upsert um projeto no catálogo. Chamado pelo worker."""
     async with async_session() as session:

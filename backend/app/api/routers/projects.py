@@ -5,7 +5,8 @@ from typing import List, Optional, Any
 from app.api.schemas import (
     SearchFilters, SavedFilter, Project, ProjectList, ProposalGenerationResult,
     ProposalSubmit, ProposalResult, ProposalGenerateRequest,
-    CatalogProjectList, SortOption,
+    CatalogProjectList, SortOption, BulkStateRequest, BulkStateResult,
+    ProjectStateRequest, ProjectNotesUpdate,
 )
 from app.auth import get_current_user
 from app.database import crud
@@ -47,6 +48,60 @@ async def list_catalog(
         hidden_only=hidden_only,
     )
     return result
+
+
+@router.post("/projects/bulk-state", response_model=BulkStateResult)
+async def bulk_project_state(
+    payload: BulkStateRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Aplica favorito/oculto a IDs explícitos ou a todos os resultados filtrados."""
+    if not payload.project_ids and payload.filters is None:
+        raise HTTPException(status_code=422, detail="Informe project_ids ou filters.")
+
+    ids = await crud.resolve_target_workana_ids(
+        user_id=user["user_id"],
+        project_ids=payload.project_ids,
+        filters=payload.filters.model_dump() if payload.filters else None,
+        exclude_ids=payload.exclude_ids,
+        cap=2000,
+    )
+    updated = await crud.apply_bulk_state(user["user_id"], ids, payload.action)
+    return BulkStateResult(updated=updated, total=len(ids))
+
+
+@router.post("/projects/{workana_id}/state")
+async def set_project_state(
+    workana_id: str,
+    payload: ProjectStateRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Atualiza estado ou notas de um único projeto do catálogo."""
+    if payload.action is None and payload.notes is None:
+        raise HTTPException(status_code=422, detail="Informe action ou notes.")
+    if not await crud.catalog_project_exists(workana_id):
+        raise HTTPException(status_code=404, detail="Projeto não encontrado no catálogo.")
+
+    updated = 0
+    if payload.action:
+        updated = await crud.apply_bulk_state(user["user_id"], [workana_id], payload.action)
+    if payload.notes is not None:
+        await crud.set_catalog_project_notes(user["user_id"], workana_id, payload.notes)
+        updated = 1
+    return {"success": True, "updated": updated}
+
+
+@router.put("/projects/{workana_id}/notes")
+async def update_catalog_notes(
+    workana_id: str,
+    payload: ProjectNotesUpdate,
+    user: dict = Depends(get_current_user),
+):
+    """Atualiza notas no overlay do usuário."""
+    if not await crud.catalog_project_exists(workana_id):
+        raise HTTPException(status_code=404, detail="Projeto não encontrado no catálogo.")
+    await crud.set_catalog_project_notes(user["user_id"], workana_id, payload.notes)
+    return {"success": True, "message": "Notas atualizadas!"}
 
 
 @router.post("/projects/search", response_model=ProjectList)
