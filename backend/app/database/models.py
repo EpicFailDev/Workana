@@ -3,7 +3,7 @@ Modelos SQLAlchemy para o banco de dados.
 """
 import contextvars
 import time
-from sqlalchemy import BigInteger, Column, Integer, String, Float, Boolean, DateTime, Text, JSON, UniqueConstraint, Uuid, event
+from sqlalchemy import BigInteger, Column, Integer, String, Float, Boolean, DateTime, Text, JSON, UniqueConstraint, Uuid, event, ForeignKeyConstraint, Index, PrimaryKeyConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.engine import make_url
@@ -138,9 +138,27 @@ class ProposalTemplate(Base):
     user_id = Column(Uuid(as_uuid=True), nullable=False, index=True)
     name = Column(String(100), nullable=False)
     content = Column(Text, nullable=False)
+    blueprint = Column(JSON_TYPE, nullable=False, default=list)
+    schema_version = Column(Integer, nullable=False, default=1)
     default_budget = Column(Float, nullable=True)
     default_deadline_days = Column(Integer, nullable=True)
     is_default = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class SystemProposalTemplate(Base):
+    """Templates globais do sistema."""
+    __tablename__ = "system_proposal_templates"
+    __table_args__ = {"schema": "private"}
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    slug = Column(String(100), nullable=False)
+    version = Column(Integer, nullable=False)
+    name = Column(String(200), nullable=False)
+    blueprint = Column(JSON_TYPE, nullable=False, default=list)
+    content = Column(Text, nullable=False)
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -158,7 +176,21 @@ class ProposalHistory(Base):
     deadline_days = Column(Integer, nullable=False)
     message = Column(Text, nullable=True)
     status = Column(String(50), default="sent")
+    template_id = Column(BigInteger, nullable=True)
+    template_slug = Column(String(100), nullable=True)
+    template_version = Column(Integer, nullable=True)
+    template_type = Column(String(20), nullable=True)
     sent_at = Column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["user_id", "template_id"],
+            ["proposal_templates.user_id", "proposal_templates.id"],
+            ondelete="SET NULL"
+        ),
+        Index("idx_proposal_history_template_id", "template_id")
+    )
+
 
 
 class AutomationConfig(Base):
@@ -333,7 +365,7 @@ class ProfileMetrics(Base):
 class ProfileConfig(Base):
     """Configuração do perfil público para monitoramento."""
     __tablename__ = "profile_config"
-    
+
     id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
     user_id = Column(Uuid(as_uuid=True), nullable=False, unique=True, index=True)
     profile_url = Column(String(500), nullable=False)
@@ -342,3 +374,129 @@ class ProfileConfig(Base):
     last_sync_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+# ============================================================================ #
+# Catálogo global + estado por usuário + lotes de proposta
+# ============================================================================ #
+
+
+class ProjectCatalog(Base):
+    """Catálogo compartilhado de projetos do Workana (uma linha por slug).
+
+    Preenchido exclusivamente pelo worker via upsert periódico. Leitura para
+    qualquer usuário autenticado; escrita somente pelo processo worker, cuja
+    role possui uma policy RLS própria.
+    """
+    __tablename__ = "projects_catalog"
+
+    workana_id = Column(String(255), primary_key=True)
+    title = Column(String(500), nullable=False)
+    description = Column(Text, nullable=True)
+    url = Column(Text, nullable=False)
+    category = Column(String(100), nullable=True)
+    subcategory = Column(String(100), nullable=True)
+    budget_min = Column(Float, nullable=True)
+    budget_max = Column(Float, nullable=True)
+    budget_type = Column(String(50), nullable=True)
+    deadline = Column(String(100), nullable=True)
+    skills = Column(JSON_TYPE, nullable=True)
+    details = Column(JSON_TYPE, nullable=True)
+    client_name = Column(String(255), nullable=True)
+    client_country = Column(String(100), nullable=True)
+    client_rating = Column(Float, nullable=True)
+    client_projects_posted = Column(Integer, nullable=True)
+    client_projects_paid = Column(Integer, nullable=True)
+    client_member_since = Column(String(100), nullable=True)
+    client_plan = Column(String(100), nullable=True)
+    proposals_count = Column(Integer, nullable=True)
+    payment_verified = Column(Boolean, default=False)
+    posted_at = Column(String(100), nullable=True)
+    published_at = Column(String(100), nullable=True)
+    last_client_activity = Column(String(100), nullable=True)
+    is_urgent = Column(Boolean, default=False)
+    is_featured = Column(Boolean, default=False)
+    # active = visível; gone = não apareceu no último ciclo (soft); closed = encerrado.
+    status = Column(String(20), nullable=False, default="active")
+    first_seen_at = Column(DateTime(timezone=True), default=utcnow)
+    last_seen_at = Column(DateTime(timezone=True), default=utcnow)
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class UserProjectState(Base):
+    """Estado por usuário sobre um projeto do catálogo (overlay).
+
+    Chave única (user_id, workana_id). Substitui as colunas is_favorite /
+    is_ignored / notes que viviam na antiga tabela `projects` por usuário.
+    """
+    __tablename__ = "user_project_states"
+
+    user_id = Column(Uuid(as_uuid=True), nullable=False)
+    workana_id = Column(String(255), nullable=False)
+    is_favorite = Column(Boolean, default=False)
+    is_hidden = Column(Boolean, default=False)
+    notes = Column(Text, nullable=True)
+    analysis = Column(JSON_TYPE, nullable=True)
+    analyzed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        PrimaryKeyConstraint("user_id", "workana_id", name="pk_user_project_states"),
+    )
+
+
+class ProposalBatch(Base):
+    """Lote de envio de propostas, com execução persistente e progresso."""
+    __tablename__ = "proposal_batches"
+
+    id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
+    user_id = Column(Uuid(as_uuid=True), nullable=False, index=True)
+    template_ref = Column(String(100), nullable=True)
+    summary = Column(JSON_TYPE, nullable=True)
+    # queued|running|completed|cancelled|failed
+    status = Column(String(20), nullable=False, default="queued")
+    total = Column(Integer, nullable=False, default=0)
+    sent_count = Column(Integer, nullable=False, default=0)
+    failed_count = Column(Integer, nullable=False, default=0)
+    skipped_count = Column(Integer, nullable=False, default=0)
+    daily_limit = Column(Integer, nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class ProposalBatchItem(Base):
+    """Item individual de um lote de propostas, com máquina de estados."""
+    __tablename__ = "proposal_batch_items"
+
+    id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
+    batch_id = Column(BigInteger, nullable=False, index=True)
+    user_id = Column(Uuid(as_uuid=True), nullable=False, index=True)
+    workana_id = Column(String(255), nullable=False)
+    project_title = Column(String(500), nullable=True)
+    project_url = Column(Text, nullable=True)
+    # queued|generating|sending|sent|failed|skipped|cancelled
+    status = Column(String(20), nullable=False, default="queued")
+    generated_message = Column(Text, nullable=True)
+    suggested_price = Column(String(50), nullable=True)
+    budget = Column(Float, nullable=True)
+    deadline_days = Column(Integer, nullable=True)
+    error = Column(Text, nullable=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["batch_id"],
+            ["proposal_batches.id"],
+            ondelete="CASCADE",
+            name="fk_proposal_batch_items_batch_id"
+        ),
+        Index("idx_proposal_batch_items_batch_id_status", "batch_id", "status"),
+    )

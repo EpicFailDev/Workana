@@ -6,7 +6,7 @@ import Dashboard from './pages/Dashboard'
 import Projects from './pages/Projects'
 import History from './pages/History'
 import Settings from './pages/Settings'
-import Templates from './pages/Templates'
+const Templates = React.lazy(() => import('./pages/Templates'))
 import Profile from './pages/Profile'
 import Auth from './pages/Auth'
 import Recuperar from './pages/Recuperar'
@@ -87,7 +87,36 @@ function App() {
                                     <Route path="/projects" element={<Projects />} />
                                     <Route path="/history" element={<History />} />
                                     <Route path="/settings" element={<Settings />} />
-                                    <Route path="/templates" element={<Templates />} />
+                                    <Route 
+                                        path="/templates" 
+                                        element={
+                                            <React.Suspense fallback={
+                                                <div style={{
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    height: '100%',
+                                                    minHeight: '400px',
+                                                    color: '#6366f1',
+                                                    fontFamily: 'monospace',
+                                                    gap: '16px'
+                                                }}>
+                                                    <div style={{
+                                                        width: '24px',
+                                                        height: '24px',
+                                                        border: '2px solid rgba(99, 102, 241, 0.2)',
+                                                        borderRadius: '50%',
+                                                        borderTopColor: '#6366f1',
+                                                        animation: 'spin 1s linear infinite'
+                                                    }}></div>
+                                                    <span>CARREGANDO BLUEPRINT...</span>
+                                                </div>
+                                            }>
+                                                <Templates />
+                                            </React.Suspense>
+                                        } 
+                                    />
                                     <Route path="/profile" element={<Profile />} />
                                     {/* Fallback */}
                                     <Route path="*" element={<Navigate to="/" replace />} />

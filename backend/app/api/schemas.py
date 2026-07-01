@@ -1,8 +1,8 @@
 """
 Schemas Pydantic para validação de dados da API.
 """
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional, List, Dict, Literal, Any
 from datetime import datetime
 from enum import Enum
 
@@ -25,6 +25,7 @@ class SortOption(str, Enum):
     BUDGET_ASC = "budget_asc"   # Menor valor
     BIDS_DESC = "bids_desc"     # Mais propostas
     BIDS_ASC = "bids_asc"       # Menos propostas
+    RANKING = "ranking"         # Score de análise (phase 5)
 
 
 class ProposalStatus(str, Enum):
@@ -109,25 +110,98 @@ class ProjectList(BaseModel):
 
 # ==================== Templates de Proposta ====================
 
+class TemplateBlock(BaseModel):
+    """Peça de um template blueprint."""
+    id: str = Field(..., description="ID único da peça")
+    type: Literal[
+        "abertura", "tom_de_voz", "entendimento_projeto", "solucao", 
+        "experiencia", "entregas", "diferenciais", "preco_prazo", 
+        "cta", "assinatura", "instrucao_personalizada"
+    ] = Field(..., description="Tipo de peça")
+    mode: Literal["literal", "instruction"] = Field(..., description="Modo da peça")
+    enabled: bool = Field(default=True, description="Se a peça está ativa")
+    content: Optional[str] = Field(None, description="Conteúdo ou instrução da peça")
+    config: Optional[dict] = Field(None, description="Configurações específicas da peça")
+
+
+def validate_blueprint_logic(v):
+    if v is None:
+        return v
+        
+    # 1. Rejeitar blueprints sem nenhuma peça ativa
+    active_blocks = [b for b in v if b.enabled]
+    if not active_blocks:
+        raise ValueError("O blueprint deve conter pelo menos uma peça ativa.")
+        
+    # 2. Rejeitar IDs duplicados
+    ids = [b.id for b in v]
+    if len(ids) != len(set(ids)):
+        raise ValueError("O blueprint possui IDs de bloco duplicados.")
+        
+    # 3. Rejeitar blocos com conteúdo vazio
+    for b in v:
+        if b.enabled and (not b.content or not b.content.strip()):
+            raise ValueError(f"O bloco com ID '{b.id}' e tipo '{b.type}' não pode ter conteúdo vazio.")
+            
+    return v
+
+
 class ProposalTemplate(BaseModel):
     """Template de proposta."""
     id: Optional[int] = None
     name: str = Field(..., min_length=1, max_length=100, description="Nome do template")
-    content: str = Field(..., min_length=10, description="Conteúdo do template")
+    content: str = Field(..., description="Conteúdo compilado do template")
+    blueprint: List[TemplateBlock] = Field(default=[], description="Lista ordenada de peças do blueprint")
+    schema_version: int = Field(default=1, description="Versão do schema do blueprint")
     default_budget: Optional[float] = Field(None, ge=0, description="Orçamento padrão")
     default_deadline_days: Optional[int] = Field(None, ge=1, description="Prazo padrão em dias")
     is_default: bool = Field(default=False, description="Se é o template padrão")
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    template_ref: Optional[str] = None
+    is_system: bool = False
+    can_edit: bool = True
+    can_delete: bool = True
+    version: Optional[int] = None
+
+    @field_validator("blueprint")
+    @classmethod
+    def validate_blueprint(cls, v):
+        return validate_blueprint_logic(v)
 
 
 class ProposalTemplateCreate(BaseModel):
     """Criação de template de proposta."""
     name: str = Field(..., min_length=1, max_length=100)
-    content: str = Field(..., min_length=10)
+    content: Optional[str] = Field(None, description="Conteúdo compilado opcional")
+    blueprint: Optional[List[TemplateBlock]] = Field(default=None, description="Peças do blueprint")
+    schema_version: int = 1
     default_budget: Optional[float] = Field(None, ge=0)
     default_deadline_days: Optional[int] = Field(None, ge=1)
     is_default: bool = False
+
+    @field_validator("blueprint")
+    @classmethod
+    def validate_blueprint(cls, v):
+        return validate_blueprint_logic(v)
+
+
+class ProposalGenerateRequest(BaseModel):
+    """Corpo opcional para requisição de geração de proposta."""
+    template_id: Optional[Any] = Field(None, description="ID ou referência do template a usar")
+
+
+class BlueprintTestRequest(BaseModel):
+    """Requisição para testar um blueprint não salvo."""
+    blueprint: List[TemplateBlock] = Field(..., description="Lista de peças a compilar")
+    project: Optional[dict] = Field(None, description="Dados fictícios do projeto")
+    run_ai: bool = Field(default=False, description="Se deve executar a geração com IA real")
+
+    @field_validator("blueprint")
+    @classmethod
+    def validate_blueprint(cls, v):
+        return validate_blueprint_logic(v)
+
 
 
 # ==================== Envio de Proposta ====================
@@ -135,7 +209,7 @@ class ProposalTemplateCreate(BaseModel):
 class ProposalSubmit(BaseModel):
     """Dados para enviar uma proposta."""
     project_id: str = Field(..., description="ID do projeto")
-    template_id: Optional[int] = Field(None, description="ID do template a usar")
+    template_id: Optional[Any] = Field(None, description="ID ou referência do template a usar")
     custom_message: Optional[str] = Field(None, description="Mensagem personalizada")
     budget: float = Field(..., gt=0, description="Valor da proposta")
     deadline_days: int = Field(..., ge=1, description="Prazo em dias")
@@ -172,6 +246,8 @@ class ProposalHistory(BaseModel):
     sent_at: datetime
     message_preview: Optional[str] = None
     message: Optional[str] = None
+    template_id: Optional[int] = None
+
 
 
 # ==================== Dashboard Stats ====================
@@ -418,4 +494,63 @@ class ProfileMetricsHistoryList(BaseModel):
     """Lista de histórico de métricas."""
     history: List[ProfileMetricsHistory]
     total: int
+
+
+# ==================== Catálogo de Projetos ====================
+
+
+class CatalogProject(BaseModel):
+    """Projeto do catálogo compartilhado, enriquecido com estado do usuário."""
+    workana_id: str
+    title: str
+    description: Optional[str] = None
+    url: str
+    category: Optional[str] = None
+    subcategory: Optional[str] = None
+    budget_min: Optional[float] = None
+    budget_max: Optional[float] = None
+    budget_type: Optional[str] = None
+    deadline: Optional[str] = None
+    skills: Optional[List[str]] = None
+    details: Dict[str, str] = Field(default_factory=dict)
+    client_name: Optional[str] = None
+    client_country: Optional[str] = None
+    client_rating: Optional[float] = None
+    client_projects_posted: Optional[int] = None
+    client_projects_paid: Optional[int] = None
+    client_member_since: Optional[str] = None
+    client_plan: Optional[str] = None
+    proposals_count: Optional[int] = None
+    payment_verified: Optional[bool] = False
+    posted_at: Optional[str] = None
+    published_at: Optional[str] = None
+    last_client_activity: Optional[str] = None
+    is_urgent: bool = False
+    is_featured: bool = False
+    status: str = "active"
+    first_seen_at: Optional[datetime] = None
+    last_seen_at: Optional[datetime] = None
+    # Estado por usuário (overlay — pode ser None se nunca interagiu)
+    is_favorite: bool = False
+    is_hidden: bool = False
+    notes: Optional[str] = None
+    analysis: Optional[dict] = None
+    analyzed_at: Optional[datetime] = None
+
+
+class CatalogProjectList(BaseModel):
+    """Lista paginada do catálogo."""
+    projects: List[CatalogProject]
+    total: int
+    page: int = 1
+    limit: int = 24
+
+
+class CatalogRefreshResult(BaseModel):
+    """Resultado de uma coleta manual do catálogo."""
+    success: bool
+    message: str
+    upserted: int = 0
+    marked_gone: int = 0
+    errors: int = 0
 

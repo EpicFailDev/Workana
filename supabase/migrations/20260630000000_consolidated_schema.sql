@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS public.automation_config (
     email_enabled BOOLEAN DEFAULT FALSE,
     email_to VARCHAR(255),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
-    CONSTRAINT fk_preferred_template FOREIGN KEY (user_id, preferred_template_id) REFERENCES public.proposal_templates(user_id, id) ON DELETE SET NULL
+    CONSTRAINT fk_preferred_template FOREIGN KEY (user_id, preferred_template_id) REFERENCES public.proposal_templates(user_id, id) ON DELETE SET NULL (preferred_template_id)
 );
 
 CREATE TABLE IF NOT EXISTS public.projects (
@@ -93,7 +93,8 @@ CREATE TABLE IF NOT EXISTS public.projects (
     notes TEXT,
     found_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
-    CONSTRAINT uix_projects_user_id_workana_id UNIQUE (user_id, workana_id)
+    CONSTRAINT uix_projects_user_id_workana_id UNIQUE (user_id, workana_id),
+    CONSTRAINT uix_projects_user_id_id UNIQUE (user_id, id)
 );
 
 CREATE TABLE IF NOT EXISTS public.activity_logs (
@@ -383,11 +384,13 @@ CREATE INDEX IF NOT EXISTS idx_profile_config_user_id ON public.profile_config (
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'api_role') THEN
-        CREATE ROLE api_role WITH LOGIN PASSWORD 'mude_esta_senha_em_producao_api';
+        CREATE ROLE api_role NOLOGIN;
     END IF;
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'worker_role') THEN
-        CREATE ROLE worker_role WITH LOGIN PASSWORD 'mude_esta_senha_em_producao_worker';
+        CREATE ROLE worker_role NOLOGIN;
     END IF;
+    ALTER ROLE api_role NOLOGIN;
+    ALTER ROLE worker_role NOLOGIN;
 END
 $$;
 

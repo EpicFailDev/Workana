@@ -177,7 +177,7 @@ O fluxo de CI/CD pelo GitHub Actions automatiza o empacotamento em imagens Docke
 4. Execute as migrations administrativas para inicializar o banco do Supabase:
    ```bash
    # Utilizando a CLI do Supabase local com a string administrativa do banco:
-   supabase db push --db-url "postgresql://postgres.omfrvmbsazgfwhapsaur:[SENHA]@aws-1-sa-east-1.pooler.supabase.com:5432/postgres"
+   supabase db push --db-url "postgresql://postgres.cztwxtsuewwacjcgajjz:[SENHA]@aws-1-sa-east-1.pooler.supabase.com:5432/postgres"
    ```
 5. Suba os containers na VPS:
    ```bash

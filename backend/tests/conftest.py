@@ -12,7 +12,7 @@ if "DATABASE_URL" not in os.environ or "sqlite" in os.environ.get("DATABASE_URL"
     os.environ["DATABASE_URL"] = "postgresql+asyncpg://dummy_user:dummy_pass@localhost:5432/dummy_db"
 
 if "SUPABASE_URL" not in os.environ:
-    os.environ["SUPABASE_URL"] = "https://omfrvmbsazgfwhapsaur.supabase.co"
+    os.environ["SUPABASE_URL"] = "https://cztwxtsuewwacjcgajjz.supabase.co"
 
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock
@@ -48,7 +48,7 @@ def check_db_test_safety(request):
         if "dummy_user" in db_url:
             pytest.skip("Teste de banco ignorado: DATABASE_URL é dummy (sem banco PostgreSQL local configurado).")
         # Proteção rígida contra testes destrutivos contra o projeto hospedado
-        if "omfrvmbsazgfwhapsaur" in db_url:
+        if "cztwxtsuewwacjcgajjz" in db_url:
             pytest.skip("Bloqueio de segurança: Não é permitido rodar testes contra o banco hospedado em produção.")
 
 

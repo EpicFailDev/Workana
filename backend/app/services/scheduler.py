@@ -1,9 +1,10 @@
 import asyncio
+import random
 from datetime import datetime, timezone
 from typing import List, Dict, Any
 from loguru import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.database.models import async_session, SavedFilter as SavedFilterModel
 from app.database import crud
@@ -37,9 +38,8 @@ class SearchScheduler:
         """Inicia o agendador."""
         if self.is_started:
             return
-        
-        # Adicionar o job de busca periódica (roda a cada 30 minutos)
-        # O usuário pode configurar ou desabilitar no .env / settings se preferir
+
+        # Job legado: busca por filtros de cada usuário (roda a cada 30 minutos)
         self.scheduler.add_job(
             self.execute_scheduled_search,
             "interval",
@@ -47,11 +47,20 @@ class SearchScheduler:
             id="periodic_workana_search",
             replace_existing=True
         )
-        
+
+        # Job de catálogo: upsert do catálogo compartilhado (roda a cada 15 minutos)
+        self.scheduler.add_job(
+            self.execute_catalog_upsert,
+            "interval",
+            minutes=15,
+            id="catalog_upsert",
+            replace_existing=True
+        )
+
         self.scheduler.start()
         self.is_started = True
         logger.bind(event="scheduler.started").info(
-            "Scheduler de busca Workana inicializado com sucesso (frequência: 30 min)."
+            "Scheduler inicializado (busca legada: 30 min, catálogo: 15 min)."
         )
 
     def stop(self):
@@ -250,28 +259,48 @@ class SearchScheduler:
                                                     logger.bind(event="scheduler.auto_apply.generating").info(
                                                         "Gerando proposta por IA."
                                                     )
+                                                    preferred_template_id = user_config.get("preferred_template_id")
+                                                    template = None
+                                                    if preferred_template_id:
+                                                        template = await crud.get_template(user_id_str, preferred_template_id)
+                                                    if not template:
+                                                        template = await crud.get_preferred_or_default_template(user_id_str)
+                                                        
+                                                    actual_template_id = template.id if template else None
+
                                                     gen_result = await proposal_agent_instance.generate_proposal(
-                                                        user_id_str, project_dict_for_agent
+                                                        user_id_str, project_dict_for_agent, template_id=actual_template_id
                                                     )
 
                                                     if gen_result.get("success") and gen_result.get("proposal"):
+                                                        if gen_result.get("template_id_used"):
+                                                            actual_template_id = gen_result.get("template_id_used")
                                                         proposal_text = gen_result.get("proposal", "")
-                                                        suggested_price_str = gen_result.get("suggested_price", proj.budget or "R$ 100")
-
-                                                        # Tentar extrair preço numérico
-                                                        import re
-                                                        price_clean = suggested_price_str.replace('.', '').replace(',', '.')
-                                                        price_match = re.search(r'[\d.]+', price_clean)
-                                                        budget_val = float(price_match.group()) if price_match else (proj.budget_min or 100.0)
+                                                        
+                                                        # Determinar Preço (Precedência: valor do template, sugestão da IA, fallback)
+                                                        budget_val = None
+                                                        if template and template.default_budget and template.default_budget > 0:
+                                                            budget_val = template.default_budget
+                                                        else:
+                                                            suggested_price_str = gen_result.get("suggested_price", proj.budget or "R$ 100")
+                                                            import re
+                                                            price_clean = suggested_price_str.replace('.', '').replace(',', '.')
+                                                            price_match = re.search(r'[\d.]+', price_clean)
+                                                            budget_val = float(price_match.group()) if price_match else (proj.budget_min or 100.0)
+                                                            
+                                                        # Determinar Prazo (Precedência: valor do template, fallback)
+                                                        deadline_val = 7
+                                                        if template and template.default_deadline_days and template.default_deadline_days > 0:
+                                                            deadline_val = template.default_deadline_days
 
                                                         # Instanciar ProposalSubmit
                                                         from app.api.schemas import ProposalSubmit
                                                         submit_data = ProposalSubmit(
                                                             project_id=proj.id,
-                                                            template_id=user_config.get("preferred_template_id"),
+                                                            template_id=actual_template_id,
                                                             custom_message=proposal_text,
                                                             budget=budget_val,
-                                                            deadline_days=7  # Padrão
+                                                            deadline_days=deadline_val
                                                         )
 
                                                         # 2. Enviar proposta de fato usando a automação
@@ -345,6 +374,129 @@ class SearchScheduler:
                     logger.bind(event="scheduler.lock.release_error").exception(
                         f"Erro ao liberar o lock no Postgres: {sanitize_exception(e)}"
                     )
+
+    async def execute_catalog_upsert(self) -> Dict[str, Any]:
+        """Executa um ciclo de coleta do catálogo: busca anônima + upsert + marca gone.
+
+        Chamado pelo job agendado (15 min) ou manualmente via POST /automation/catalog/refresh.
+        Retorna dict com estatísticas (upserted, marked_gone, errors).
+        """
+        catalog_lock_id = 742190  # lock distinto do legado (742189)
+
+        async with async_session() as lock_session:
+            lock_res = await lock_session.execute(
+                text("SELECT pg_try_advisory_lock(:lock_id)"),
+                {"lock_id": catalog_lock_id}
+            )
+            acquired = lock_res.scalar()
+
+            if not acquired:
+                logger.bind(event="catalog.lock.busy").warning(
+                    "Outra instância já está executando a coleta do catálogo. Abortando."
+                )
+                raise RuntimeError("Catalog upsert already running — advisory lock not acquired.")
+
+            try:
+                op_token = operation_id_var.set(new_operation_id())
+                upserted = 0
+                errors = 0
+                seen_ids: List[str] = []
+
+                try:
+                    # 1. Obter buscas agregadas de todos os filtros salvos
+                    queries = await crud.get_distinct_saved_filter_queries()
+
+                    if not queries:
+                        logger.bind(event="catalog.cycle.no_filters").info(
+                            "Sem filtros salvos. Pulando ciclo do catálogo."
+                        )
+                        return {"success": True, "message": "Sem filtros", "upserted": 0, "marked_gone": 0, "errors": 0}
+
+                    logger.bind(event="catalog.cycle.started").info(
+                        f"Coleta do catálogo iniciada ({len(queries)} buscas únicas)."
+                    )
+
+                    for filter_data in queries:
+                        try:
+                            # Limites conservadores para o worker de catálogo
+                            filter_data["max_results"] = min(filter_data.get("max_results", 30), 50)
+                            filter_data["pages_to_fetch"] = min(filter_data.get("pages_to_fetch", 1), 3)
+                            filters_obj = SearchFilters(**filter_data)
+
+                            # Busca anônima (user_id=None — sem credenciais)
+                            projects = await automation.search_projects(filters_obj, user_id=None)
+
+                            for proj in projects:
+                                # Mapear campos do modelo Project para o formato do catálogo
+                                catalog_data = {
+                                    "workana_id": proj.id,
+                                    "title": proj.title,
+                                    "description": proj.description,
+                                    "url": proj.url,
+                                    "category": proj.category,
+                                    "subcategory": proj.subcategory,
+                                    "budget_min": proj.budget_min,
+                                    "budget_max": proj.budget_max,
+                                    "budget_type": proj.project_type,
+                                    "deadline": proj.deadline,
+                                    "skills": proj.skills or [],
+                                    "details": proj.details or {},
+                                    "client_name": proj.client_name,
+                                    "client_country": proj.client_country,
+                                    "client_rating": proj.client_rating,
+                                    "client_projects_posted": proj.client_projects_posted,
+                                    "client_projects_paid": proj.client_projects_paid,
+                                    "client_member_since": proj.client_member_since,
+                                    "client_plan": proj.client_plan,
+                                    "proposals_count": proj.proposals_count,
+                                    "payment_verified": proj.payment_verified,
+                                    "posted_at": proj.posted_at,
+                                    "published_at": proj.published_at,
+                                    "last_client_activity": proj.last_client_activity,
+                                    "is_urgent": proj.is_urgent,
+                                    "is_featured": proj.is_featured,
+                                }
+
+                                await crud.upsert_catalog_row(catalog_data)
+                                seen_ids.append(proj.id)
+                                upserted += 1
+
+                            # Jitter anti-ban entre buscas
+                            await asyncio.sleep(random.uniform(2.0, 5.0))
+
+                        except Exception as ex:
+                            errors += 1
+                            logger.bind(event="catalog.query.error").exception(
+                                f"Erro na busca do catálogo: {sanitize_exception(ex)}"
+                            )
+
+                    # 2. Marcar projetos ausentes como 'gone'
+                    marked_gone = await crud.mark_gone_catalog_projects(seen_ids)
+
+                    logger.bind(event="catalog.cycle.completed").info(
+                        f"Catálogo atualizado: {upserted} upserted, {marked_gone} gone, {errors} errors."
+                    )
+
+                    return {
+                        "success": True,
+                        "message": f"Catálogo atualizado: {upserted} projetos, {marked_gone} removidos.",
+                        "upserted": upserted,
+                        "marked_gone": marked_gone,
+                        "errors": errors,
+                    }
+
+                finally:
+                    operation_id_var.reset(op_token)
+
+            finally:
+                try:
+                    await lock_session.execute(
+                        text("SELECT pg_advisory_unlock(:lock_id)"),
+                        {"lock_id": catalog_lock_id}
+                    )
+                except Exception:
+                    pass
+
 
 # Instância global do agendador
 scheduler_instance = SearchScheduler()

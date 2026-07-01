@@ -3,8 +3,9 @@ Operações CRUD para o banco de dados.
 """
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone
+import json
 from loguru import logger
-from sqlalchemy import select, func, delete, update, and_, or_
+from sqlalchemy import select, func, delete, update, and_, or_, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from cryptography.fernet import Fernet
 import base64
@@ -15,13 +16,43 @@ from app.database.models import (
     ProposalTemplate as ProposalTemplateModel, ProposalHistory as ProposalHistoryModel,
     AutomationConfig as AutomationConfigModel, Project as ProjectModel,
     ActivityLog as ActivityLogModel, DailyStatistics as DailyStatisticsModel,
-    BlacklistedClient as BlacklistedClientModel
+    BlacklistedClient as BlacklistedClientModel, SystemProposalTemplate as SystemProposalTemplateModel,
+    ProjectCatalog as ProjectCatalogModel, UserProjectState as UserProjectStateModel,
 )
 from app.api.schemas import (
     SavedFilter, ProposalTemplate, ProposalTemplateCreate,
     ProposalSubmit, ProposalResult, ProposalHistory, DashboardStats
 )
 from app.config import settings
+
+
+def parse_template_ref(template_ref_or_id: Any) -> tuple[Optional[int], Optional[str], Optional[str]]:
+    """
+    Retorna (template_id, template_slug, template_type)
+    """
+    if template_ref_or_id is None:
+        return None, None, None
+        
+    ref_str = str(template_ref_or_id).strip()
+    if not ref_str:
+        return None, None, None
+        
+    if ref_str.startswith("system:"):
+        slug = ref_str.split(":", 1)[1]
+        return None, slug, "system"
+    elif ref_str.startswith("personal:"):
+        try:
+            tid = int(ref_str.split(":", 1)[1])
+            return tid, None, "personal"
+        except ValueError:
+            return None, None, None
+    else:
+        try:
+            return int(ref_str), None, "personal"
+        except ValueError:
+            if ref_str == "workana-consultivo":
+                return None, ref_str, "system"
+            return None, None, None
 
 
 def _get_fernet():
@@ -132,6 +163,80 @@ async def delete_filter(user_id: Any, filter_id: int):
 
 # ==================== Templates ====================
 
+async def _sync_preferred_template(session: AsyncSession, user_id: Any, template_id: Optional[int]):
+    result = await session.execute(
+        select(AutomationConfigModel).where(AutomationConfigModel.user_id == user_id).limit(1)
+    )
+    config = result.scalar_one_or_none()
+    if config:
+        config.preferred_template_id = template_id
+    else:
+        config = AutomationConfigModel(
+            user_id=user_id,
+            headless=True,
+            delay_between_actions_ms=2000,
+            max_proposals_per_day=10,
+            auto_apply=False,
+            preferred_template_id=template_id
+        )
+        session.add(config)
+
+async def get_preferred_or_default_template(user_id: Any) -> Optional[ProposalTemplateModel]:
+    """Obtém o template padrão ou o preferido configurado pelo usuário."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(ProposalTemplateModel)
+            .where(and_(ProposalTemplateModel.user_id == user_id, ProposalTemplateModel.is_default == True))
+            .limit(1)
+        )
+        t = result.scalar_one_or_none()
+        if t:
+            return t
+        
+        result_config = await session.execute(
+            select(AutomationConfigModel).where(AutomationConfigModel.user_id == user_id).limit(1)
+        )
+        config = result_config.scalar_one_or_none()
+        if config and config.preferred_template_id:
+            result = await session.execute(
+                select(ProposalTemplateModel)
+                .where(and_(ProposalTemplateModel.id == config.preferred_template_id, ProposalTemplateModel.user_id == user_id))
+                .limit(1)
+            )
+            return result.scalar_one_or_none()
+async def get_active_system_template(slug: str = "workana-consultivo") -> Optional[SystemProposalTemplateModel]:
+    """Obtém o template de sistema ativo pelo slug."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(SystemProposalTemplateModel)
+            .where(and_(SystemProposalTemplateModel.slug == slug, SystemProposalTemplateModel.is_active == True))
+            .order_by(SystemProposalTemplateModel.version.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+
+async def has_personal_default_or_preferred(user_id: Any) -> bool:
+    """Verifica se o usuário possui algum template pessoal padrão ou preferido."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(ProposalTemplateModel.id)
+            .where(and_(ProposalTemplateModel.user_id == user_id, ProposalTemplateModel.is_default == True))
+            .limit(1)
+        )
+        if result.scalar_one_or_none():
+            return True
+            
+        result_config = await session.execute(
+            select(AutomationConfigModel.preferred_template_id).where(AutomationConfigModel.user_id == user_id).limit(1)
+        )
+        config_val = result_config.scalar_one_or_none()
+        if config_val:
+            return True
+            
+        return False
+
+
 async def get_templates(user_id: Any) -> List[ProposalTemplate]:
     """Lista todos os templates de um usuário específico."""
     async with async_session() as session:
@@ -147,6 +252,8 @@ async def get_templates(user_id: Any) -> List[ProposalTemplate]:
                 id=t.id,
                 name=t.name,
                 content=t.content,
+                blueprint=t.blueprint or [],
+                schema_version=t.schema_version or 1,
                 default_budget=t.default_budget,
                 default_deadline_days=t.default_deadline_days,
                 is_default=t.is_default
@@ -169,6 +276,8 @@ async def get_template(user_id: Any, template_id: int) -> Optional[ProposalTempl
                 id=t.id,
                 name=t.name,
                 content=t.content,
+                blueprint=t.blueprint or [],
+                schema_version=t.schema_version or 1,
                 default_budget=t.default_budget,
                 default_deadline_days=t.default_deadline_days,
                 is_default=t.is_default
@@ -178,8 +287,24 @@ async def get_template(user_id: Any, template_id: int) -> Optional[ProposalTempl
 
 async def create_template(user_id: Any, template: ProposalTemplateCreate) -> ProposalTemplate:
     """Cria um novo template para o usuário."""
+    from app.services.prompt_builder import ProposalPromptBuilder
+    
+    blueprint_data = []
+    if template.blueprint is not None:
+        blueprint_data = [b.dict() for b in template.blueprint]
+        content_compiled = ProposalPromptBuilder.compile_blueprint_to_content(blueprint_data)
+    else:
+        content_compiled = template.content or ""
+        blueprint_data = [{
+            "id": "legacy_init",
+            "type": "instrucao_personalizada",
+            "mode": "literal",
+            "enabled": True,
+            "content": content_compiled
+        }]
+
     async with async_session() as session:
-        # Se for default, desmarcar outros do mesmo usuário
+        # Se for default, desmarcar outros do mesmo usuário na mesma transação
         if template.is_default:
             await session.execute(
                 update(ProposalTemplateModel)
@@ -190,12 +315,20 @@ async def create_template(user_id: Any, template: ProposalTemplateCreate) -> Pro
         db_template = ProposalTemplateModel(
             user_id=user_id,
             name=template.name,
-            content=template.content,
+            content=content_compiled,
+            blueprint=blueprint_data,
+            schema_version=template.schema_version or 1,
             default_budget=template.default_budget,
             default_deadline_days=template.default_deadline_days,
             is_default=template.is_default or False
         )
         session.add(db_template)
+        await session.flush()
+        
+        # Sincronizar com automation_config se for default na mesma transação
+        if db_template.is_default:
+            await _sync_preferred_template(session, user_id, db_template.id)
+            
         await session.commit()
         await session.refresh(db_template)
         
@@ -203,6 +336,8 @@ async def create_template(user_id: Any, template: ProposalTemplateCreate) -> Pro
             id=db_template.id,
             name=db_template.name,
             content=db_template.content,
+            blueprint=db_template.blueprint,
+            schema_version=db_template.schema_version,
             default_budget=db_template.default_budget,
             default_deadline_days=db_template.default_deadline_days,
             is_default=db_template.is_default
@@ -211,7 +346,33 @@ async def create_template(user_id: Any, template: ProposalTemplateCreate) -> Pro
 
 async def update_template(user_id: Any, template_id: int, template: ProposalTemplateCreate) -> Optional[ProposalTemplate]:
     """Atualiza um template de um usuário específico."""
+    from app.services.prompt_builder import ProposalPromptBuilder
+    
+    blueprint_data = []
+    if template.blueprint is not None:
+        blueprint_data = [b.dict() for b in template.blueprint]
+        content_compiled = ProposalPromptBuilder.compile_blueprint_to_content(blueprint_data)
+    else:
+        content_compiled = template.content or ""
+        blueprint_data = [{
+            "id": f"legacy_{template_id}",
+            "type": "instrucao_personalizada",
+            "mode": "literal",
+            "enabled": True,
+            "content": content_compiled
+        }]
+
     async with async_session() as session:
+        # 1. Verificar se existe
+        exist_result = await session.execute(
+            select(ProposalTemplateModel)
+            .where(and_(ProposalTemplateModel.id == template_id, ProposalTemplateModel.user_id == user_id))
+        )
+        db_template = exist_result.scalar_one_or_none()
+        if not db_template:
+            return None
+
+        # Se o template atualizado passar a ser o default, desmarcar outros
         if template.is_default:
             await session.execute(
                 update(ProposalTemplateModel)
@@ -219,42 +380,65 @@ async def update_template(user_id: Any, template_id: int, template: ProposalTemp
                 .values(is_default=False)
             )
             
+        db_template.name = template.name
+        db_template.content = content_compiled
+        db_template.blueprint = blueprint_data
+        db_template.schema_version = template.schema_version or 1
+        db_template.default_budget = template.default_budget
+        db_template.default_deadline_days = template.default_deadline_days
+        db_template.is_default = template.is_default or False
+        db_template.updated_at = datetime.now(timezone.utc)
+        
+        # Sincronizar com automation_config na mesma transação
+        if db_template.is_default:
+            await _sync_preferred_template(session, user_id, db_template.id)
+        else:
+            # Se esse template era o default/preferred e agora nao e mais, limpa o preferred_template_id
+            config_result = await session.execute(
+                select(AutomationConfigModel).where(AutomationConfigModel.user_id == user_id).limit(1)
+            )
+            config = config_result.scalar_one_or_none()
+            if config and config.preferred_template_id == template_id:
+                config.preferred_template_id = None
+        
+        await session.commit()
+        await session.refresh(db_template)
+        
+        return ProposalTemplate(
+            id=db_template.id,
+            name=db_template.name,
+            content=db_template.content,
+            blueprint=db_template.blueprint,
+            schema_version=db_template.schema_version,
+            default_budget=db_template.default_budget,
+            default_deadline_days=db_template.default_deadline_days,
+            is_default=db_template.is_default
+        )
+
+
+async def delete_template(user_id: Any, template_id: int) -> bool:
+    """Remove um template de um usuário."""
+    async with async_session() as session:
+        # Verificar se existe
         result = await session.execute(
             select(ProposalTemplateModel)
             .where(and_(ProposalTemplateModel.id == template_id, ProposalTemplateModel.user_id == user_id))
         )
         db_template = result.scalar_one_or_none()
-        
-        if db_template:
-            db_template.name = template.name
-            db_template.content = template.content
-            db_template.default_budget = template.default_budget
-            db_template.default_deadline_days = template.default_deadline_days
-            db_template.is_default = template.is_default or False
-            db_template.updated_at = datetime.now(timezone.utc)
+        if not db_template:
+            return False
             
-            await session.commit()
-            await session.refresh(db_template)
-            
-            return ProposalTemplate(
-                id=db_template.id,
-                name=db_template.name,
-                content=db_template.content,
-                default_budget=db_template.default_budget,
-                default_deadline_days=db_template.default_deadline_days,
-                is_default=db_template.is_default
-            )
-        return None
-
-
-async def delete_template(user_id: Any, template_id: int):
-    """Remove um template de um usuário."""
-    async with async_session() as session:
-        await session.execute(
-            delete(ProposalTemplateModel)
-            .where(and_(ProposalTemplateModel.id == template_id, ProposalTemplateModel.user_id == user_id))
+        # Se o template deletado for o preferred_template_id do usuario, limpar
+        config_result = await session.execute(
+            select(AutomationConfigModel).where(AutomationConfigModel.user_id == user_id).limit(1)
         )
+        config = config_result.scalar_one_or_none()
+        if config and config.preferred_template_id == template_id:
+            config.preferred_template_id = None
+            
+        await session.delete(db_template)
         await session.commit()
+        return True
 
 
 # ==================== Histórico de Propostas ====================
@@ -262,15 +446,31 @@ async def delete_template(user_id: Any, template_id: int):
 async def save_proposal_history(user_id: Any, proposal: ProposalSubmit, result: ProposalResult):
     """Salva uma tentativa de envio de proposta no histórico."""
     async with async_session() as session:
+        project_title = getattr(proposal, "project_title", None)
+        project_url = getattr(proposal, "project_url", None)
+        
+        if not project_title or not project_url:
+            proj_result = await session.execute(
+                select(ProjectModel).where(and_(ProjectModel.user_id == user_id, ProjectModel.workana_id == proposal.project_id))
+            )
+            db_project = proj_result.scalar_one_or_none()
+            if db_project:
+                project_title = project_title or db_project.title
+                project_url = project_url or db_project.url
+            else:
+                project_title = project_title or f"Projeto {proposal.project_id}"
+                project_url = project_url or f"https://www.workana.com/job/{proposal.project_id}"
+
         history = ProposalHistoryModel(
             user_id=user_id,
             project_id=proposal.project_id,
-            project_title=proposal.project_title,
-            project_url=proposal.project_url,
+            project_title=project_title,
+            project_url=project_url,
             budget=proposal.budget,
             deadline_days=proposal.deadline_days,
-            message=proposal.message,
-            status="sent" if result.success else "failed"
+            message=proposal.custom_message or getattr(proposal, "message", None),
+            status="sent" if result.success else "failed",
+            template_id=proposal.template_id
         )
         session.add(history)
         await session.commit()
@@ -282,7 +482,8 @@ async def save_ai_proposal(
     project_title: str,
     project_url: str,
     proposal_text: str,
-    suggested_price: str
+    suggested_price: str,
+    template_id: Optional[int] = None
 ) -> int:
     """Salva uma proposta gerada por IA no histórico do usuário."""
     import re
@@ -300,7 +501,8 @@ async def save_ai_proposal(
             budget=budget,
             deadline_days=7,  # Padrão
             message=proposal_text,
-            status="generated"
+            status="generated",
+            template_id=template_id
         )
         session.add(history)
         await session.commit()
@@ -328,7 +530,8 @@ async def get_proposal_history(user_id: Any, limit: int = 50) -> List[ProposalHi
                 budget=h.budget,
                 deadline_days=h.deadline_days,
                 status=h.status,
-                sent_at=h.sent_at
+                sent_at=h.sent_at,
+                template_id=h.template_id
             )
             for h in history
         ]
@@ -1057,3 +1260,294 @@ async def is_client_blacklisted(user_id: Any, client_name: str) -> bool:
             )
         )
         return result.scalar_one_or_none() is not None
+
+
+# ==================== Catálogo de Projetos ====================
+
+
+async def search_catalog(
+    user_id: Any,
+    page: int = 1,
+    limit: int = 24,
+    q: Optional[str] = None,
+    category: Optional[str] = None,
+    min_budget: Optional[float] = None,
+    max_budget: Optional[float] = None,
+    payment_verified: Optional[bool] = None,
+    sort: str = "newest",
+    favorites_only: bool = False,
+    hidden_only: bool = False,
+) -> Dict[str, Any]:
+    """Busca paginada no catálogo, incorporando estado do usuário."""
+    async with async_session() as session:
+        # Base query: catálogo ativo (exceto se viewing hidden)
+        query = select(ProjectCatalogModel).where(ProjectCatalogModel.status == "active")
+
+        # Filtros de texto
+        if q:
+            pattern = f"%{q}%"
+            query = query.where(
+                or_(
+                    ProjectCatalogModel.title.ilike(pattern),
+                    ProjectCatalogModel.description.ilike(pattern),
+                    ProjectCatalogModel.skills.cast(String).ilike(pattern),
+                )
+            )
+
+        # Filtros estruturais
+        if category:
+            query = query.where(ProjectCatalogModel.category == category)
+        if min_budget is not None:
+            query = query.where(
+                or_(
+                    ProjectCatalogModel.budget_min >= min_budget,
+                    ProjectCatalogModel.budget_max >= min_budget,
+                )
+            )
+        if max_budget is not None:
+            query = query.where(
+                or_(
+                    ProjectCatalogModel.budget_max <= max_budget,
+                    ProjectCatalogModel.budget_min <= max_budget,
+                )
+            )
+        if payment_verified:
+            query = query.where(ProjectCatalogModel.payment_verified == True)
+
+        # LEFT JOIN overlay do usuário
+        query = query.outerjoin(
+            UserProjectStateModel,
+            and_(
+                UserProjectStateModel.workana_id == ProjectCatalogModel.workana_id,
+                UserProjectStateModel.user_id == user_id,
+            )
+        )
+
+        # Favoritos: mostrar apenas com is_favorite=True
+        if favorites_only:
+            query = query.where(UserProjectStateModel.is_favorite == True)
+
+        # Ocultos: padrão exclui; hidden_only inverte
+        if hidden_only:
+            query = query.where(UserProjectStateModel.is_hidden == True)
+        else:
+            query = query.where(
+                or_(
+                    UserProjectStateModel.is_hidden == False,
+                    UserProjectStateModel.is_hidden == None,  # nunca interagiu
+                )
+            )
+
+        # Ordenação
+        sort_map = {
+            "newest": ProjectCatalogModel.last_seen_at.desc(),
+            "oldest": ProjectCatalogModel.last_seen_at.asc(),
+            "budget_desc": ProjectCatalogModel.budget_max.desc().nullslast(),
+            "budget_asc": ProjectCatalogModel.budget_min.asc().nullsfirst(),
+            "bids_asc": ProjectCatalogModel.proposals_count.asc().nullsfirst(),
+            "bids_desc": ProjectCatalogModel.proposals_count.desc().nullslast(),
+        }
+        order_clause = sort_map.get(sort, ProjectCatalogModel.last_seen_at.desc())
+        query = query.order_by(order_clause)
+
+        # Total (antes da paginação)
+        count_query = select(func.count()).select_from(query.subquery())
+        total_result = await session.execute(count_query)
+        total = total_result.scalar() or 0
+
+        # Paginação
+        offset = (page - 1) * limit
+        query = query.offset(offset).limit(limit)
+
+        result = await session.execute(query)
+        rows = result.unique().all()
+
+        # rows é uma lista de tuples (ProjectCatalog, UserProjectState|None)
+        projects = []
+        for row in rows:
+            cat = row[0]
+            state = row[1]
+            projects.append({
+                "workana_id": cat.workana_id,
+                "title": cat.title,
+                "description": cat.description,
+                "url": cat.url,
+                "category": cat.category,
+                "subcategory": cat.subcategory,
+                "budget_min": cat.budget_min,
+                "budget_max": cat.budget_max,
+                "budget_type": cat.budget_type,
+                "deadline": cat.deadline,
+                "skills": cat.skills,
+                "details": cat.details or {},
+                "client_name": cat.client_name,
+                "client_country": cat.client_country,
+                "client_rating": cat.client_rating,
+                "client_projects_posted": cat.client_projects_posted,
+                "client_projects_paid": cat.client_projects_paid,
+                "client_member_since": cat.client_member_since,
+                "client_plan": cat.client_plan,
+                "proposals_count": cat.proposals_count,
+                "payment_verified": cat.payment_verified,
+                "posted_at": cat.posted_at,
+                "published_at": cat.published_at,
+                "last_client_activity": cat.last_client_activity,
+                "is_urgent": cat.is_urgent,
+                "is_featured": cat.is_featured,
+                "status": cat.status,
+                "first_seen_at": cat.first_seen_at.isoformat() if cat.first_seen_at else None,
+                "last_seen_at": cat.last_seen_at.isoformat() if cat.last_seen_at else None,
+                # Overlay fields
+                "is_favorite": state.is_favorite if state else False,
+                "is_hidden": state.is_hidden if state else False,
+                "notes": state.notes if state else None,
+                "analysis": state.analysis if state else None,
+                "analyzed_at": state.analyzed_at.isoformat() if state and state.analyzed_at else None,
+            })
+
+        return {"projects": projects, "total": total, "page": page, "limit": limit}
+
+
+async def upsert_catalog_row(project_data: dict) -> None:
+    """Upsert um projeto no catálogo. Chamado pelo worker."""
+    async with async_session() as session:
+        await session.execute(
+            text("""
+                INSERT INTO public.projects_catalog (
+                    workana_id, title, description, url, category, subcategory,
+                    budget_min, budget_max, budget_type, deadline, skills, details,
+                    client_name, client_country, client_rating, client_projects_posted,
+                    client_projects_paid, client_member_since, client_plan,
+                    proposals_count, payment_verified, posted_at, published_at,
+                    last_client_activity, is_urgent, is_featured,
+                    status, first_seen_at, last_seen_at, updated_at
+                ) VALUES (
+                    :workana_id, :title, :description, :url, :category, :subcategory,
+                    :budget_min, :budget_max, :budget_type, :deadline,
+                    :skills::jsonb, :details::jsonb,
+                    :client_name, :client_country, :client_rating, :client_projects_posted,
+                    :client_projects_paid, :client_member_since, :client_plan,
+                    :proposals_count, :payment_verified, :posted_at, :published_at,
+                    :last_client_activity, :is_urgent, :is_featured,
+                    :status, COALESCE(:first_seen_at, NOW()), NOW(), NOW()
+                )
+                ON CONFLICT (workana_id) DO UPDATE SET
+                    title = EXCLUDED.title,
+                    description = EXCLUDED.description,
+                    url = EXCLUDED.url,
+                    category = EXCLUDED.category,
+                    subcategory = EXCLUDED.subcategory,
+                    budget_min = EXCLUDED.budget_min,
+                    budget_max = EXCLUDED.budget_max,
+                    budget_type = EXCLUDED.budget_type,
+                    deadline = EXCLUDED.deadline,
+                    skills = EXCLUDED.skills,
+                    details = EXCLUDED.details,
+                    client_name = EXCLUDED.client_name,
+                    client_country = EXCLUDED.client_country,
+                    client_rating = EXCLUDED.client_rating,
+                    client_projects_posted = EXCLUDED.client_projects_posted,
+                    client_projects_paid = EXCLUDED.client_projects_paid,
+                    client_member_since = EXCLUDED.client_member_since,
+                    client_plan = EXCLUDED.client_plan,
+                    proposals_count = EXCLUDED.proposals_count,
+                    payment_verified = EXCLUDED.payment_verified,
+                    posted_at = EXCLUDED.posted_at,
+                    published_at = EXCLUDED.published_at,
+                    last_client_activity = EXCLUDED.last_client_activity,
+                    is_urgent = EXCLUDED.is_urgent,
+                    is_featured = EXCLUDED.is_featured,
+                    last_seen_at = NOW(),
+                    updated_at = NOW(),
+                    status = 'active',
+                    closed_at = NULL
+            """),
+            {
+                "workana_id": project_data.get("workana_id"),
+                "title": project_data.get("title"),
+                "description": project_data.get("description"),
+                "url": project_data.get("url"),
+                "category": project_data.get("category"),
+                "subcategory": project_data.get("subcategory"),
+                "budget_min": project_data.get("budget_min"),
+                "budget_max": project_data.get("budget_max"),
+                "budget_type": project_data.get("budget_type"),
+                "deadline": project_data.get("deadline"),
+                "skills": json.dumps(project_data.get("skills", [])) if project_data.get("skills") else None,
+                "details": json.dumps(project_data.get("details", {})) if project_data.get("details") else None,
+                "client_name": project_data.get("client_name"),
+                "client_country": project_data.get("client_country"),
+                "client_rating": project_data.get("client_rating"),
+                "client_projects_posted": project_data.get("client_projects_posted"),
+                "client_projects_paid": project_data.get("client_projects_paid"),
+                "client_member_since": project_data.get("client_member_since"),
+                "client_plan": project_data.get("client_plan"),
+                "proposals_count": project_data.get("proposals_count"),
+                "payment_verified": project_data.get("payment_verified"),
+                "posted_at": project_data.get("posted_at"),
+                "published_at": project_data.get("published_at"),
+                "last_client_activity": project_data.get("last_client_activity"),
+                "is_urgent": project_data.get("is_urgent", False),
+                "is_featured": project_data.get("is_featured", False),
+                "status": "active",
+                "first_seen_at": project_data.get("first_seen_at"),
+            },
+        )
+        await session.commit()
+
+
+async def mark_gone_catalog_projects(seen_ids: List[str]) -> int:
+    """Marca como 'gone' os projetos ativos não vistos neste ciclo."""
+    async with async_session() as session:
+        if not seen_ids:
+            # Sem IDs vistos → marca todos como gone
+            result = await session.execute(
+                update(ProjectCatalogModel)
+                .where(ProjectCatalogModel.status == "active")
+                .values(status="gone", updated_at=datetime.now(timezone.utc))
+            )
+            await session.commit()
+            return result.rowcount
+
+        result = await session.execute(
+            update(ProjectCatalogModel)
+            .where(
+                and_(
+                    ProjectCatalogModel.status == "active",
+                    ProjectCatalogModel.workana_id.notin_(seen_ids),
+                )
+            )
+            .values(status="gone", updated_at=datetime.now(timezone.utc))
+        )
+        await session.commit()
+        return result.rowcount
+
+
+async def get_distinct_saved_filter_queries() -> List[dict]:
+    """Retorna pares únicos (keywords, category) agregados de todos os filtros salvos."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(
+                SavedFilterModel.filters_json
+            )
+        )
+        filters_list = result.scalars().all()
+
+        seen = set()
+        queries = []
+        for raw in filters_list:
+            if isinstance(raw, str):
+                data = json.loads(raw)
+            elif isinstance(raw, dict):
+                data = raw
+            else:
+                continue
+
+            keywords = data.get("keywords") or ""
+            category = data.get("category") or ""
+            key = (keywords.strip().lower(), category.strip().lower())
+            if key not in seen and (keywords.strip() or category.strip()):
+                seen.add(key)
+                queries.append(data)
+
+        return queries

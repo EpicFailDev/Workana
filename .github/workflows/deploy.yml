@@ -58,7 +58,7 @@ jobs:
         run: |
           cd frontend
           # Variáveis dummy apenas para passar na validação de compilação em desenvolvimento/CI
-          export VITE_SUPABASE_URL="https://omfrvmbsazgfwhapsaur.supabase.co"
+          export VITE_SUPABASE_URL="https://cztwxtsuewwacjcgajjz.supabase.co"
           export VITE_SUPABASE_PUBLISHABLE_KEY="sb_publishable_dummy_key"
           npm run build
 
@@ -113,7 +113,7 @@ jobs:
           context: ./frontend
           push: true
           build-args: |
-            VITE_SUPABASE_URL=https://omfrvmbsazgfwhapsaur.supabase.co
+            VITE_SUPABASE_URL=https://cztwxtsuewwacjcgajjz.supabase.co
             VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
           tags: ${{ steps.meta-frontend.outputs.tags }}
           labels: ${{ steps.meta-frontend.outputs.labels }}

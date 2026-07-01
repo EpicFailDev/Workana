@@ -330,21 +330,78 @@ export default function Projects() {
     } | null>(null);
     const [isGeneratingAi, setIsGeneratingAi] = useState(false);
     const [aiError, setAiError] = useState<string | null>(null);
+    const [modalBudget, setModalBudget] = useState<string | number>("");
+    const [modalDeadline, setModalDeadline] = useState<string | number>("");
 
-    const handleGenerateAiProposal = async (projectId: string) => {
+    // Suporte a templates na geração manual
+    const [templates, setTemplates] = useState<any[]>([]);
+    const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+    const [currentGeneratingProjectId, setCurrentGeneratingProjectId] = useState<string | null>(null);
+
+    useEffect(() => {
+        const loadTemplates = async () => {
+            try {
+                const res = await api.getTemplates();
+                setTemplates(res);
+                
+                const sessionTemplateId = sessionStorage.getItem("preferred_generation_template_id");
+                const defaultTpl = res.find((t: any) => t.is_default);
+                
+                if (sessionTemplateId) {
+                    const exists = res.some((t: any) => t.template_ref === sessionTemplateId);
+                    if (exists) {
+                        setSelectedTemplateId(sessionTemplateId);
+                    } else {
+                        sessionStorage.removeItem("preferred_generation_template_id");
+                        setSelectedTemplateId(defaultTpl?.template_ref || null);
+                    }
+                } else {
+                    setSelectedTemplateId(defaultTpl?.template_ref || null);
+                }
+            } catch (error) {
+                console.error("Erro ao carregar templates para geração:", error);
+            }
+        };
+        loadTemplates();
+    }, []);
+
+    const handleGenerateAiProposal = async (projectId: string, templateIdOverride?: string | null) => {
         setShowAiModal(true);
         setIsGeneratingAi(true);
         setAiError(null);
         setAiProposal(null);
+        setCurrentGeneratingProjectId(projectId);
 
         try {
-            const result = await api.generateProposal(projectId);
+            const tId = templateIdOverride !== undefined ? templateIdOverride : selectedTemplateId;
+            const result = await api.generateProposal(projectId, tId);
             if (result.success) {
                 setAiProposal({
                     proposal: result.proposal,
                     suggested_price: result.suggested_price,
                     justification: result.justification
                 });
+                
+                // Aplicar default_budget e default_deadline_days com precedência
+                const currentTemplate = templates.find((t: any) => t.template_ref === tId);
+                let initialBudget = "";
+                if (currentTemplate && currentTemplate.default_budget && currentTemplate.default_budget > 0) {
+                    initialBudget = String(currentTemplate.default_budget);
+                } else if (result.suggested_price) {
+                    const priceClean = result.suggested_price.replace(/[^\d]/g, "");
+                    initialBudget = priceClean || "";
+                }
+                if (!initialBudget && selectedProject) {
+                    const projPriceClean = (selectedProject.budget || "").replace(/[^\d]/g, "");
+                    initialBudget = projPriceClean || "100";
+                }
+                setModalBudget(initialBudget);
+
+                let initialDeadline = "7";
+                if (currentTemplate && currentTemplate.default_deadline_days && currentTemplate.default_deadline_days > 0) {
+                    initialDeadline = String(currentTemplate.default_deadline_days);
+                }
+                setModalDeadline(initialDeadline);
             } else {
                 setAiError(result.error || "Erro ao gerar proposta com IA.");
             }
@@ -368,15 +425,15 @@ export default function Projects() {
         if (!selectedProject || !aiProposal?.proposal) return;
         setIsSubmittingProposal(true);
         try {
-            const priceStr = aiProposal.suggested_price || "100";
-            const priceClean = priceStr.replace(/[^\d]/g, "");
-            const budgetVal = Number(priceClean) || 100;
+            const budgetVal = Number(modalBudget) || 100;
+            const deadlineVal = Number(modalDeadline) || 7;
 
             const response = await api.submitProposal(selectedProject.id, {
                 project_id: selectedProject.id,
+                template_id: selectedTemplateId,
                 custom_message: aiProposal.proposal,
                 budget: budgetVal,
-                deadline_days: 7
+                deadline_days: deadlineVal
             });
 
             if (response.success) {
@@ -886,6 +943,46 @@ export default function Projects() {
                             <button className="btn-close" onClick={() => setShowAiModal(false)}>×</button>
                         </div>
                         <div className="modal-body">
+                            <div className="form-group mb-4">
+                                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                                    <span style={{ fontWeight: 600 }}>Selecione o Template</span>
+                                    <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>(a escolha será lembrada nesta sessão)</span>
+                                </label>
+                                <select
+                                    className="form-input"
+                                    value={selectedTemplateId || ""}
+                                    onChange={(e) => {
+                                        const val = e.target.value || null;
+                                        setSelectedTemplateId(val);
+                                        if (val) {
+                                            sessionStorage.setItem("preferred_generation_template_id", val);
+                                        } else {
+                                            sessionStorage.removeItem("preferred_generation_template_id");
+                                        }
+                                        if (currentGeneratingProjectId) {
+                                            handleGenerateAiProposal(currentGeneratingProjectId, val);
+                                        }
+                                    }}
+                                    disabled={isGeneratingAi}
+                                    style={{
+                                        width: '100%',
+                                        padding: '0.5rem',
+                                        borderRadius: 'var(--radius-md)',
+                                        border: '1px solid var(--color-border)',
+                                        backgroundColor: 'var(--color-bg-secondary)',
+                                        color: 'var(--color-text)',
+                                        outline: 'none'
+                                    }}
+                                >
+                                    <option value="">Prompt Padrão (Sem Template / Legacy)</option>
+                                    {templates.map((t) => (
+                                        <option key={t.template_ref} value={t.template_ref}>
+                                            {t.name} {t.is_system ? "🛡️ (Oficial)" : ""} {t.is_default ? "⭐ (Padrão)" : ""}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            
                             {isGeneratingAi ? (
                                 <Loader type="scanning" message="Analisando missão e gerando estratégia..." />
                             ) : aiError ? (
@@ -902,6 +999,48 @@ export default function Projects() {
                                             <div className="text-xs">{aiProposal?.justification}</div>
                                         </div>
                                     </div>
+                                    
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
+                                        <div className="form-group">
+                                            <label className="form-label" style={{ fontWeight: 600, marginBottom: '0.25rem' }}>Valor da Proposta (R$)</label>
+                                            <input 
+                                                type="number" 
+                                                className="form-input" 
+                                                value={modalBudget}
+                                                onChange={(e) => setModalBudget(e.target.value)}
+                                                placeholder="Ex: 500"
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '0.5rem',
+                                                    borderRadius: 'var(--radius-md)',
+                                                    border: '1px solid var(--color-border)',
+                                                    backgroundColor: 'var(--color-bg-secondary)',
+                                                    color: 'var(--color-text)',
+                                                    outline: 'none'
+                                                }}
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="form-label" style={{ fontWeight: 600, marginBottom: '0.25rem' }}>Prazo de Entrega (Dias)</label>
+                                            <input 
+                                                type="number" 
+                                                className="form-input" 
+                                                value={modalDeadline}
+                                                onChange={(e) => setModalDeadline(e.target.value)}
+                                                placeholder="Ex: 7"
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '0.5rem',
+                                                    borderRadius: 'var(--radius-md)',
+                                                    border: '1px solid var(--color-border)',
+                                                    backgroundColor: 'var(--color-bg-secondary)',
+                                                    color: 'var(--color-text)',
+                                                    outline: 'none'
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+
                                     <div className="form-group">
                                         <label className="form-label">Proposta Gerada</label>
                                         <textarea 

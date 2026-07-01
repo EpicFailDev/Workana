@@ -1,10 +1,11 @@
 from fastapi import APIRouter, HTTPException, Depends
 from loguru import logger
-from typing import List
+from typing import List, Optional, Any
 
 from app.api.schemas import (
     SearchFilters, SavedFilter, Project, ProjectList, ProposalGenerationResult,
-    ProposalSubmit, ProposalResult
+    ProposalSubmit, ProposalResult, ProposalGenerateRequest,
+    CatalogProjectList,
 )
 from app.auth import get_current_user
 from app.database import crud
@@ -16,6 +17,37 @@ from app.automation.browser import (
 )
 
 # ==================== Busca de Projetos ====================
+
+@router.get("/projects", response_model=CatalogProjectList)
+async def list_catalog(
+    page: int = 1,
+    limit: int = 24,
+    q: Optional[str] = None,
+    category: Optional[str] = None,
+    min_budget: Optional[float] = None,
+    max_budget: Optional[float] = None,
+    payment_verified: bool = False,
+    sort: str = "newest",
+    favorites_only: bool = False,
+    hidden_only: bool = False,
+    user: dict = Depends(get_current_user)
+):
+    """Busca paginada no catálogo de projetos (banco de dados, sem scraping)."""
+    result = await crud.search_catalog(
+        user_id=user["user_id"],
+        page=page,
+        limit=limit,
+        q=q,
+        category=category,
+        min_budget=min_budget,
+        max_budget=max_budget,
+        payment_verified=payment_verified if payment_verified else None,
+        sort=sort,
+        favorites_only=favorites_only,
+        hidden_only=hidden_only,
+    )
+    return result
+
 
 @router.post("/projects/search", response_model=ProjectList)
 async def search_projects(filters: SearchFilters, user: dict = Depends(get_current_user)):
@@ -72,7 +104,12 @@ async def get_project_details(project_id: str, user: dict = Depends(get_current_
  
  
 @router.post("/projects/{project_id}/generate-proposal", response_model=ProposalGenerationResult)
-async def generate_proposal(project_id: str, user: dict = Depends(get_current_user)):
+async def generate_proposal(
+    project_id: str,
+    payload: Optional[ProposalGenerateRequest] = None,
+    template_id: Optional[Any] = None,
+    user: dict = Depends(get_current_user)
+):
     """Gera uma proposta personalizada usando IA."""
     from app.services.proposal_agent import proposal_agent_instance
     
@@ -90,10 +127,18 @@ async def generate_proposal(project_id: str, user: dict = Depends(get_current_us
             "budget": project.budget
         }
         
+        # Obter o template_id de query param ou JSON body payload
+        actual_template_id = template_id
+        if payload and payload.template_id:
+            actual_template_id = payload.template_id
+            
         # Chama a IA
         result = await proposal_agent_instance.generate_proposal(
-            user["user_id"], project_dict
+            user["user_id"], project_dict, template_id=actual_template_id
         )
+        
+        if not result.get("success") and result.get("error_code") == 404:
+            raise HTTPException(status_code=404, detail=result.get("error"))
         
         # Salvar proposta gerada no histórico
         if result.get("success"):
@@ -104,7 +149,8 @@ async def generate_proposal(project_id: str, user: dict = Depends(get_current_us
                     project_title=project.title,
                     project_url=project.url,
                     proposal_text=result.get("proposal", ""),
-                    suggested_price=result.get("suggested_price", "R$ 0")
+                    suggested_price=result.get("suggested_price", "R$ 0"),
+                    template_id=result.get("template_id_used")
                 )
                 logger.info(f"Proposta salva no histórico para o usuário {user['user_id']}, projeto: {project_id}")
             except Exception as e:

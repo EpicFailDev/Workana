@@ -15,6 +15,58 @@ interface RequestOptions {
     headers?: Record<string, string>;
 }
 
+export type BlockType = 
+    | "abertura" 
+    | "tom_de_voz" 
+    | "entendimento_projeto" 
+    | "solucao" 
+    | "experiencia" 
+    | "entregas" 
+    | "diferenciais" 
+    | "preco_prazo" 
+    | "cta" 
+    | "assinatura" 
+    | "instrucao_personalizada";
+
+export type BlockMode = "literal" | "instruction";
+
+export interface TemplateBlock {
+    id: string;
+    type: BlockType;
+    mode: BlockMode;
+    enabled: boolean;
+    content?: string | null;
+    config?: Record<string, any> | null;
+}
+
+export interface ProposalTemplate {
+    id: number | null;
+    name: string;
+    content: string;
+    blueprint: TemplateBlock[];
+    schema_version: number;
+    default_budget: number | null;
+    default_deadline_days: number | null;
+    is_default: boolean;
+    created_at?: string;
+    updated_at?: string;
+    template_ref?: string;
+    is_system?: boolean;
+    can_edit?: boolean;
+    can_delete?: boolean;
+    version?: number;
+}
+
+export interface ProposalTemplateCreate {
+    name: string;
+    content?: string | null;
+    blueprint: TemplateBlock[];
+    schema_version?: number;
+    default_budget?: number | null;
+    default_deadline_days?: number | null;
+    is_default?: boolean;
+}
+
 class ApiService {
     private baseUrl: string;
 
@@ -151,14 +203,15 @@ class ApiService {
         return this.request(`/projects/${projectId}`);
     }
 
-    async generateProposal(projectId: string) {
+    async generateProposal(projectId: string, templateId?: any) {
+        const query = templateId ? `?template_id=${encodeURIComponent(templateId)}` : "";
         return this.request<{
             success: boolean;
             proposal?: string;
             suggested_price?: string;
             justification?: string;
             error?: string;
-        }>(`/projects/${projectId}/generate-proposal`, {
+        }>(`/projects/${projectId}/generate-proposal${query}`, {
             method: "POST",
         });
     }
@@ -168,7 +221,7 @@ class ApiService {
         custom_message: string;
         budget: number;
         deadline_days: number;
-        template_id?: number | null;
+        template_id?: any;
     }) {
         return this.request<{
             success: boolean;
@@ -225,44 +278,53 @@ class ApiService {
     // ==================== Templates ====================
 
     async getTemplates() {
-        return this.request<Array<{
-            id: number;
-            name: string;
-            content: string;
-            default_budget: number | null;
-            default_deadline_days: number | null;
-            is_default: boolean;
-        }>>("/templates");
+        return this.request<ProposalTemplate[]>("/templates");
     }
 
-    async createTemplate(template: {
-        name: string;
-        content: string;
-        default_budget?: number;
-        default_deadline_days?: number;
-        is_default?: boolean;
-    }) {
-        return this.request("/templates", {
+    async createTemplate(template: ProposalTemplateCreate) {
+        return this.request<ProposalTemplate>("/templates", {
             method: "POST",
             body: template,
         });
     }
 
-    async updateTemplate(templateId: number, template: {
-        name: string;
-        content: string;
-        default_budget?: number;
-        default_deadline_days?: number;
-        is_default?: boolean;
-    }) {
-        return this.request(`/templates/${templateId}`, {
+    async updateTemplate(templateId: number, template: ProposalTemplateCreate) {
+        return this.request<ProposalTemplate>(`/templates/${templateId}`, {
             method: "PUT",
             body: template,
         });
     }
 
     async deleteTemplate(templateId: number) {
-        return this.request(`/templates/${templateId}`, { method: "DELETE" });
+        return this.request<{ success: boolean; message: string }>(`/templates/${templateId}`, { method: "DELETE" });
+    }
+
+    async duplicateTemplate(slug: string) {
+        return this.request<ProposalTemplate>(`/templates/duplicate/${slug}`, {
+            method: "POST"
+        });
+    }
+
+    async testBlueprint(payload: {
+        blueprint: TemplateBlock[];
+        project?: Record<string, any> | null;
+        run_ai?: boolean;
+    }) {
+        return this.request<{
+            success: boolean;
+            compiled_prompt: string;
+            ai_result?: {
+                success: boolean;
+                proposal?: string;
+                suggested_price?: string;
+                justification?: string;
+                error?: string;
+            } | null;
+            error?: string;
+        }>("/templates/test-blueprint", {
+            method: "POST",
+            body: payload,
+        });
     }
 
     // ==================== Dashboard ====================
