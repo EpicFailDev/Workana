@@ -1,11 +1,11 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from loguru import logger
 from typing import List, Optional, Any
 
 from app.api.schemas import (
     SearchFilters, SavedFilter, Project, ProjectList, ProposalGenerationResult,
     ProposalSubmit, ProposalResult, ProposalGenerateRequest,
-    CatalogProjectList,
+    CatalogProjectList, SortOption,
 )
 from app.auth import get_current_user
 from app.database import crud
@@ -20,14 +20,14 @@ from app.automation.browser import (
 
 @router.get("/projects", response_model=CatalogProjectList)
 async def list_catalog(
-    page: int = 1,
-    limit: int = 24,
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=24, ge=1, le=100),
     q: Optional[str] = None,
     category: Optional[str] = None,
     min_budget: Optional[float] = None,
     max_budget: Optional[float] = None,
     payment_verified: bool = False,
-    sort: str = "newest",
+    sort: SortOption = SortOption.NEWEST,
     favorites_only: bool = False,
     hidden_only: bool = False,
     user: dict = Depends(get_current_user)

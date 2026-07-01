@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import json
 from loguru import logger
 from sqlalchemy import select, func, delete, update, and_, or_, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from cryptography.fernet import Fernet
 import base64
@@ -1274,14 +1275,16 @@ async def search_catalog(
     min_budget: Optional[float] = None,
     max_budget: Optional[float] = None,
     payment_verified: Optional[bool] = None,
-    sort: str = "newest",
+    sort: Any = "created_at_desc",
     favorites_only: bool = False,
     hidden_only: bool = False,
 ) -> Dict[str, Any]:
     """Busca paginada no catálogo, incorporando estado do usuário."""
     async with async_session() as session:
         # Base query: catálogo ativo (exceto se viewing hidden)
-        query = select(ProjectCatalogModel).where(ProjectCatalogModel.status == "active")
+        query = select(ProjectCatalogModel, UserProjectStateModel).where(
+            ProjectCatalogModel.status == "active"
+        )
 
         # Filtros de texto
         if q:
@@ -1339,15 +1342,18 @@ async def search_catalog(
             )
 
         # Ordenação
+        sort_value = getattr(sort, "value", sort)
         sort_map = {
             "newest": ProjectCatalogModel.last_seen_at.desc(),
+            "created_at_desc": ProjectCatalogModel.last_seen_at.desc(),
             "oldest": ProjectCatalogModel.last_seen_at.asc(),
+            "created_at_asc": ProjectCatalogModel.last_seen_at.asc(),
             "budget_desc": ProjectCatalogModel.budget_max.desc().nullslast(),
             "budget_asc": ProjectCatalogModel.budget_min.asc().nullsfirst(),
             "bids_asc": ProjectCatalogModel.proposals_count.asc().nullsfirst(),
             "bids_desc": ProjectCatalogModel.proposals_count.desc().nullslast(),
         }
-        order_clause = sort_map.get(sort, ProjectCatalogModel.last_seen_at.desc())
+        order_clause = sort_map.get(sort_value, ProjectCatalogModel.last_seen_at.desc())
         query = query.order_by(order_clause)
 
         # Total (antes da paginação)
@@ -1411,143 +1417,105 @@ async def search_catalog(
 async def upsert_catalog_row(project_data: dict) -> None:
     """Upsert um projeto no catálogo. Chamado pelo worker."""
     async with async_session() as session:
+        now = datetime.now(timezone.utc)
+        values = {
+            key: project_data.get(key)
+            for key in (
+                "workana_id", "title", "description", "url", "category", "subcategory",
+                "budget_min", "budget_max", "budget_type", "deadline", "skills", "details",
+                "client_name", "client_country", "client_rating", "client_projects_posted",
+                "client_projects_paid", "client_member_since", "client_plan", "proposals_count",
+                "payment_verified", "posted_at", "published_at", "last_client_activity",
+                "is_urgent", "is_featured",
+            )
+        }
+        values.update(
+            status="active",
+            first_seen_at=project_data.get("first_seen_at") or now,
+            last_seen_at=now,
+            updated_at=now,
+        )
+        statement = pg_insert(ProjectCatalogModel).values(**values)
+        excluded = statement.excluded
+        update_fields = {
+            column: getattr(excluded, column)
+            for column in values
+            if column not in {"workana_id", "first_seen_at", "last_seen_at", "updated_at", "status"}
+        }
+        update_fields.update(last_seen_at=now, updated_at=now, status="active", closed_at=None)
         await session.execute(
-            text("""
-                INSERT INTO public.projects_catalog (
-                    workana_id, title, description, url, category, subcategory,
-                    budget_min, budget_max, budget_type, deadline, skills, details,
-                    client_name, client_country, client_rating, client_projects_posted,
-                    client_projects_paid, client_member_since, client_plan,
-                    proposals_count, payment_verified, posted_at, published_at,
-                    last_client_activity, is_urgent, is_featured,
-                    status, first_seen_at, last_seen_at, updated_at
-                ) VALUES (
-                    :workana_id, :title, :description, :url, :category, :subcategory,
-                    :budget_min, :budget_max, :budget_type, :deadline,
-                    :skills::jsonb, :details::jsonb,
-                    :client_name, :client_country, :client_rating, :client_projects_posted,
-                    :client_projects_paid, :client_member_since, :client_plan,
-                    :proposals_count, :payment_verified, :posted_at, :published_at,
-                    :last_client_activity, :is_urgent, :is_featured,
-                    :status, COALESCE(:first_seen_at, NOW()), NOW(), NOW()
-                )
-                ON CONFLICT (workana_id) DO UPDATE SET
-                    title = EXCLUDED.title,
-                    description = EXCLUDED.description,
-                    url = EXCLUDED.url,
-                    category = EXCLUDED.category,
-                    subcategory = EXCLUDED.subcategory,
-                    budget_min = EXCLUDED.budget_min,
-                    budget_max = EXCLUDED.budget_max,
-                    budget_type = EXCLUDED.budget_type,
-                    deadline = EXCLUDED.deadline,
-                    skills = EXCLUDED.skills,
-                    details = EXCLUDED.details,
-                    client_name = EXCLUDED.client_name,
-                    client_country = EXCLUDED.client_country,
-                    client_rating = EXCLUDED.client_rating,
-                    client_projects_posted = EXCLUDED.client_projects_posted,
-                    client_projects_paid = EXCLUDED.client_projects_paid,
-                    client_member_since = EXCLUDED.client_member_since,
-                    client_plan = EXCLUDED.client_plan,
-                    proposals_count = EXCLUDED.proposals_count,
-                    payment_verified = EXCLUDED.payment_verified,
-                    posted_at = EXCLUDED.posted_at,
-                    published_at = EXCLUDED.published_at,
-                    last_client_activity = EXCLUDED.last_client_activity,
-                    is_urgent = EXCLUDED.is_urgent,
-                    is_featured = EXCLUDED.is_featured,
-                    last_seen_at = NOW(),
-                    updated_at = NOW(),
-                    status = 'active',
-                    closed_at = NULL
-            """),
-            {
-                "workana_id": project_data.get("workana_id"),
-                "title": project_data.get("title"),
-                "description": project_data.get("description"),
-                "url": project_data.get("url"),
-                "category": project_data.get("category"),
-                "subcategory": project_data.get("subcategory"),
-                "budget_min": project_data.get("budget_min"),
-                "budget_max": project_data.get("budget_max"),
-                "budget_type": project_data.get("budget_type"),
-                "deadline": project_data.get("deadline"),
-                "skills": json.dumps(project_data.get("skills", [])) if project_data.get("skills") else None,
-                "details": json.dumps(project_data.get("details", {})) if project_data.get("details") else None,
-                "client_name": project_data.get("client_name"),
-                "client_country": project_data.get("client_country"),
-                "client_rating": project_data.get("client_rating"),
-                "client_projects_posted": project_data.get("client_projects_posted"),
-                "client_projects_paid": project_data.get("client_projects_paid"),
-                "client_member_since": project_data.get("client_member_since"),
-                "client_plan": project_data.get("client_plan"),
-                "proposals_count": project_data.get("proposals_count"),
-                "payment_verified": project_data.get("payment_verified"),
-                "posted_at": project_data.get("posted_at"),
-                "published_at": project_data.get("published_at"),
-                "last_client_activity": project_data.get("last_client_activity"),
-                "is_urgent": project_data.get("is_urgent", False),
-                "is_featured": project_data.get("is_featured", False),
-                "status": "active",
-                "first_seen_at": project_data.get("first_seen_at"),
-            },
+            statement.on_conflict_do_update(
+                index_elements=[ProjectCatalogModel.workana_id],
+                set_=update_fields,
+            )
         )
         await session.commit()
 
 
-async def mark_gone_catalog_projects(seen_ids: List[str]) -> int:
-    """Marca como 'gone' os projetos ativos não vistos neste ciclo."""
+async def mark_gone_catalog_projects(
+    seen_ids: List[str],
+    cycle_started_at: Optional[datetime] = None,
+    close_after_minutes: int = 45,
+) -> Dict[str, int]:
+    """Avança active->gone e gone->closed sem invalidar um catálogo em ciclo vazio."""
     async with async_session() as session:
         if not seen_ids:
-            # Sem IDs vistos → marca todos como gone
-            result = await session.execute(
-                update(ProjectCatalogModel)
-                .where(ProjectCatalogModel.status == "active")
-                .values(status="gone", updated_at=datetime.now(timezone.utc))
-            )
-            await session.commit()
-            return result.rowcount
+            return {"gone": 0, "closed": 0}
 
-        result = await session.execute(
+        now = datetime.now(timezone.utc)
+        cycle_started_at = cycle_started_at or now
+        closed_result = await session.execute(
+            update(ProjectCatalogModel)
+            .where(
+                and_(
+                    ProjectCatalogModel.status == "gone",
+                    ProjectCatalogModel.last_seen_at <= now - timedelta(minutes=close_after_minutes),
+                    ProjectCatalogModel.workana_id.notin_(seen_ids),
+                )
+            )
+            .values(status="closed", closed_at=now, updated_at=now)
+        )
+        gone_result = await session.execute(
             update(ProjectCatalogModel)
             .where(
                 and_(
                     ProjectCatalogModel.status == "active",
                     ProjectCatalogModel.workana_id.notin_(seen_ids),
+                    ProjectCatalogModel.last_seen_at < cycle_started_at,
                 )
             )
-            .values(status="gone", updated_at=datetime.now(timezone.utc))
+            .values(status="gone", updated_at=now)
         )
         await session.commit()
-        return result.rowcount
+        return {"gone": gone_result.rowcount or 0, "closed": closed_result.rowcount or 0}
 
 
 async def get_distinct_saved_filter_queries() -> List[dict]:
     """Retorna pares únicos (keywords, category) agregados de todos os filtros salvos."""
     async with async_session() as session:
         result = await session.execute(
-            select(
-                SavedFilterModel.filters_json
-            )
+            select(SavedFilterModel.user_id, SavedFilterModel.filters_json)
         )
-        filters_list = result.scalars().all()
 
-        seen = set()
-        queries = []
-        for raw in filters_list:
-            if isinstance(raw, str):
-                data = json.loads(raw)
-            elif isinstance(raw, dict):
-                data = raw
-            else:
+        queries_by_key: Dict[tuple[str, str], dict] = {}
+        for user_id, raw in result.all():
+            try:
+                data = json.loads(raw) if isinstance(raw, str) else raw
+            except (TypeError, json.JSONDecodeError):
                 continue
+            if not isinstance(data, dict):
+                continue
+            key = (
+                str(data.get("keywords") or "").strip().lower(),
+                str(data.get("category") or "").strip().lower(),
+            )
+            if not any(key):
+                continue
+            entry = queries_by_key.setdefault(
+                key,
+                {**data, "_metric_user_ids": []},
+            )
+            if str(user_id) not in entry["_metric_user_ids"]:
+                entry["_metric_user_ids"].append(str(user_id))
 
-            keywords = data.get("keywords") or ""
-            category = data.get("category") or ""
-            key = (keywords.strip().lower(), category.strip().lower())
-            if key not in seen and (keywords.strip() or category.strip()):
-                seen.add(key)
-                queries.append(data)
-
-        return queries
+        return list(queries_by_key.values())

@@ -1,5 +1,6 @@
 import asyncio
 import random
+import time
 from datetime import datetime, timezone
 from typing import List, Dict, Any
 from loguru import logger
@@ -15,6 +16,7 @@ from app.services.scorer import ProjectScorer
 from app.services.notification import NotificationService
 from app.observability.context import new_operation_id, operation_id_var
 from app.observability.privacy import pseudonymize, sanitize_exception
+from app.config import settings
 
 class SearchScheduler:
     """
@@ -381,9 +383,14 @@ class SearchScheduler:
         Chamado pelo job agendado (15 min) ou manualmente via POST /automation/catalog/refresh.
         Retorna dict com estatísticas (upserted, marked_gone, errors).
         """
-        catalog_lock_id = 742190  # lock distinto do legado (742189)
+        from uuid import UUID
+        from app.database.models import current_user_id
 
-        async with async_session() as lock_session:
+        catalog_lock_id = 742190  # lock distinto do legado (742189)
+        tenant_token = current_user_id.set(None)
+
+        try:
+          async with async_session() as lock_session:
             lock_res = await lock_session.execute(
                 text("SELECT pg_try_advisory_lock(:lock_id)"),
                 {"lock_id": catalog_lock_id}
@@ -400,7 +407,8 @@ class SearchScheduler:
                 op_token = operation_id_var.set(new_operation_id())
                 upserted = 0
                 errors = 0
-                seen_ids: List[str] = []
+                seen_ids: set[str] = set()
+                cycle_started_at = datetime.now(timezone.utc)
 
                 try:
                     # 1. Obter buscas agregadas de todos os filtros salvos
@@ -408,23 +416,53 @@ class SearchScheduler:
 
                     if not queries:
                         logger.bind(event="catalog.cycle.no_filters").info(
-                            "Sem filtros salvos. Pulando ciclo do catálogo."
+                            "Sem filtros salvos. Usando busca ampla padrão."
                         )
-                        return {"success": True, "message": "Sem filtros", "upserted": 0, "marked_gone": 0, "errors": 0}
+                        queries = [{
+                            "keywords": settings.catalog_default_keywords,
+                            "category": settings.catalog_default_category,
+                            "_metric_user_ids": [],
+                        }]
+
+                    queries = queries[:settings.catalog_max_searches_per_cycle]
 
                     logger.bind(event="catalog.cycle.started").info(
                         f"Coleta do catálogo iniciada ({len(queries)} buscas únicas)."
                     )
 
                     for filter_data in queries:
+                        if upserted >= settings.catalog_max_projects_per_cycle:
+                            break
+                        metric_user_ids = filter_data.pop("_metric_user_ids", [])
+                        started = time.perf_counter()
+                        success = False
+                        blocked = False
                         try:
                             # Limites conservadores para o worker de catálogo
-                            filter_data["max_results"] = min(filter_data.get("max_results", 30), 50)
-                            filter_data["pages_to_fetch"] = min(filter_data.get("pages_to_fetch", 1), 3)
+                            remaining = settings.catalog_max_projects_per_cycle - upserted
+                            filter_data["max_results"] = min(filter_data.get("max_results", 50), remaining)
+                            filter_data["pages_to_fetch"] = min(
+                                filter_data.get("pages_to_fetch", settings.catalog_pages_per_search),
+                                settings.catalog_pages_per_search,
+                            )
                             filters_obj = SearchFilters(**filter_data)
 
                             # Busca anônima (user_id=None — sem credenciais)
-                            projects = await automation.search_projects(filters_obj, user_id=None)
+                            projects = []
+                            last_error = None
+                            for attempt in range(settings.catalog_search_retries):
+                                try:
+                                    projects = await automation.search_projects(filters_obj, user_id=None)
+                                    success = True
+                                    break
+                                except Exception as exc:
+                                    last_error = exc
+                                    if attempt + 1 < settings.catalog_search_retries:
+                                        await asyncio.sleep(random.uniform(1.0, 3.0) * (attempt + 1))
+                            if not success and last_error:
+                                raise last_error
+
+                            projects = projects[:remaining]
 
                             for proj in projects:
                                 # Mapear campos do modelo Project para o formato do catálogo
@@ -458,7 +496,7 @@ class SearchScheduler:
                                 }
 
                                 await crud.upsert_catalog_row(catalog_data)
-                                seen_ids.append(proj.id)
+                                seen_ids.add(proj.id)
                                 upserted += 1
 
                             # Jitter anti-ban entre buscas
@@ -466,12 +504,34 @@ class SearchScheduler:
 
                         except Exception as ex:
                             errors += 1
+                            blocked = bool(getattr(automation._fast_scraper, "was_blocked", False))
                             logger.bind(event="catalog.query.error").exception(
                                 f"Erro na busca do catálogo: {sanitize_exception(ex)}"
                             )
+                        finally:
+                            duration_ms = int((time.perf_counter() - started) * 1000)
+                            for metric_user_id in metric_user_ids:
+                                metric_token = current_user_id.set(UUID(metric_user_id))
+                                try:
+                                    await crud.update_scraping_stats(
+                                        metric_user_id, success, blocked, duration_ms
+                                    )
+                                except Exception as metric_error:
+                                    logger.bind(event="catalog.metrics.error").warning(
+                                        f"Falha ao registrar métrica: {sanitize_exception(metric_error)}"
+                                    )
+                                finally:
+                                    current_user_id.reset(metric_token)
 
                     # 2. Marcar projetos ausentes como 'gone'
-                    marked_gone = await crud.mark_gone_catalog_projects(seen_ids)
+                    lifecycle = {"gone": 0, "closed": 0}
+                    if errors == 0:
+                        lifecycle = await crud.mark_gone_catalog_projects(
+                            list(seen_ids),
+                            cycle_started_at=cycle_started_at,
+                            close_after_minutes=15 * settings.catalog_close_after_cycles,
+                        )
+                    marked_gone = lifecycle["gone"]
 
                     logger.bind(event="catalog.cycle.completed").info(
                         f"Catálogo atualizado: {upserted} upserted, {marked_gone} gone, {errors} errors."
@@ -483,6 +543,7 @@ class SearchScheduler:
                         "upserted": upserted,
                         "marked_gone": marked_gone,
                         "errors": errors,
+                        "closed": lifecycle["closed"],
                     }
 
                 finally:
@@ -496,6 +557,8 @@ class SearchScheduler:
                     )
                 except Exception:
                     pass
+        finally:
+            current_user_id.reset(tenant_token)
 
 
 # Instância global do agendador

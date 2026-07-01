@@ -115,6 +115,16 @@ class Settings(BaseSettings):
     scraping_timeout: int = Field(default=30000, description="Timeout para scraping em ms")
     max_retries: int = Field(default=3, description="Número máximo de tentativas de scraping")
     workana_conversion_rate: float = Field(default=5.0, description="Taxa de conversão USD/BRL usada internamente pelo Workana")
+    catalog_default_keywords: str = Field(
+        default="desenvolvimento software",
+        description="Busca ampla usada quando não existem filtros salvos",
+    )
+    catalog_default_category: Optional[str] = Field(default=None)
+    catalog_max_searches_per_cycle: int = Field(default=20, ge=1, le=100)
+    catalog_max_projects_per_cycle: int = Field(default=500, ge=1, le=5000)
+    catalog_pages_per_search: int = Field(default=3, ge=1, le=3)
+    catalog_close_after_cycles: int = Field(default=3, ge=2, le=96)
+    catalog_search_retries: int = Field(default=2, ge=1, le=5)
 
     
     class Config:

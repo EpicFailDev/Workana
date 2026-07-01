@@ -512,7 +512,7 @@ class CatalogProject(BaseModel):
     budget_type: Optional[str] = None
     deadline: Optional[str] = None
     skills: Optional[List[str]] = None
-    details: Dict[str, str] = Field(default_factory=dict)
+    details: Dict[str, Any] = Field(default_factory=dict)
     client_name: Optional[str] = None
     client_country: Optional[str] = None
     client_rating: Optional[float] = None
