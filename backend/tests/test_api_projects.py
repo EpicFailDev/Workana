@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import patch, AsyncMock
 from app.api.schemas import Project
+from app.automation.browser import SearchUnavailableError
 
 def test_health_check(client):
     """Test the health check endpoint."""
@@ -40,6 +41,20 @@ def test_search_projects(mock_automation, client):
     data = response.json()
     assert data["total"] == 1
     assert data["projects"][0]["title"] == "Test Project"
+
+
+@patch("app.api.routers.projects.automation")
+def test_search_projects_reports_antiban_restriction(mock_automation, client):
+    mock_automation.search_projects = AsyncMock(
+        side_effect=SearchUnavailableError(
+            "Limite de buscas por hora atingido (10)", restricted=True
+        )
+    )
+
+    response = client.post("/api/projects/search", json={"page": 1})
+
+    assert response.status_code == 429
+    assert response.json()["detail"] == "Limite de buscas por hora atingido (10)"
 
 @patch("app.database.crud.get_projects")
 def test_list_saved_projects(mock_get_projects, client):

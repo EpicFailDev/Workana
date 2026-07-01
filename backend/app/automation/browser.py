@@ -12,6 +12,14 @@ from app.automation.components.parallel_scraper import AnonymousParallelScraper
 from app.automation.components.fast_scraper import FastProjectScraper
 
 
+class SearchUnavailableError(RuntimeError):
+    """Raised when a project search could not actually be executed."""
+
+    def __init__(self, message: str, *, restricted: bool = False):
+        super().__init__(message)
+        self.restricted = restricted
+
+
 class AutomationStatus:
     """Status da automação."""
     def __init__(self):
@@ -62,7 +70,7 @@ class WorkanaAutomation:
             if not can_do:
                 logger.warning(f"Busca cancelada por restrições do sistema Anti-Ban: {message}")
                 self._last_error = f"Anti-Ban: {message}"
-                return []
+                raise SearchUnavailableError(message, restricted=True)
 
         scraper_type = settings.scraper_type
         self._current_action = f"Buscando {filters.pages_to_fetch} páginas ({scraper_type})..."
@@ -81,11 +89,13 @@ class WorkanaAutomation:
                 projects = await self._fast_scraper.search_projects(filters, user_id=user_id)
                 
                 # Fallback se bloqueado pelo Cloudflare
-                if (not projects or getattr(self._fast_scraper, "was_blocked", False)):
+                if not projects:
                     logger.warning("⚠️ Scraper Rápido bloqueado ou sem resultados. Iniciando fallback para Scraper Browser...")
                     used_fallback = True
                     self._current_action = "Fallback para browser (WAF)..."
                     projects = await self._parallel_scraper.search_projects_parallel(filters)
+                elif getattr(self._fast_scraper, "was_blocked", False):
+                    logger.warning("Algumas páginas foram bloqueadas; preservando resultados parciais.")
             else:
                 projects = await self._parallel_scraper.search_projects_parallel(filters)
                 
@@ -99,7 +109,11 @@ class WorkanaAutomation:
         except Exception as e:
             self._last_error = str(e)
             logger.error(f"Erro na busca: {e}")
-            return []
+            if isinstance(e, SearchUnavailableError):
+                raise
+            raise SearchUnavailableError(
+                "Não foi possível consultar a Workana neste momento. Tente novamente em instantes."
+            ) from e
         finally:
             self._is_running = False
             self._current_action = None

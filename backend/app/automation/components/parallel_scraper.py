@@ -11,6 +11,7 @@ import random
 from app.api.schemas import SearchFilters, Project
 from app.automation.selectors import WorkanaSelectors
 from app.services.currency import CurrencyService
+from app.automation.components.project_parser import parse_project_json
 import json
 import html
 import re
@@ -253,6 +254,9 @@ class AnonymousParallelScraper:
 
     async def _extract_project_from_json(self, data: dict) -> Optional[Project]:
         """Extrai um projeto de um dicionário (JSON do Workana)."""
+        return await parse_project_json(data, self.WORKANA_BASE_URL)
+
+        # Implementação legada mantida temporariamente abaixo para facilitar rollback.
         try:
             # Título: extrair texto do HTML
             title_html = data.get('title', '')

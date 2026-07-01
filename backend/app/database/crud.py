@@ -854,6 +854,35 @@ async def get_activity_logs(
 
 # ==================== Estatísticas Diárias ====================
 
+async def update_scraping_stats(
+    user_id: Any,
+    success: bool,
+    blocked: bool,
+    duration_ms: int,
+):
+    """Registra métricas do scraper sem depender do log de atividade."""
+    async with async_session() as session:
+        today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        result = await session.execute(
+            select(DailyStatisticsModel).where(
+                and_(DailyStatisticsModel.date == today, DailyStatisticsModel.user_id == user_id)
+            )
+        )
+        stats = result.scalar_one_or_none()
+        if not stats:
+            stats = DailyStatisticsModel(user_id=user_id, date=today)
+            session.add(stats)
+
+        if success:
+            stats.scraping_success_count = (stats.scraping_success_count or 0) + 1
+        else:
+            stats.scraping_failure_count = (stats.scraping_failure_count or 0) + 1
+        if blocked:
+            stats.scraping_blocked_count = (stats.scraping_blocked_count or 0) + 1
+        stats.scraping_total_time_ms = (stats.scraping_total_time_ms or 0) + duration_ms
+        stats.updated_at = datetime.now(timezone.utc)
+        await session.commit()
+
 async def _update_daily_stats(user_id: Any, action_type: str, status: str, increment: int = 1):
     """Atualiza estatísticas diárias internas de um usuário específico."""
     async with async_session() as session:

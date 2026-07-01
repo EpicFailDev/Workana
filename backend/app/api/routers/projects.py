@@ -10,7 +10,10 @@ from app.auth import get_current_user
 from app.database import crud
 
 router = APIRouter()
-from app.automation.browser import automation_instance as automation
+from app.automation.browser import (
+    SearchUnavailableError,
+    automation_instance as automation,
+)
 
 # ==================== Busca de Projetos ====================
 
@@ -43,6 +46,9 @@ async def search_projects(filters: SearchFilters, user: dict = Depends(get_curre
             )
             
         return ProjectList(projects=projects, total=len(projects))
+    except SearchUnavailableError as e:
+        status_code = 429 if e.restricted else 502
+        raise HTTPException(status_code=status_code, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:

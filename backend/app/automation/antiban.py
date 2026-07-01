@@ -5,6 +5,7 @@ Implementa diversas técnicas para evitar detecção e banimento, persistindo es
 import asyncio
 import random
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 from loguru import logger
@@ -43,6 +44,7 @@ class AntibanConfig:
     working_hours_start: int = 8  # 8h
     working_hours_end: int = 22   # 22h
     respect_working_hours: bool = True
+    operation_timezone: str = "America/Cuiaba"
     
     # Comportamento humano
     simulate_mouse_movements: bool = True
@@ -120,6 +122,22 @@ class AntibanSystem:
     def stats(self):
         """Fallback property for backwards compatibility with in-memory stats."""
         return self.in_memory_stats
+
+    @staticmethod
+    def _normalize_counters(stats: Any) -> Any:
+        """Compatibilidade com registros antigos que possuem contadores NULL."""
+        counter_fields = (
+            "proposals_sent_today",
+            "proposals_sent_this_hour",
+            "searches_this_hour",
+            "logins_today",
+            "consecutive_proposals",
+            "total_actions_today",
+        )
+        for field in counter_fields:
+            if getattr(stats, field, None) is None:
+                setattr(stats, field, 0)
+        return stats
 
     def get_random_user_agent(self) -> str:
         """Retorna um user agent aleatório ou dinâmico se fake-useragent estiver carregado."""
@@ -219,6 +237,8 @@ class AntibanSystem:
                                 select(AntibanStatsModel).where(AntibanStatsModel.user_id == user_id)
                             )
                             stats = result.scalar_one()
+
+                    self._normalize_counters(stats)
                     
                     # Verificar e resetar contadores baseados no tempo
                     now = datetime.now(timezone.utc)
@@ -275,7 +295,9 @@ class AntibanSystem:
             stats = result.scalar_one_or_none()
             
             if not stats:
-                return AntibanStatsModel(user_id=user_id)
+                return self._normalize_counters(AntibanStatsModel(user_id=user_id))
+
+            self._normalize_counters(stats)
             
             now = datetime.now(timezone.utc)
             
@@ -299,12 +321,23 @@ class AntibanSystem:
                 
             return stats
 
+    def _current_local_hour(self) -> int:
+        """Retorna a hora no fuso operacional, não no fuso do container."""
+        try:
+            operation_tz = ZoneInfo(self.config.operation_timezone)
+        except ZoneInfoNotFoundError:
+            logger.warning(
+                f"Fuso {self.config.operation_timezone!r} indisponível; usando UTC-04:00."
+            )
+            operation_tz = timezone(timedelta(hours=-4))
+        return datetime.now(operation_tz).hour
+
     def is_within_working_hours(self) -> bool:
         """Verifica se está dentro do horário de operação."""
         if not self.config.respect_working_hours:
             return True
         
-        current_hour = datetime.now().hour
+        current_hour = self._current_local_hour()
         return self.config.working_hours_start <= current_hour < self.config.working_hours_end
     
     async def can_send_proposal(self, user_id: Optional[Any] = None) -> tuple[bool, str]:

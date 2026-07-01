@@ -10,6 +10,7 @@ import re
 
 from app.api.schemas import SearchFilters, Project
 from app.services.currency import CurrencyService
+from app.automation.components.project_parser import parse_project_json
 
 class FastProjectScraper:
     """
@@ -29,6 +30,22 @@ class FastProjectScraper:
         }
         self.semaphore = asyncio.Semaphore(5) # Limitar a 5 requisições simultâneas
 
+    @staticmethod
+    def _is_cloudflare_block(response: httpx.Response) -> bool:
+        """Distingue uma página de resultados válida de uma página de desafio."""
+        body = response.text.lower()
+        if response.status_code == 200 and ':results-initials' in body:
+            return False
+        challenge_markers = (
+            "<title>just a moment",
+            "attention required! | cloudflare",
+            "cf-chl-",
+            "challenge-platform",
+        )
+        return response.status_code in (403, 429, 503) or any(
+            marker in body for marker in challenge_markers
+        )
+
     async def search_projects(self, filters: SearchFilters, user_id: Optional[str] = None) -> List[Project]:
         """Executa a busca de projetos via HTTP de forma PARALELA."""
         self.was_blocked = False
@@ -41,7 +58,6 @@ class FastProjectScraper:
             self._scrape_page_with_semaphore(filters, page_num, user_id)
             for page_num in range(start_page, start_page + pages_to_fetch)
         ]
-        
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         all_projects: List[Project] = []
@@ -55,8 +71,16 @@ class FastProjectScraper:
                         all_projects.append(p)
             elif isinstance(result, Exception):
                 logger.error(f"Erro em página Fast: {result}")
-                
-        return all_projects
+
+        if filters.project_type.value != "any":
+            all_projects = [
+                project for project in all_projects
+                if project.project_type == filters.project_type.value
+            ]
+        if filters.payment_verified:
+            all_projects = [project for project in all_projects if project.payment_verified]
+
+        return all_projects[:filters.max_results]
 
     async def _scrape_page_with_semaphore(self, filters: SearchFilters, page_num: int, user_id: Optional[str] = None) -> List[Project]:
         """Wrapper para limitar concorrência e adicionar jitter."""
@@ -81,6 +105,10 @@ class FastProjectScraper:
         if filters.category: params["category"] = filters.category
         if filters.min_budget: params["budget_min"] = str(filters.min_budget)
         if filters.max_budget: params["budget_max"] = str(filters.max_budget)
+        if filters.publication: params["publication"] = filters.publication
+        if filters.language: params["language"] = filters.language
+        if filters.payment_verified: params["client_history"] = "1"
+        if filters.skills: params["skills"] = filters.skills
         
         # Filtro de propostas
         if filters.proposals:
@@ -101,7 +129,7 @@ class FastProjectScraper:
         client_kwargs = {
             "headers": headers,
             "follow_redirects": True,
-            "timeout": 15.0
+            "timeout": 15.0,
         }
         if settings.proxy_url:
             client_kwargs["proxy"] = settings.proxy_url
@@ -111,9 +139,7 @@ class FastProjectScraper:
                 response = await client.get(self.WORKANA_JOBS_URL, params=params)
                 
                 # Check for Cloudflare / block indicators
-                is_cf = response.status_code in (403, 503) or any(
-                    ind in response.text.lower() for ind in ["cloudflare", "just a moment", "attention required", "turnstile"]
-                )
+                is_cf = self._is_cloudflare_block(response)
                 
                 if is_cf:
                     blocked = True
@@ -155,15 +181,21 @@ class FastProjectScraper:
         finally:
             duration_ms = int((time.time() - start_time) * 1000)
             if user_id:
-                await crud.update_scraping_stats(
-                    user_id=user_id,
-                    success=success,
-                    blocked=blocked,
-                    duration_ms=duration_ms
-                )
+                try:
+                    await crud.update_scraping_stats(
+                        user_id=user_id,
+                        success=success,
+                        blocked=blocked,
+                        duration_ms=duration_ms
+                    )
+                except Exception as metrics_error:
+                    logger.warning(f"Falha ao registrar métricas de scraping: {metrics_error}")
 
     async def _extract_project_from_json(self, data: dict) -> Optional[Project]:
         """Extrai um projeto de um dicionário (JSON do Workana)."""
+        return await parse_project_json(data, self.WORKANA_BASE_URL)
+
+        # Implementação legada mantida temporariamente abaixo para facilitar rollback.
         try:
             # Título: extrair texto do HTML
             title_html = data.get('title', '')
@@ -309,9 +341,12 @@ class FastProjectScraper:
         finally:
             duration_ms = int((time.time() - start_time) * 1000)
             if user_id:
-                await crud.update_scraping_stats(
-                    user_id=user_id,
-                    success=success,
-                    blocked=blocked,
-                    duration_ms=duration_ms
-                )
+                try:
+                    await crud.update_scraping_stats(
+                        user_id=user_id,
+                        success=success,
+                        blocked=blocked,
+                        duration_ms=duration_ms
+                    )
+                except Exception as metrics_error:
+                    logger.warning(f"Falha ao registrar métricas de scraping: {metrics_error}")

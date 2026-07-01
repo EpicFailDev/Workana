@@ -13,9 +13,28 @@ interface Project {
     title: string;
     description: string;
     budget: string | null;
+    budget_min?: number | null;
+    budget_max?: number | null;
+    project_type?: string | null;
+    category?: string | null;
+    subcategory?: string | null;
+    deadline?: string | null;
+    details?: Record<string, string>;
     skills: string[];
+    client_name?: string | null;
+    client_country?: string | null;
+    client_rating?: number | null;
+    client_plan?: string | null;
+    client_projects_posted?: number | null;
+    client_projects_paid?: number | null;
+    client_member_since?: string | null;
     proposals_count: number | null;
     posted_at: string | null;
+    published_at?: string | null;
+    payment_verified?: boolean | null;
+    last_client_activity?: string | null;
+    is_urgent?: boolean;
+    is_featured?: boolean;
     url: string;
     match_score?: number | null;
 }
@@ -50,7 +69,8 @@ export default function Projects() {
     const [searchParams] = useSearchParams();
 
     // --- Persistence Logic Start ---
-    const STORAGE_KEY = "workana_projects_cache_v1";
+    // v2 invalida estados vazios gravados quando erros do backend eram tratados como resultado válido.
+    const STORAGE_KEY = "workana_projects_cache_v2";
 
     const loadStateFromStorage = () => {
         try {
@@ -273,8 +293,15 @@ export default function Projects() {
             // (Assumindo média de 10 por página)
             setHasMore(result.projects.length >= (filters.pages_to_fetch * 5)); 
 
-        } catch (error) {
+        } catch (error: any) {
             console.error("Erro na busca:", error);
+            const message = error?.message || "Não foi possível buscar projetos agora.";
+            toast.error(message);
+
+            // Uma falha de rede/serviço não equivale a uma busca válida sem resultados.
+            if (!append) {
+                setHasSearched(false);
+            }
         } finally {
             loadingState(false);
         }
@@ -404,7 +431,7 @@ export default function Projects() {
 
     const handleResetFilters = () => {
         // Clear session storage
-        sessionStorage.removeItem("workana_projects_cache_v1");
+        sessionStorage.removeItem(STORAGE_KEY);
         
         setFilters({
             keywords: "",
@@ -753,6 +780,46 @@ export default function Projects() {
                                                     <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>CONCORRÊNCIA</span>
                                                     <span style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>{selectedProject.proposals_count} Candidatos</span>
                                                 </div>
+                                                <div className="card p-3 bg-glass" style={{ border: '1px solid rgba(255,255,255,0.05)' }}>
+                                                    <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>CLIENTE</span>
+                                                    <span style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
+                                                        {selectedProject.client_name || 'Não informado'}
+                                                        {selectedProject.client_country ? ` · ${selectedProject.client_country}` : ''}
+                                                    </span>
+                                                </div>
+                                                <div className="card p-3 bg-glass" style={{ border: '1px solid rgba(255,255,255,0.05)' }}>
+                                                    <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>CONFIABILIDADE</span>
+                                                    <span style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
+                                                        {selectedProject.payment_verified ? '✓ Pagamento verificado' : 'Pagamento não verificado'}
+                                                        {selectedProject.client_rating != null ? ` · ★ ${selectedProject.client_rating.toFixed(1)}` : ''}
+                                                    </span>
+                                                </div>
+                                                {(selectedProject.project_type || selectedProject.deadline) && (
+                                                    <div className="card p-3 bg-glass" style={{ border: '1px solid rgba(255,255,255,0.05)' }}>
+                                                        <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>CONTRATO</span>
+                                                        <span style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
+                                                            {selectedProject.project_type === 'hourly' ? 'Por hora' : 'Preço fixo'}
+                                                            {selectedProject.deadline ? ` · ${selectedProject.deadline}` : ''}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                {(selectedProject.client_projects_posted != null || selectedProject.client_projects_paid != null) && (
+                                                    <div className="card p-3 bg-glass" style={{ border: '1px solid rgba(255,255,255,0.05)' }}>
+                                                        <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>HISTÓRICO DO CLIENTE</span>
+                                                        <span style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
+                                                            {selectedProject.client_projects_posted ?? 0} publicados · {selectedProject.client_projects_paid ?? 0} pagos
+                                                        </span>
+                                                        {selectedProject.client_member_since && <small style={{ display: 'block' }}>Desde {selectedProject.client_member_since}</small>}
+                                                    </div>
+                                                )}
+                                                {selectedProject.details && Object.keys(selectedProject.details).length > 2 && (
+                                                    <div className="card p-3 bg-glass" style={{ border: '1px solid rgba(255,255,255,0.05)' }}>
+                                                        <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', marginBottom: '6px' }}>BRIEFING ESTRUTURADO</span>
+                                                        {Object.entries(selectedProject.details)
+                                                            .filter(([key]) => !['category', 'subcategory'].includes(key))
+                                                            .map(([key, value]) => <small key={key} style={{ display: 'block' }}><strong>{key.replace(/_/g, ' ')}:</strong> {value}</small>)}
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
 

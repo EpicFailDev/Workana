@@ -2,7 +2,7 @@
 Schemas Pydantic para validação de dados da API.
 """
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime
 from enum import Enum
 
@@ -77,6 +77,10 @@ class Project(BaseModel):
     budget_min: Optional[float] = Field(None, description="Orçamento mínimo")
     budget_max: Optional[float] = Field(None, description="Orçamento máximo")
     project_type: Optional[str] = Field(None, description="Tipo do projeto")
+    category: Optional[str] = Field(None, description="Categoria")
+    subcategory: Optional[str] = Field(None, description="Subcategoria")
+    deadline: Optional[str] = Field(None, description="Prazo informado")
+    details: Dict[str, str] = Field(default_factory=dict, description="Metadados do briefing")
     skills: List[str] = Field(default=[], description="Skills requeridas")
     client_name: Optional[str] = Field(None, description="Nome do cliente")
     client_country: Optional[str] = Field(None, description="País do cliente")
@@ -84,8 +88,13 @@ class Project(BaseModel):
     client_projects_posted: Optional[int] = Field(None, description="Projetos publicados pelo cliente")
     client_projects_paid: Optional[int] = Field(None, description="Projetos pagos pelo cliente")
     client_member_since: Optional[str] = Field(None, description="Membro desde")
+    client_plan: Optional[str] = Field(None, description="Plano do cliente")
     proposals_count: Optional[int] = Field(None, description="Número de propostas")
     posted_at: Optional[str] = Field(None, description="Quando foi postado")
+    published_at: Optional[str] = Field(None, description="Data de publicação")
+    last_client_activity: Optional[str] = Field(None, description="Última atividade do cliente")
+    is_urgent: bool = Field(False, description="Projeto marcado como urgente")
+    is_featured: bool = Field(False, description="Projeto destacado na busca")
     payment_verified: Optional[bool] = Field(False, description="Pagamento verificado")
     url: str = Field(..., description="URL do projeto")
     match_score: Optional[float] = Field(None, description="Score de compatibilidade/relevância")
