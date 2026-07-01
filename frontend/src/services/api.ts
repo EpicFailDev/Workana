@@ -67,6 +67,73 @@ export interface ProposalTemplateCreate {
     is_default?: boolean;
 }
 
+export interface CatalogProject {
+    workana_id: string;
+    title: string;
+    description?: string | null;
+    url: string;
+    category?: string | null;
+    subcategory?: string | null;
+    budget_min?: number | null;
+    budget_max?: number | null;
+    budget_type?: string | null;
+    deadline?: string | null;
+    skills?: string[] | null;
+    details?: Record<string, unknown>;
+    client_name?: string | null;
+    client_country?: string | null;
+    client_rating?: number | null;
+    client_projects_posted?: number | null;
+    client_projects_paid?: number | null;
+    client_member_since?: string | null;
+    client_plan?: string | null;
+    proposals_count?: number | null;
+    payment_verified?: boolean | null;
+    posted_at?: string | null;
+    published_at?: string | null;
+    last_client_activity?: string | null;
+    is_urgent?: boolean;
+    is_featured?: boolean;
+    is_favorite: boolean;
+    is_hidden: boolean;
+    notes?: string | null;
+    analysis?: Record<string, unknown> | null;
+    analyzed_at?: string | null;
+}
+
+export interface CatalogFilters {
+    q?: string;
+    category?: string;
+    min_budget?: number;
+    max_budget?: number;
+    payment_verified?: boolean;
+    favorites_only?: boolean;
+    hidden_only?: boolean;
+}
+
+export interface AnalysisDimensions {
+    profile_fit: number;
+    budget: number;
+    competition: number;
+    client_reliability: number;
+    recency: number;
+    risk: number;
+}
+
+export interface AnalysisResult {
+    workana_id: string;
+    score: number;
+    recommendation: "send" | "review" | "discard";
+    dimensions: AnalysisDimensions;
+    justification: string;
+}
+
+export interface AnalyzeRequest {
+    project_ids?: string[];
+    filters?: CatalogFilters;
+    exclude_ids?: string[];
+}
+
 class ApiService {
     private baseUrl: string;
 
@@ -197,6 +264,57 @@ class ApiService {
             method: "POST",
             body: filters,
         });
+    }
+
+    async getCatalogProjects(params: CatalogFilters & {
+        page?: number;
+        limit?: number;
+        sort?: string;
+    }) {
+        const query = new URLSearchParams();
+        Object.entries(params).forEach(([key, value]) => {
+            if (value !== undefined && value !== null && value !== "") {
+                query.set(key, String(value));
+            }
+        });
+        return this.request<{
+            projects: CatalogProject[];
+            total: number;
+            page: number;
+            limit: number;
+        }>(`/projects?${query.toString()}`);
+    }
+
+    async bulkState(body: {
+        action: "favorite" | "unfavorite" | "hide" | "restore";
+        project_ids?: string[];
+        filters?: CatalogFilters;
+        exclude_ids?: string[];
+    }) {
+        return this.request<{ success: boolean; updated: number; total: number }>(
+            "/projects/bulk-state",
+            { method: "POST", body },
+        );
+    }
+
+    async analyzeProjects(body: AnalyzeRequest) {
+        return this.request<AnalysisResult[]>("/projects/analyze", {
+            method: "POST",
+            body,
+        });
+    }
+
+    async setProjectState(
+        workanaId: string,
+        body: {
+            action?: "favorite" | "unfavorite" | "hide" | "restore";
+            notes?: string;
+        },
+    ) {
+        return this.request<{ success: boolean; updated: number }>(
+            `/projects/${encodeURIComponent(workanaId)}/state`,
+            { method: "POST", body },
+        );
     }
 
     async getProjectDetails(projectId: string) {

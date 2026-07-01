@@ -1,6 +1,6 @@
 import sys
 import types
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch, ANY
 from uuid import UUID
 
 import pytest
@@ -35,6 +35,7 @@ from app.api.schemas import Project
 from app.database import crud
 from app.database.models import current_user_id
 from app.services.scheduler import SearchScheduler
+from app.services.scorer import ProjectScorer
 
 
 def test_catalog_endpoint_is_db_only(client):
@@ -237,6 +238,79 @@ async def test_apply_bulk_restore_uses_user_scoped_upsert(monkeypatch):
     user_values = {value for key, value in compiled.items() if key.startswith("user_id")}
     assert user_values == {user_id}
     session.commit.assert_awaited_once()
+
+
+def test_analyze_endpoint_persists_ranked_results(client):
+    projects = [
+        {"workana_id": "one"},
+        {"workana_id": "two"},
+    ]
+    with (
+        patch("app.api.routers.projects.crud.resolve_target_workana_ids", AsyncMock(return_value=["one", "two"])) as resolve,
+        patch("app.api.routers.projects.crud.get_catalog_projects_by_ids", AsyncMock(return_value=projects)) as get_projects,
+        patch("app.api.routers.projects.crud.get_saved_filters", AsyncMock(return_value=[])),
+        patch("app.api.routers.projects.crud.get_automation_config", AsyncMock(return_value={"auto_apply": False, "max_proposals_per_day": 10})),
+        patch(
+            "app.api.routers.projects.ProjectScorer.analyze_project",
+            side_effect=[
+                {
+                    "score": 92.0,
+                    "recommendation": "send",
+                    "dimensions": {"profile_fit": 90, "budget": 95, "competition": 88, "client_reliability": 91, "recency": 94, "risk": 86},
+                    "justification": "forte",
+                },
+                {
+                    "score": 41.0,
+                    "recommendation": "review",
+                    "dimensions": {"profile_fit": 40, "budget": 50, "competition": 42, "client_reliability": 38, "recency": 44, "risk": 43},
+                    "justification": "médio",
+                },
+            ],
+        ) as analyze,
+        patch("app.api.routers.projects.crud.save_project_analysis", AsyncMock(return_value=2)) as persist,
+    ):
+        response = client.post("/api/projects/analyze", json={"project_ids": ["one", "two"]})
+
+    assert response.status_code == 200
+    assert [item["workana_id"] for item in response.json()] == ["one", "two"]
+    assert response.json()[0]["recommendation"] == "send"
+    resolve.assert_awaited_once()
+    get_projects.assert_awaited_once()
+    analyze.assert_any_call(projects[0], ANY)
+    persist.assert_awaited_once()
+    persisted = persist.await_args.args[1]
+    assert persisted[0]["workana_id"] == "one"
+    assert persisted[0]["score"] == 92.0
+
+
+def test_project_scorer_is_deterministic():
+    project = {
+        "title": "API Python",
+        "description": "Construção de API",
+        "skills": ["Python", "FastAPI"],
+        "category": "TI",
+        "budget_min": 1200,
+        "budget_max": 2000,
+        "proposals_count": 4,
+        "payment_verified": True,
+        "client_rating": 4.8,
+        "client_projects_posted": 12,
+        "client_projects_paid": 10,
+    }
+    profile = {
+        "keywords": "Python API",
+        "skills": ["Python", "API"],
+        "category": "TI",
+        "min_budget": 1000,
+        "max_budget": 2500,
+        "payment_verified": True,
+    }
+
+    first = ProjectScorer.analyze_project(project, profile)
+    second = ProjectScorer.analyze_project(project, profile)
+
+    assert first == second
+    assert first["recommendation"] in {"send", "review", "discard"}
 
 
 @pytest.mark.asyncio

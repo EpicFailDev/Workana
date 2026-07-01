@@ -578,3 +578,79 @@
     position: relative;
     z-index: 2;
 }
+
+.resultsToolbar {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
+    align-items: center;
+}
+
+.selectionControls,
+.bulkActions,
+.pagination {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.textAction {
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: var(--color-primary-light);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.batchSelected {
+    border-color: var(--color-primary) !important;
+    box-shadow: 0 0 0 1px var(--color-primary), 0 0 24px rgba(99, 102, 241, 0.2);
+}
+
+.bulkActionBar {
+    position: sticky;
+    top: 12px;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 0 0 20px;
+    padding: 12px 16px;
+    border: 1px solid rgba(99, 102, 241, 0.5);
+    border-radius: var(--radius-lg);
+    background: rgba(10, 14, 28, 0.96);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(14px);
+}
+
+.pagination {
+    justify-content: center;
+    margin-top: var(--spacing-2xl);
+}
+
+@media (max-width: 768px) {
+    .resultsToolbar,
+    .bulkActionBar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .bulkActions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .bulkActions button {
+        width: 100%;
+    }
+
+    .selectionControls {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}

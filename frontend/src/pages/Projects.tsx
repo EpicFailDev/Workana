@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api } from "../services/api";
+import { api, type AnalysisResult, type CatalogProject } from "../services/api";
 import styles from "./Projects.module.css";
 import Loader from "../components/Loader";
 import { useToast } from "../context/ToastContext";
@@ -37,6 +37,11 @@ interface Project {
     is_featured?: boolean;
     url: string;
     match_score?: number | null;
+    is_favorite?: boolean;
+    is_hidden?: boolean;
+    notes?: string | null;
+    analysis?: AnalysisResult | null;
+    analyzed_at?: string | null;
 }
 
 interface SearchFilters {
@@ -51,6 +56,8 @@ interface SearchFilters {
     proposals: string;
     payment_verified: boolean;
     pages_to_fetch: number;
+    favorites_only: boolean;
+    hidden_only: boolean;
 }
 
 const categories = [
@@ -69,8 +76,7 @@ export default function Projects() {
     const [searchParams] = useSearchParams();
 
     // --- Persistence Logic Start ---
-    // v2 invalida estados vazios gravados quando erros do backend eram tratados como resultado válido.
-    const STORAGE_KEY = "workana_projects_cache_v2";
+    const STORAGE_KEY = "workana_projects_cache_v3";
 
     const loadStateFromStorage = () => {
         try {
@@ -94,12 +100,14 @@ export default function Projects() {
         min_budget: searchParams.get("min_budget") || "",
         max_budget: searchParams.get("max_budget") || "",
         project_type: searchParams.get("project_type") || "any",
-        sort: searchParams.get("sort") || "relevance",
+        sort: searchParams.get("sort") || "created_at_desc",
         publication: searchParams.get("publication") || "any",
         language: searchParams.get("language") || "any",
         proposals: searchParams.get("proposals") || "any",
         payment_verified: searchParams.get("payment_verified") === "true",
-        pages_to_fetch: Number(searchParams.get("pages_to_fetch")) || 10,
+        pages_to_fetch: Number(searchParams.get("limit")) || 24,
+        favorites_only: searchParams.get("favorites_only") === "true",
+        hidden_only: searchParams.get("hidden_only") === "true",
     } : savedState.filters;
 
     const [filters, setFilters] = useState<SearchFilters>(initialFilters);
@@ -110,10 +118,15 @@ export default function Projects() {
     
     // Recovery of other states
     const [isSearching, setIsSearching] = useState(false);
-    const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [hasSearched, setHasSearched] = useState((!hasUrlParams && savedState) ? savedState.hasSearched : false);
     const [page, setPage] = useState((!hasUrlParams && savedState) ? savedState.page : 1);
-    const [hasMore, setHasMore] = useState((!hasUrlParams && savedState) ? savedState.hasMore : true);
+    const [total, setTotal] = useState((!hasUrlParams && savedState) ? (savedState.total || 0) : 0);
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [selectAllFiltered, setSelectAllFiltered] = useState(false);
+    const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
+    const [analysisById, setAnalysisById] = useState<Record<string, AnalysisResult>>({});
+    const activeFilterSignature = useRef<string | null>(null);
+    const knownProjects = useRef<Map<string, Project>>(new Map());
 
     // Save state effect
     useEffect(() => {
@@ -125,11 +138,11 @@ export default function Projects() {
                 projects,
                 hasSearched,
                 page,
-                hasMore
+                total,
             };
             sessionStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
         }
-    }, [filters, projects, hasSearched, page, hasMore]);
+    }, [filters, projects, hasSearched, page, total]);
     // --- Persistence Logic End ---
 
     // Estado para salvar filtro
@@ -140,7 +153,7 @@ export default function Projects() {
     // Efeito para buscar automaticamente se houver filtros na URL
     useEffect(() => {
         const hasParams = Array.from(searchParams.keys()).length > 0;
-        if (hasParams && !hasSearched) {
+        if ((hasParams || !savedState) && !hasSearched) {
             executeSearch(1, false);
         }
     }, [searchParams]);
@@ -228,6 +241,13 @@ export default function Projects() {
             case "bids_asc":
                 sorted.sort((a, b) => (Number(a.proposals_count) || 0) - (Number(b.proposals_count) || 0));
                 break;
+            case "ranking":
+                sorted.sort((a, b) => {
+                    const scoreA = a.analysis?.score ?? a.match_score ?? 0;
+                    const scoreB = b.analysis?.score ?? b.match_score ?? 0;
+                    return scoreB - scoreA;
+                });
+                break;
             case "relevance":
             default:
                 // Se temos match_score vindo do backend, usamos ele (maior é melhor)
@@ -256,42 +276,91 @@ export default function Projects() {
         return sorted;
     };
 
-    const executeSearch = async (pageNum: number, append: boolean = false) => {
-        const loadingState = append ? setIsLoadingMore : setIsSearching;
-        loadingState(true);
+    const toCatalogFilters = (source: SearchFilters) => ({
+        q: source.keywords || undefined,
+        category: source.category || undefined,
+        min_budget: source.min_budget ? Number(source.min_budget) : undefined,
+        max_budget: source.max_budget ? Number(source.max_budget) : undefined,
+        payment_verified: source.payment_verified || undefined,
+        favorites_only: source.favorites_only || undefined,
+        hidden_only: source.hidden_only || undefined,
+    });
+
+    const selectionSignature = (source: SearchFilters) => JSON.stringify(toCatalogFilters(source));
+
+    const mapCatalogProject = (project: CatalogProject): Project => ({
+        ...project,
+        id: project.workana_id,
+        description: project.description || "",
+        budget: project.budget_min || project.budget_max
+            ? `R$ ${project.budget_min || 0}${project.budget_max ? ` - R$ ${project.budget_max}` : ""}`
+            : null,
+        project_type: project.budget_type,
+        skills: project.skills || [],
+        proposals_count: project.proposals_count ?? null,
+        posted_at: project.posted_at ?? null,
+        details: project.details as Record<string, string> | undefined,
+        analysis: project.analysis ? (project.analysis as unknown as AnalysisResult) : null,
+        analyzed_at: project.analyzed_at ?? null,
+    });
+
+    const clearSelection = () => {
+        setSelectedIds(new Set());
+        setSelectAllFiltered(false);
+        setExcludedIds(new Set());
+    };
+
+    const applyAnalysisResults = (results: AnalysisResult[]) => {
+        if (!results.length) return;
+
+        const analysisMap = new Map(results.map(result => [result.workana_id, result]));
+        setAnalysisById(previous => ({
+            ...previous,
+            ...Object.fromEntries(results.map(result => [result.workana_id, result])),
+        }));
+        setProjects(previous => previous.map(project => {
+            const analysis = analysisMap.get(project.id);
+            if (!analysis) return project;
+            const nextProject = {
+                ...project,
+                analysis,
+                analyzed_at: new Date().toISOString(),
+            };
+            knownProjects.current.set(project.id, nextProject);
+            return nextProject;
+        }));
+        setSelectedProject(previous => {
+            if (!previous) return previous;
+            const analysis = analysisMap.get(previous.id);
+            return analysis
+                ? { ...previous, analysis, analyzed_at: new Date().toISOString() }
+                : previous;
+        });
+    };
+
+    const executeSearch = async (pageNum: number, _append: boolean = false, sourceFilters: SearchFilters = filters) => {
+        setIsSearching(true);
 
         try {
-            const result = await api.searchProjects({
-                keywords: filters.keywords,
-                category: filters.category,
-                min_budget: filters.min_budget ? Number(filters.min_budget) : undefined,
-                max_budget: filters.max_budget ? Number(filters.max_budget) : undefined,
-                project_type: filters.project_type !== "any" ? filters.project_type : undefined,
-                sort: filters.sort,
-                publication: filters.publication !== "any" ? filters.publication : undefined,
-                language: filters.language !== "any" ? filters.language : undefined,
-                proposals: filters.proposals !== "any" ? filters.proposals : undefined,
-                payment_verified: filters.payment_verified ? true : undefined,
+            const signature = selectionSignature(sourceFilters);
+            if (activeFilterSignature.current && activeFilterSignature.current !== signature) {
+                clearSelection();
+            }
+            activeFilterSignature.current = signature;
+
+            const result = await api.getCatalogProjects({
+                ...toCatalogFilters(sourceFilters),
                 page: pageNum,
-                pages_to_fetch: filters.pages_to_fetch, 
+                limit: sourceFilters.pages_to_fetch,
+                sort: sourceFilters.sort,
             });
 
-            if (append) {
-                setProjects(prev => {
-                    const combined = [...prev, ...result.projects];
-                    // Remover duplicatas baseadas no ID
-                    const unique = combined.filter((p, index, self) => 
-                        index === self.findIndex((t) => t.id === p.id)
-                    );
-                    return sortProjectsLocal(unique, filters.sort);
-                });
-            } else {
-                setProjects(sortProjectsLocal(result.projects, filters.sort));
-            }
-
-            // Se retornou menos projetos que o esperado, provavelmente não tem mais
-            // (Assumindo média de 10 por página)
-            setHasMore(result.projects.length >= (filters.pages_to_fetch * 5)); 
+            const mappedProjects = result.projects.map(mapCatalogProject);
+            mappedProjects.forEach(project => knownProjects.current.set(project.id, project));
+            setProjects(mappedProjects);
+            setTotal(result.total);
+            setPage(result.page);
+            setHasSearched(true);
 
         } catch (error: any) {
             console.error("Erro na busca:", error);
@@ -299,26 +368,16 @@ export default function Projects() {
             toast.error(message);
 
             // Uma falha de rede/serviço não equivale a uma busca válida sem resultados.
-            if (!append) {
-                setHasSearched(false);
-            }
+            setHasSearched(false);
         } finally {
-            loadingState(false);
+            setIsSearching(false);
         }
     };
 
     const handleSearch = () => {
         setHasSearched(true);
         setPage(1);
-        setHasMore(true);
         executeSearch(1, false);
-    };
-
-    const handleLoadMore = () => {
-        // Incrementa conforme a quantidade selecionada pelo usuário
-        const nextPage = page + filters.pages_to_fetch;
-        setPage(nextPage);
-        executeSearch(nextPage, true);
     };
 
     // Estado para Mega Proposta IA
@@ -501,8 +560,11 @@ export default function Projects() {
             language: "any",
             proposals: "any",
             payment_verified: false,
-            pages_to_fetch: 10,
+            pages_to_fetch: 24,
+            favorites_only: false,
+            hidden_only: false,
         });
+        clearSelection();
     };
 
     const [selectedProject, setSelectedProject] = useState<Project | null>(null);
@@ -514,6 +576,12 @@ export default function Projects() {
 
     // Auxiliary function to calculate "Match Score"
     const calculateMatch = (project: Project) => {
+        if (project.analysis?.score !== undefined && project.analysis?.score !== null) {
+            return Math.round(project.analysis.score);
+        }
+        if (analysisById[project.id]?.score !== undefined) {
+            return Math.round(analysisById[project.id].score);
+        }
         if (project.match_score !== undefined && project.match_score !== null) {
             return Math.round(project.match_score);
         }
@@ -525,6 +593,156 @@ export default function Projects() {
         if (minutes > 1440) score -= 20;
         return Math.max(10, Math.min(98, score)); // Clamp between 10 and 98
     };
+
+    const isProjectSelected = (projectId: string) => selectAllFiltered
+        ? !excludedIds.has(projectId)
+        : selectedIds.has(projectId);
+
+    const toggleProjectSelection = (projectId: string) => {
+        if (selectAllFiltered) {
+            setExcludedIds(previous => {
+                const next = new Set(previous);
+                next.has(projectId) ? next.delete(projectId) : next.add(projectId);
+                return next;
+            });
+            return;
+        }
+        setSelectedIds(previous => {
+            const next = new Set(previous);
+            next.has(projectId) ? next.delete(projectId) : next.add(projectId);
+            return next;
+        });
+    };
+
+    const selectedOnPage = projects.filter(project => isProjectSelected(project.id)).length;
+    const selectedCount = selectAllFiltered
+        ? Math.max(0, total - excludedIds.size)
+        : selectedIds.size;
+    const allPageSelected = projects.length > 0 && selectedOnPage === projects.length;
+    const masterCheckbox = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (masterCheckbox.current) {
+            masterCheckbox.current.indeterminate = selectedOnPage > 0 && !allPageSelected;
+        }
+    }, [selectedOnPage, allPageSelected]);
+
+    const toggleCurrentPage = () => {
+        const pageIds = projects.map(project => project.id);
+        if (selectAllFiltered) {
+            setExcludedIds(previous => {
+                const next = new Set(previous);
+                pageIds.forEach(id => allPageSelected ? next.add(id) : next.delete(id));
+                return next;
+            });
+        } else {
+            setSelectedIds(previous => {
+                const next = new Set(previous);
+                pageIds.forEach(id => allPageSelected ? next.delete(id) : next.add(id));
+                return next;
+            });
+        }
+    };
+
+    const selectEveryFilteredProject = () => {
+        setSelectAllFiltered(true);
+        setSelectedIds(new Set());
+        setExcludedIds(new Set());
+    };
+
+    const runBulkAction = async (action: "favorite" | "hide" | "restore") => {
+        if (selectedCount === 0) return;
+        try {
+            const result = await api.bulkState(selectAllFiltered ? {
+                action,
+                filters: toCatalogFilters(filters),
+                exclude_ids: Array.from(excludedIds),
+            } : {
+                action,
+                project_ids: Array.from(selectedIds),
+            });
+            toast.success(`${result.updated} projeto(s) atualizado(s).`);
+            clearSelection();
+            await executeSearch(page, false);
+        } catch (error: any) {
+            toast.error(error?.message || "Não foi possível atualizar os projetos.");
+        }
+    };
+
+    const runAnalysis = async () => {
+        if (selectedCount === 0) return;
+        try {
+            const result = await api.analyzeProjects(selectAllFiltered ? {
+                filters: toCatalogFilters(filters),
+                exclude_ids: Array.from(excludedIds),
+            } : {
+                project_ids: Array.from(selectedIds),
+            });
+            applyAnalysisResults(result);
+            toast.success(`${result.length} projeto(s) analisado(s).`);
+        } catch (error: any) {
+            toast.error(error?.message || "Não foi possível analisar os projetos.");
+        }
+    };
+
+    const selectRecommendedProjects = () => {
+        const recommendedIds = Array.from(new Set([
+            ...projects
+                .filter(project => (project.analysis ?? analysisById[project.id])?.recommendation === "send")
+                .map(project => project.id),
+            ...Object.entries(analysisById)
+                .filter(([, analysis]) => analysis.recommendation === "send")
+                .map(([workanaId]) => workanaId),
+        ]));
+
+        if (!recommendedIds.length) {
+            toast.error("Nenhum projeto recomendado disponível.");
+            return;
+        }
+
+        setSelectAllFiltered(false);
+        setExcludedIds(new Set());
+        setSelectedIds(new Set(recommendedIds));
+    };
+
+    const shareSelectedProjects = async () => {
+        try {
+            let selectedProjects: Project[];
+            if (selectAllFiltered) {
+                const maximum = Math.min(total, 2000);
+                const pages = Math.ceil(maximum / 100);
+                const responses = await Promise.all(
+                    Array.from({ length: pages }, (_, index) => api.getCatalogProjects({
+                        ...toCatalogFilters(filters),
+                        page: index + 1,
+                        limit: 100,
+                        sort: filters.sort,
+                    })),
+                );
+                selectedProjects = responses
+                    .flatMap(response => response.projects)
+                    .filter(project => !excludedIds.has(project.workana_id))
+                    .map(mapCatalogProject);
+            } else {
+                selectedProjects = Array.from(selectedIds)
+                    .map(id => knownProjects.current.get(id))
+                    .filter((project): project is Project => Boolean(project));
+            }
+            if (!selectedProjects.length) {
+                toast.error("Nenhum projeto disponível para compartilhar.");
+                return;
+            }
+            const content = selectedProjects
+                .map(project => `${project.title}\n${project.url}`)
+                .join("\n\n");
+            await navigator.clipboard.writeText(content);
+            toast.success(`${selectedProjects.length} projeto(s) copiado(s).`);
+        } catch {
+            toast.error("Não foi possível copiar os projetos.");
+        }
+    };
+
+    const totalPages = Math.max(1, Math.ceil(total / filters.pages_to_fetch));
 
     return (
         <div className={styles.container}>
@@ -625,6 +843,14 @@ export default function Projects() {
                             <input type="checkbox" checked={filters.payment_verified} onChange={e => setFilters({...filters, payment_verified: e.target.checked})} />
                             <span className="checkbox-label" style={{ color: 'var(--color-text-secondary)' }}>Pagamento Verificado</span>
                         </label>
+                        <label className="checkbox-container" style={{ background: 'transparent', border: 'none', padding: 0 }}>
+                            <input type="checkbox" checked={filters.favorites_only} onChange={e => setFilters({...filters, favorites_only: e.target.checked})} />
+                            <span className="checkbox-label" style={{ color: 'var(--color-text-secondary)' }}>Favoritos</span>
+                        </label>
+                        <label className="checkbox-container" style={{ background: 'transparent', border: 'none', padding: 0 }}>
+                            <input type="checkbox" checked={filters.hidden_only} onChange={e => setFilters({...filters, hidden_only: e.target.checked})} />
+                            <span className="checkbox-label" style={{ color: 'var(--color-text-secondary)' }}>Ocultos</span>
+                        </label>
 
                         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
                              <span className="text-sm text-muted">Resultados por página:</span>
@@ -634,15 +860,32 @@ export default function Projects() {
                                 value={filters.pages_to_fetch}
                                 onChange={e => setFilters({...filters, pages_to_fetch: Number(e.target.value)})}
                              >
-                                <option value={1}>10</option>
-                                <option value={3}>30</option>
-                                <option value={5}>50</option>
-                                <option value={10}>100</option>
+                                <option value={12}>12</option>
+                                <option value={24}>24</option>
+                                <option value={48}>48</option>
+                                <option value={96}>96</option>
                              </select>
                         </div>
                     </div>
                 </div>
             </div>
+
+            {selectedCount > 0 && (
+                <div className={styles.bulkActionBar} role="region" aria-label="Ações dos projetos selecionados">
+                    <strong>{selectedCount} selecionado(s)</strong>
+                    <div className={styles.bulkActions}>
+                        <button className="btn btn-secondary" onClick={() => runBulkAction("favorite")}>Salvar</button>
+                        <button className="btn btn-secondary" onClick={() => runBulkAction(filters.hidden_only ? "restore" : "hide")}>
+                            {filters.hidden_only ? "Restaurar" : "Ocultar"}
+                        </button>
+                        <button className="btn btn-secondary" onClick={shareSelectedProjects}>Compartilhar</button>
+                        <button className="btn btn-secondary" onClick={runAnalysis}>Analisar</button>
+                        <button className="btn btn-secondary" onClick={selectRecommendedProjects}>Selecionar recomendados</button>
+                        <button className="btn btn-primary" disabled title="Disponível na Fase 6">Enviar propostas</button>
+                        <button className="btn btn-ghost" onClick={clearSelection}>Limpar</button>
+                    </div>
+                </div>
+            )}
 
             {/* Results Grid & Side Panel Layout */}
             <div className={styles.mainLayout}>
@@ -660,21 +903,40 @@ export default function Projects() {
                     ) : (
                         <>
                             {projects.length > 0 && (
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', alignItems: 'center' }}>
-                                    <span className="badge badge-neutral">{projects.length} Projetos Encontrados</span>
+                                <div className={styles.resultsToolbar}>
+                                    <div className={styles.selectionControls}>
+                                        <label className="checkbox-container" style={{ background: 'transparent', border: 'none', padding: 0 }}>
+                                            <input
+                                                ref={masterCheckbox}
+                                                type="checkbox"
+                                                checked={allPageSelected}
+                                                onChange={toggleCurrentPage}
+                                                aria-label="Selecionar projetos desta página"
+                                            />
+                                            <span className="checkbox-label">Selecionar página</span>
+                                        </label>
+                                        <button type="button" className={styles.textAction} onClick={selectEveryFilteredProject}>
+                                            Selecionar todos os {total} resultados
+                                        </button>
+                                        <span className="badge badge-neutral">{total} Projetos Encontrados</span>
+                                    </div>
                                     <select 
                                         className={styles.controlInput} 
                                         style={{ width: 'auto', padding: '6px 12px' }}
                                         value={filters.sort}
                                         onChange={e => {
-                                            setFilters({...filters, sort: e.target.value});
-                                            setProjects(sortProjectsLocal(projects, e.target.value));
+                                            const nextFilters = {...filters, sort: e.target.value};
+                                            setFilters(nextFilters);
+                                            executeSearch(1, false, nextFilters);
                                         }}
                                     >
-                                        <option value="relevance">Relevância</option>
                                         <option value="created_at_desc">Mais Recentes</option>
+                                        <option value="created_at_asc">Mais Antigos</option>
                                         <option value="budget_desc">Maior Orçamento</option>
+                                        <option value="budget_asc">Menor Orçamento</option>
                                         <option value="bids_asc">Menos Concorridos</option>
+                                        <option value="bids_desc">Mais Concorridos</option>
+                                        <option value="ranking">Ranking</option>
                                     </select>
                                 </div>
                             )}
@@ -685,11 +947,21 @@ export default function Projects() {
                                     const matchScore = calculateMatch(project);
                                     const isNew = parseRelativeDate(project.posted_at) < 60;
                                     const isSelected = selectedProject?.id === project.id;
+                                    const isBatchSelected = isProjectSelected(project.id);
+                                    const analysis = project.analysis ?? analysisById[project.id] ?? null;
+                                    const recommendation = analysis?.recommendation;
+                                    const badgeClass = recommendation === "send"
+                                        ? "badge-success"
+                                        : recommendation === "review"
+                                            ? "badge-warning"
+                                            : recommendation === "discard"
+                                                ? "badge-error"
+                                                : "badge-info";
 
                                     return (
                                         <div 
                                             key={project.id} 
-                                            className={`${styles.holoCard} ${isSelected ? styles.active : ''} reveal-item`}
+                                            className={`${styles.holoCard} ${isSelected ? styles.active : ''} ${isBatchSelected ? styles.batchSelected : ''} reveal-item`}
                                             style={{ animationDelay: `${index * 0.05}s` }}
                                         >
                                             <div className={`${styles.cornerMarker} ${styles.cornerTL}`}></div>
@@ -700,7 +972,20 @@ export default function Projects() {
                                             {isNew && <div className={styles.newBadge}>NOVO</div>}
                                             
                                             <div className={styles.cardHeader} onClick={() => setSelectedProject(project)}>
+                                                <label className="checkbox-container" style={{ background: 'transparent', border: 'none', padding: 0 }} onClick={e => e.stopPropagation()}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isBatchSelected}
+                                                        onChange={() => toggleProjectSelection(project.id)}
+                                                        aria-label={`Selecionar ${project.title}`}
+                                                    />
+                                                </label>
                                                 <h3 className={styles.cardTitle} title="Clique para ver Detalhes">{project.title}</h3>
+                                                {analysis && (
+                                                    <span className={`badge ${badgeClass}`} title={analysis.justification}>
+                                                        {Math.round(analysis.score)} • {recommendation}
+                                                    </span>
+                                                )}
                                                 <div className={styles.rewardBadge}>
                                                     {project.budget || 'A Combinar'}
                                                 </div>
@@ -761,10 +1046,22 @@ export default function Projects() {
                                 })}
                             </div>
 
-                            {hasMore && (
-                                <div className={styles.loadMoreArea}>
-                                    <button className="btn btn-secondary btn-lg" onClick={handleLoadMore} disabled={isLoadingMore}>
-                                        {isLoadingMore ? 'Carregando dados...' : 'CARREGAR MAIS PROJETOS'}
+                            {totalPages > 1 && (
+                                <div className={styles.pagination} aria-label="Paginação dos projetos">
+                                    <button
+                                        className="btn btn-secondary"
+                                        onClick={() => executeSearch(page - 1)}
+                                        disabled={page <= 1 || isSearching}
+                                    >
+                                        Anterior
+                                    </button>
+                                    <span>Página {page} de {totalPages}</span>
+                                    <button
+                                        className="btn btn-secondary"
+                                        onClick={() => executeSearch(page + 1)}
+                                        disabled={page >= totalPages || isSearching}
+                                    >
+                                        Próxima
                                     </button>
                                 </div>
                             )}

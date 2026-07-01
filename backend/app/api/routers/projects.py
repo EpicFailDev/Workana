@@ -6,10 +6,11 @@ from app.api.schemas import (
     SearchFilters, SavedFilter, Project, ProjectList, ProposalGenerationResult,
     ProposalSubmit, ProposalResult, ProposalGenerateRequest,
     CatalogProjectList, SortOption, BulkStateRequest, BulkStateResult,
-    ProjectStateRequest, ProjectNotesUpdate,
+    ProjectStateRequest, ProjectNotesUpdate, AnalyzeRequest, AnalysisResult,
 )
 from app.auth import get_current_user
 from app.database import crud
+from app.services.scorer import ProjectScorer
 
 router = APIRouter()
 from app.automation.browser import (
@@ -102,6 +103,84 @@ async def update_catalog_notes(
         raise HTTPException(status_code=404, detail="Projeto não encontrado no catálogo.")
     await crud.set_catalog_project_notes(user["user_id"], workana_id, payload.notes)
     return {"success": True, "message": "Notas atualizadas!"}
+
+
+async def _build_analysis_profile(user_id, filters: Optional[dict] = None) -> dict:
+    config = await crud.get_automation_config(user_id)
+    saved_filters = await crud.get_saved_filters(user_id)
+    profile: dict = {
+        "keywords": None,
+        "skills": [],
+        "category": None,
+        "min_budget": None,
+        "max_budget": None,
+        "payment_verified": None,
+        "automation_config": {
+            "auto_apply": config.get("auto_apply"),
+            "max_proposals_per_day": config.get("max_proposals_per_day"),
+        },
+    }
+
+    if saved_filters:
+        latest = saved_filters[0].filters.model_dump()
+        for key in ("keywords", "category", "min_budget", "max_budget", "payment_verified"):
+            if latest.get(key) is not None:
+                profile[key] = latest.get(key)
+        profile["skills"] = latest.get("skills") or []
+
+    if filters:
+        if filters.get("q") and not profile.get("keywords"):
+            profile["keywords"] = filters.get("q")
+        for key in ("keywords", "category", "min_budget", "max_budget", "payment_verified"):
+            if filters.get(key) is not None:
+                profile[key] = filters.get(key)
+        if filters.get("skills") is not None:
+            profile["skills"] = filters.get("skills") or []
+
+    return profile
+
+
+@router.post("/projects/analyze", response_model=List[AnalysisResult])
+async def analyze_projects(
+    payload: AnalyzeRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Analisa projetos do catálogo, persiste o resultado e devolve a lista ranqueada."""
+    if not payload.project_ids and payload.filters is None:
+        raise HTTPException(status_code=422, detail="Informe project_ids ou filters.")
+
+    ids = await crud.resolve_target_workana_ids(
+        user_id=user["user_id"],
+        project_ids=payload.project_ids,
+        filters=payload.filters.model_dump() if payload.filters else None,
+        exclude_ids=payload.exclude_ids,
+        cap=2000,
+    )
+    if not ids:
+        return []
+
+    projects = await crud.get_catalog_projects_by_ids(user["user_id"], ids)
+    profile = await _build_analysis_profile(
+        user["user_id"],
+        payload.filters.model_dump() if payload.filters else None,
+    )
+
+    results = []
+    for project in projects:
+        analysis = ProjectScorer.analyze_project(project, profile)
+        results.append(
+            {
+                "workana_id": project["workana_id"],
+                "score": analysis["score"],
+                "recommendation": analysis["recommendation"],
+                "dimensions": analysis["dimensions"],
+                "justification": analysis["justification"],
+            }
+        )
+
+    results.sort(key=lambda item: (-item["score"], item["recommendation"]))
+    await crud.save_project_analysis(user["user_id"], results)
+    return results
 
 
 @router.post("/projects/search", response_model=ProjectList)

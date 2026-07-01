@@ -5,7 +5,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone
 import json
 from loguru import logger
-from sqlalchemy import select, func, delete, update, and_, or_, text
+from sqlalchemy import select, func, delete, update, and_, or_, text, cast, Float, String
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from cryptography.fernet import Fernet
@@ -1352,6 +1352,10 @@ async def search_catalog(
             "budget_asc": ProjectCatalogModel.budget_min.asc().nullsfirst(),
             "bids_asc": ProjectCatalogModel.proposals_count.asc().nullsfirst(),
             "bids_desc": ProjectCatalogModel.proposals_count.desc().nullslast(),
+            "ranking": func.coalesce(
+                cast(UserProjectStateModel.analysis["score"], Float),
+                -1.0,
+            ).desc(),
         }
         order_clause = sort_map.get(sort_value, ProjectCatalogModel.last_seen_at.desc())
         query = query.order_by(order_clause)
@@ -1412,6 +1416,121 @@ async def search_catalog(
             })
 
         return {"projects": projects, "total": total, "page": page, "limit": limit}
+
+
+def _serialize_catalog_row(cat: ProjectCatalogModel, state: Optional[UserProjectStateModel]) -> Dict[str, Any]:
+    return {
+        "workana_id": cat.workana_id,
+        "title": cat.title,
+        "description": cat.description,
+        "url": cat.url,
+        "category": cat.category,
+        "subcategory": cat.subcategory,
+        "budget_min": cat.budget_min,
+        "budget_max": cat.budget_max,
+        "budget_type": cat.budget_type,
+        "deadline": cat.deadline,
+        "skills": cat.skills,
+        "details": cat.details or {},
+        "client_name": cat.client_name,
+        "client_country": cat.client_country,
+        "client_rating": cat.client_rating,
+        "client_projects_posted": cat.client_projects_posted,
+        "client_projects_paid": cat.client_projects_paid,
+        "client_member_since": cat.client_member_since,
+        "client_plan": cat.client_plan,
+        "proposals_count": cat.proposals_count,
+        "payment_verified": cat.payment_verified,
+        "posted_at": cat.posted_at,
+        "published_at": cat.published_at,
+        "last_client_activity": cat.last_client_activity,
+        "is_urgent": cat.is_urgent,
+        "is_featured": cat.is_featured,
+        "status": cat.status,
+        "first_seen_at": cat.first_seen_at.isoformat() if cat.first_seen_at else None,
+        "last_seen_at": cat.last_seen_at.isoformat() if cat.last_seen_at else None,
+        "is_favorite": state.is_favorite if state else False,
+        "is_hidden": state.is_hidden if state else False,
+        "notes": state.notes if state else None,
+        "analysis": state.analysis if state else None,
+        "analyzed_at": state.analyzed_at.isoformat() if state and state.analyzed_at else None,
+    }
+
+
+async def get_catalog_projects_by_ids(user_id: Any, workana_ids: List[str]) -> List[Dict[str, Any]]:
+    """Obtém projetos do catálogo preservando a ordem de entrada."""
+    ordered_ids = list(dict.fromkeys([item for item in workana_ids if item]))
+    if not ordered_ids:
+        return []
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(ProjectCatalogModel, UserProjectStateModel)
+            .outerjoin(
+                UserProjectStateModel,
+                and_(
+                    UserProjectStateModel.workana_id == ProjectCatalogModel.workana_id,
+                    UserProjectStateModel.user_id == user_id,
+                ),
+            )
+            .where(
+                and_(
+                    ProjectCatalogModel.status == "active",
+                    ProjectCatalogModel.workana_id.in_(ordered_ids),
+                )
+            )
+        )
+        rows = result.unique().all()
+
+    by_id = {
+        cat.workana_id: _serialize_catalog_row(cat, state)
+        for cat, state in rows
+    }
+    return [by_id[item] for item in ordered_ids if item in by_id]
+
+
+async def save_project_analysis(user_id: Any, analyses: List[Dict[str, Any]]) -> int:
+    """Persiste análise estruturada no overlay do usuário."""
+    if not analyses:
+        return 0
+
+    now = datetime.now(timezone.utc)
+    rows = []
+    for item in analyses:
+        workana_id = item.get("workana_id")
+        if not workana_id:
+            continue
+        rows.append(
+            {
+                "user_id": user_id,
+                "workana_id": workana_id,
+                "analysis": item,
+                "analyzed_at": now,
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+
+    if not rows:
+        return 0
+
+    statement = pg_insert(UserProjectStateModel).values(rows)
+    excluded = statement.excluded
+    statement = statement.on_conflict_do_update(
+        index_elements=[
+            UserProjectStateModel.user_id,
+            UserProjectStateModel.workana_id,
+        ],
+        set_={
+            "analysis": excluded.analysis,
+            "analyzed_at": excluded.analyzed_at,
+            "updated_at": excluded.updated_at,
+        },
+    )
+    async with async_session() as session:
+        await session.execute(statement)
+        await session.commit()
+    return len(rows)
 
 
 async def resolve_target_workana_ids(

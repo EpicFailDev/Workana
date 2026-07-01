@@ -582,6 +582,36 @@ class ProjectStateRequest(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=10000)
 
 
+class AnalysisDimensions(BaseModel):
+    profile_fit: float
+    budget: float
+    competition: float
+    client_reliability: float
+    recency: float
+    risk: float
+
+
+class AnalysisResult(BaseModel):
+    workana_id: str
+    score: float = Field(ge=0, le=100)
+    recommendation: Literal["send", "review", "discard"]
+    dimensions: AnalysisDimensions
+    justification: str
+
+
+class AnalyzeRequest(BaseModel):
+    project_ids: Optional[List[str]] = None
+    filters: Optional[CatalogFilters] = None
+    exclude_ids: List[str] = Field(default_factory=list)
+
+    @field_validator("project_ids", "exclude_ids")
+    @classmethod
+    def normalize_project_ids(cls, value):
+        if value is None:
+            return value
+        return list(dict.fromkeys(item.strip() for item in value if item and item.strip()))
+
+
 class CatalogRefreshResult(BaseModel):
     """Resultado de uma coleta manual do catálogo."""
     success: bool
