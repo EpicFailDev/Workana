@@ -14,7 +14,7 @@ from app.config import settings
 # de forma que Uvicorn/SQLAlchemy já emitam pelo pipeline estruturado.
 from app.observability.logging_config import configure_logging
 from app.observability.middleware import RequestIDMiddleware
-from app.api.routers import projects, automation, dashboard, profile
+from app.api.routers import projects, automation, dashboard, profile, export
 from app.database.models import init_db
 
 
@@ -74,6 +74,7 @@ app.add_middleware(
 app.add_middleware(RequestIDMiddleware)
 
 # Incluir rotas da API
+app.include_router(export.router, prefix="/api", tags=["Export"])
 app.include_router(projects.router, prefix="/api", tags=["Projects"])
 app.include_router(automation.router, prefix="/api", tags=["Automation"])
 app.include_router(dashboard.router, prefix="/api", tags=["Dashboard"])

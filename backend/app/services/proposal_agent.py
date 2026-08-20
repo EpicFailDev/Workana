@@ -9,7 +9,7 @@ from loguru import logger
 from app.config import settings
 import json
 
-from typing import Optional, Any
+from typing import Optional, Any, List, Dict
 
 class ProposalAgent:
     def __init__(self):
@@ -162,6 +162,111 @@ class ProposalAgent:
                 "error": f"Erro ao processar com AI: {str(e)}"
             }
 
+    async def generate_bulk_proposals(
+        self,
+        user_id: str,
+        projects: List[dict],
+        template_id: Optional[Any] = None
+    ) -> dict:
+        """
+        Gera propostas em lote para múltiplos projetos em paralelo com controle de concorrência.
+        """
+        import asyncio
+        import re
+
+        sem = asyncio.Semaphore(3)
+
+        async def _gen_single(proj: dict):
+            async with sem:
+                workana_id = proj.get("workana_id") or proj.get("id") or ""
+                title = proj.get("title", "")
+                url = proj.get("url", f"https://www.workana.com/job/{workana_id}")
+
+                project_details = {
+                    "title": title,
+                    "description": proj.get("description", ""),
+                    "skills": proj.get("skills", []),
+                    "budget": proj.get("budget") or (
+                        f"R$ {proj.get('budget_min', 0)} - {proj.get('budget_max', 0)}"
+                        if proj.get("budget_min") or proj.get("budget_max")
+                        else "A combinar"
+                    ),
+                    "client_name": proj.get("client_name"),
+                }
+
+                try:
+                    res = await self.generate_proposal(
+                        user_id=user_id,
+                        project_details=project_details,
+                        template_id=template_id
+                    )
+
+                    if res.get("success"):
+                        suggested_price_str = res.get("suggested_price", "")
+                        suggested_budget = None
+                        if suggested_price_str:
+                            price_clean = suggested_price_str.replace('.', '').replace(',', '.')
+                            match = re.search(r'[\d.]+', price_clean)
+                            if match:
+                                try:
+                                    suggested_budget = float(match.group())
+                                except ValueError:
+                                    pass
+
+                        if suggested_budget is None:
+                            suggested_budget = proj.get("budget_min") or proj.get("budget_max") or 150.0
+
+                        return {
+                            "workana_id": str(workana_id),
+                            "title": title,
+                            "url": url,
+                            "success": True,
+                            "proposal": res.get("proposal", ""),
+                            "suggested_price": suggested_price_str,
+                            "suggested_budget": suggested_budget,
+                            "suggested_deadline_days": 7,
+                            "error": None,
+                        }
+                    else:
+                        return {
+                            "workana_id": str(workana_id),
+                            "title": title,
+                            "url": url,
+                            "success": False,
+                            "proposal": "",
+                            "suggested_price": "",
+                            "suggested_budget": proj.get("budget_min") or 150.0,
+                            "suggested_deadline_days": 7,
+                            "error": res.get("error", "Falha na geração"),
+                        }
+                except Exception as ex:
+                    return {
+                        "workana_id": str(workana_id),
+                        "title": title,
+                        "url": url,
+                        "success": False,
+                        "proposal": "",
+                        "suggested_price": "",
+                        "suggested_budget": proj.get("budget_min") or 150.0,
+                        "suggested_deadline_days": 7,
+                        "error": str(ex),
+                    }
+
+        tasks = [_gen_single(p) for p in projects]
+        results = await asyncio.gather(*tasks, return_exceptions=False)
+
+        generated = sum(1 for r in results if r.get("success"))
+        failed = sum(1 for r in results if not r.get("success"))
+
+        return {
+            "success": True,
+            "results": results,
+            "total": len(projects),
+            "generated": generated,
+            "failed": failed,
+        }
+
 # Instância global
 proposal_agent_instance = ProposalAgent()
+
 

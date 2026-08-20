@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard'
 import Projects from './pages/Projects'
 import History from './pages/History'
 import Settings from './pages/Settings'
+import Batches from './pages/Batches'
 const Templates = React.lazy(() => import('./pages/Templates'))
 import Profile from './pages/Profile'
 import Auth from './pages/Auth'
@@ -47,7 +48,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
                         to { transform: rotate(360deg); }
                     }
                 `}</style>
-                <span>ESTABELECENDO CANAL SEGURO...</span>
+                <span>CARREGANDO...</span>
             </div>
         );
     }
@@ -85,6 +86,7 @@ function App() {
                                 <Routes>
                                     <Route path="/" element={<Dashboard />} />
                                     <Route path="/projects" element={<Projects />} />
+                                    <Route path="/batches" element={<Batches />} />
                                     <Route path="/history" element={<History />} />
                                     <Route path="/settings" element={<Settings />} />
                                     <Route 
@@ -110,7 +112,7 @@ function App() {
                                                         borderTopColor: '#6366f1',
                                                         animation: 'spin 1s linear infinite'
                                                     }}></div>
-                                                    <span>CARREGANDO BLUEPRINT...</span>
+                                                    <span>CARREGANDO MODELOS...</span>
                                                 </div>
                                             }>
                                                 <Templates />

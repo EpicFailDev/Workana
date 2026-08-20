@@ -7,32 +7,26 @@ interface Log {
     timestamp: string;
 }
 
-const HACKER_LOGS = [
-    { message: "WORKANA_AUTH_BYPASS: Simulando handshake TLS em workana.com", type: 'warning' },
-    { message: "PROPOSAL_ENGINE: Gerando hash SHA-256 para proposta #88219", type: 'success' },
-    { message: "SCRAPE_COORDINATOR: Rotacionando user-agent para evitar detecção", type: 'info' },
-    { message: "BID_WAR_PROTOCOL: Ajustando lances competitivos em tempo real", type: 'warning' },
-    { message: "PROJECT_FETCH_QUEUE: 12 novas oportunidades em /pt/jobs", type: 'success' },
-    { message: "CLIENT_DNA_ANALYSIS: Analisando histórico de pagamentos... [OK]", type: 'success' },
-    { message: "SKILL_OVERRIDE: Forçando match para competências 'React+Node'", type: 'info' },
-    { message: "WORKANA_API_PULSE: Latência detectada em nodes/sa-east-1", type: 'error' },
-    { message: "STEALTH_CRAWLER: Mimetizando padrões de rolagem humana", type: 'info' },
-    { message: "AUTO_BID_DAEMON: Proposta enviada para 'Projeto de E-commerce'", type: 'success' },
-    { message: "COOKIE_INJECTION: Sincronizando sessão persistente com backend", type: 'warning' },
-    { message: "PROFIT_MAXIMIZER: ROI estimado de 14.5% para este bid", type: 'success' },
-    { message: "FREELANCER_RANK_SPOOF: Simulando status TOP_RATED", type: 'warning' },
-    { message: "PAYMENT_GATEWAY_PING: Verificando disponibilidade de saque", type: 'info' },
-    { message: "VULNERABILITY_SCAN: Porta 443 aberta na CDN da Workana", type: 'error' },
-    { message: "MESSAGE_BOT: Automatizando follow-up para lead pendente", type: 'success' },
-    { message: "BID_LIMIT_BREACH: Tentando burlar limite de 2 propostas/hora", type: 'error' },
-    { message: "AI_PROPOSAL_GEN: Injetando contexto de especialista em TI", type: 'info' },
-    { message: "NETWORK_TUNNEL: Roteando tráfego via proxy residenciais", type: 'info' },
-    { message: "SYSTEM_READY: Workana Accelerator v2.0 carregado", type: 'success' },
-    { message: "LEAD_SCORING: Identificado cliente com potencial high-ticket", type: 'success' },
-    { message: "AVATAR_SYNC: Atualizando imagem de perfil via IPFS", type: 'info' },
-    { message: "DEADLINE_WATCHER: Monitorando expiração de propostas ativas", type: 'warning' },
-    { message: "W_GATEKEEPER_BYPASS: Transpondo o Cloudflare CAPTCHA...", type: 'info' },
-    { message: "JOB_FILTER_HEURISTICS: Removendo spam da fila de busca", type: 'success' }
+const OPERATIONAL_LOGS = [
+    { message: "AUTH_SERVICE: Sessão do usuário autenticada via Supabase", type: 'success' as const },
+    { message: "PROPOSAL_ENGINE: Template de proposta compilado com sucesso", type: 'success' as const },
+    { message: "SCRAPE_COORDINATOR: Sincronização periódica de catálogo executada", type: 'info' as const },
+    { message: "MATCH_SCORER: Cálculo de compatibilidade de perfil concluído", type: 'info' as const },
+    { message: "CATALOG_SYNC: Novas oportunidades importadas do Workana", type: 'success' as const },
+    { message: "CLIENT_ANALYSIS: Histórico de contratações do cliente validado", type: 'success' as const },
+    { message: "SKILL_MATCHER: Mapeamento de competências técnicas concluído", type: 'info' as const },
+    { message: "WORKANA_API_PULSE: Latência de resposta da API normal", type: 'info' as const },
+    { message: "BROWSER_RUNNER: Instância de automação iniciada com sucesso", type: 'info' as const },
+    { message: "PROPOSAL_DISPATCHER: Proposta processada e pronta para envio", type: 'success' as const },
+    { message: "SESSION_MANAGER: Sincronizando estado persistente com banco de dados", type: 'info' as const },
+    { message: "METRICS_CALCULATOR: Estatísticas do painel atualizadas", type: 'success' as const },
+    { message: "WORKER_HEARTBEAT: Heartbeat de processo registrado em /tmp", type: 'info' as const },
+    { message: "AI_GENERATOR: Contexto profissional injetado no modelo Gemini", type: 'info' as const },
+    { message: "NOTIFICATION_SERVICE: Verificação de alertas de novos projetos", type: 'info' as const },
+    { message: "SYSTEM_READY: Workana Accelerator v2.0 operacional", type: 'success' as const },
+    { message: "LEAD_SCORING: Oportunidade com alta compatibilidade identificada", type: 'success' as const },
+    { message: "PROFILE_SYNC: Métricas do perfil sincronizadas", type: 'info' as const },
+    { message: "JOB_FILTER: Filtros de exclusão aplicados na busca", type: 'success' as const }
 ];
 
 // --- Optimized Log Item Component ---
@@ -75,14 +69,14 @@ export default function SystemLog() {
         };
 
         // Add initial batch faster
-        HACKER_LOGS.slice(0, 5).forEach((log, i) => {
+        OPERATIONAL_LOGS.slice(0, 5).forEach((log, i) => {
             setTimeout(() => createLog(log), i * 150);
         });
 
         // Continuous loop every 3s
         const interval = setInterval(() => {
-            const randomIndex = Math.floor(Math.random() * HACKER_LOGS.length);
-            createLog(HACKER_LOGS[randomIndex]);
+            const randomIndex = Math.floor(Math.random() * OPERATIONAL_LOGS.length);
+            createLog(OPERATIONAL_LOGS[randomIndex]);
         }, 3000);
 
         return () => clearInterval(interval);
@@ -117,8 +111,8 @@ export default function SystemLog() {
                 display: 'flex',
                 justifyContent: 'space-between'
             }}>
-                <span>&gt;_ SYSTEM_LOGS</span>
-                <span style={{ fontSize: '0.6rem', opacity: 0.5 }}>TERMINAL_ACTIVE</span>
+                <span>&gt;_ ATIVIDADE DO SISTEMA</span>
+                <span style={{ fontSize: '0.65rem', opacity: 0.6 }}>ONLINE</span>
             </div>
             
             <div 

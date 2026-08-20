@@ -522,6 +522,10 @@ class CatalogProject(BaseModel):
     client_plan: Optional[str] = None
     proposals_count: Optional[int] = None
     payment_verified: Optional[bool] = False
+    # Dados normalizados do catálogo (ver migration 20260820000000)
+    estimated_published_at: Optional[datetime] = None
+    proposals_delta: Optional[int] = None
+    contract_type: Optional[str] = "project_fixed"
     posted_at: Optional[str] = None
     published_at: Optional[str] = None
     last_client_activity: Optional[str] = None
@@ -536,6 +540,20 @@ class CatalogProject(BaseModel):
     notes: Optional[str] = None
     analysis: Optional[dict] = None
     analyzed_at: Optional[datetime] = None
+
+
+class BidsHistoryPoint(BaseModel):
+    """Ponto da série temporal de contagem de propostas de um projeto."""
+    proposals_count: int
+    captured_at: datetime
+
+
+class BidsHistoryResponse(BaseModel):
+    """Histórico de bids de um projeto do catálogo."""
+    workana_id: str
+    title: Optional[str] = None
+    current_count: Optional[int] = None
+    points: List[BidsHistoryPoint]
 
 
 class CatalogProjectList(BaseModel):
@@ -619,4 +637,104 @@ class CatalogRefreshResult(BaseModel):
     upserted: int = 0
     marked_gone: int = 0
     errors: int = 0
+
+
+# ==================== Lotes de Proposta (Bulk / Batch) ====================
+
+class BulkProposalCustomItem(BaseModel):
+    """Item customizado pré-gerado para envio em lote."""
+    workana_id: str
+    proposal_text: str
+    budget: Optional[float] = None
+    deadline_days: Optional[int] = 7
+
+
+class ProposalBatchCreate(BaseModel):
+    """Payload para criação de lote de propostas."""
+    project_ids: Optional[List[str]] = None
+    filters: Optional[CatalogFilters] = None
+    exclude_ids: List[str] = Field(default_factory=list)
+    template_ref: Optional[str] = None
+    custom_proposals: Optional[List[BulkProposalCustomItem]] = None
+    daily_limit: Optional[int] = None
+
+    @field_validator("project_ids", "exclude_ids")
+    @classmethod
+    def normalize_project_ids(cls, value):
+        if value is None:
+            return value
+        return list(dict.fromkeys(item.strip() for item in value if item and item.strip()))
+
+
+class ProposalBatchItemResponse(BaseModel):
+    """Item individual de um lote de propostas."""
+    id: int
+    batch_id: int
+    workana_id: str
+    project_title: Optional[str] = None
+    project_url: Optional[str] = None
+    status: str  # queued|generating|ready|sending|sent|failed|skipped|cancelled
+    generated_message: Optional[str] = None
+    suggested_price: Optional[str] = None
+    budget: Optional[float] = None
+    deadline_days: Optional[int] = None
+    error: Optional[str] = None
+    attempts: int = 0
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    sent_at: Optional[datetime] = None
+
+
+class ProposalBatchResponse(BaseModel):
+    """Resposta com detalhes de um lote de propostas."""
+    id: int
+    user_id: str
+    template_ref: Optional[str] = None
+    summary: Optional[Dict[str, Any]] = None
+    status: str  # queued|running|completed|cancelled|failed
+    total: int
+    sent_count: int
+    failed_count: int
+    skipped_count: int
+    daily_limit: Optional[int] = None
+    error: Optional[str] = None
+    created_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    items: Optional[List[ProposalBatchItemResponse]] = None
+
+
+class ProposalBatchListResponse(BaseModel):
+    """Lista de lotes de propostas do usuário."""
+    batches: List[ProposalBatchResponse]
+    total: int
+
+
+class BulkGenerateRequest(BaseModel):
+    """Requisição para geração rápida em lote de propostas com IA."""
+    project_ids: List[str]
+    template_ref: Optional[str] = None
+
+
+class BulkGenerateItemResult(BaseModel):
+    """Resultado da geração de proposta para um projeto."""
+    workana_id: str
+    title: str
+    url: str
+    success: bool
+    proposal: str = ""
+    suggested_price: str = ""
+    suggested_budget: Optional[float] = None
+    suggested_deadline_days: int = 7
+    error: Optional[str] = None
+
+
+class BulkGenerateResponse(BaseModel):
+    """Resposta de geração em lote de propostas."""
+    success: bool
+    results: List[BulkGenerateItemResult]
+    total: int
+    generated: int
+    failed: int
+
 

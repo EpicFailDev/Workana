@@ -127,9 +127,9 @@ export default function Settings() {
     return (
         <div className={styles.pageContainer}>
             <CyberHeader 
-                title="SYSTEM CONFIG" 
-                subtitle="OPERATIONAL_PARAMETERS // SETUP"
-                description="Personalize sua experiência no Workana Accelerator."
+                title="CONFIGURAÇÕES DO SISTEMA" 
+                subtitle="PREFERÊNCIAS // PARÂMETROS" 
+                description="Configure suas credenciais, chave da IA Gemini e preferências de automação."
             />
 
             <div className={styles.settingsGrid}>

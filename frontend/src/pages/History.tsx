@@ -136,9 +136,9 @@ export default function History() {
     return (
         <div className={styles.container}>
             <CyberHeader 
-                title="MISSION LOGS" 
-                subtitle="DATA_ARCHIVE // ACCESS_GRANTED"
-                description="Gerencie o fluxo das suas propostas. Arraste para atualizar o status."
+                title="HISTÓRICO DE PROPOSTAS" 
+                subtitle="PROPOSTAS // ACOMPANHAMENTO" 
+                description="Gerencie o fluxo e o status das suas propostas enviadas. Arraste os cards para atualizar."
             />
 
             <div className={styles.kanbanBoard}>

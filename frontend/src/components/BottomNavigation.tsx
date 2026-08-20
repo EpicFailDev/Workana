@@ -23,6 +23,15 @@ const menuItems = [
         ),
     },
     {
+        name: "Lotes",
+        href: "/batches",
+        icon: (
+            <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+            </svg>
+        ),
+    },
+    {
         name: "Modelos",
         href: "/templates",
         icon: (

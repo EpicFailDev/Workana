@@ -14,6 +14,8 @@ from app.automation.browser import automation_instance as automation
 from app.automation.antiban import antiban
 from app.services.scorer import ProjectScorer
 from app.services.notification import NotificationService
+from app.services.dates import parse_relative_datetime
+from app.services.contract_type import detect_contract_type
 from app.observability.context import new_operation_id, operation_id_var
 from app.observability.privacy import pseudonymize, sanitize_exception
 from app.config import settings
@@ -59,10 +61,19 @@ class SearchScheduler:
             replace_existing=True
         )
 
+        # Job de lotes de proposta: consome fila de disparos em background a cada 30 segundos
+        self.scheduler.add_job(
+            self.execute_proposal_batch_dispatch,
+            "interval",
+            seconds=30,
+            id="proposal_batch_dispatch",
+            replace_existing=True
+        )
+
         self.scheduler.start()
         self.is_started = True
         logger.bind(event="scheduler.started").info(
-            "Scheduler inicializado (busca legada: 30 min, catálogo: 15 min)."
+            "Scheduler inicializado (busca legada: 30 min, catálogo: 15 min, fila de propostas: 30 seg)."
         )
 
     def stop(self):
@@ -495,6 +506,26 @@ class SearchScheduler:
                                     "is_featured": proj.is_featured,
                                 }
 
+                                # Data de publicação estimada a partir do texto relativo
+                                # ("Publicado: há 2 horas", "ontem") usando o tempo do ciclo.
+                                try:
+                                    catalog_data["estimated_published_at"] = parse_relative_datetime(
+                                        proj.posted_at, base_time=datetime.now(timezone.utc)
+                                    )
+                                except Exception:
+                                    catalog_data["estimated_published_at"] = None
+
+                                # Modalidade do contrato a partir de sinais textuais.
+                                try:
+                                    catalog_data["contract_type"] = detect_contract_type(
+                                        budget_type=proj.project_type,
+                                        title=proj.title,
+                                        description=proj.description,
+                                        details=proj.details,
+                                    )
+                                except Exception:
+                                    catalog_data["contract_type"] = "project_fixed"
+
                                 await crud.upsert_catalog_row(catalog_data)
                                 seen_ids.add(proj.id)
                                 upserted += 1
@@ -560,6 +591,17 @@ class SearchScheduler:
         finally:
             current_user_id.reset(tenant_token)
 
+    async def execute_proposal_batch_dispatch(self):
+        """Processa a fila de lotes de proposta."""
+        from app.services.batch_processor import ProposalBatchProcessor
+        try:
+            await ProposalBatchProcessor.process_one()
+        except Exception as ex:
+            logger.bind(event="scheduler.batch.error").exception(
+                f"Erro no dispatch de lotes de proposta: {sanitize_exception(ex)}"
+            )
+
 
 # Instância global do agendador
 scheduler_instance = SearchScheduler()
+

@@ -7,6 +7,9 @@ from app.api.schemas import (
     ProposalSubmit, ProposalResult, ProposalGenerateRequest,
     CatalogProjectList, SortOption, BulkStateRequest, BulkStateResult,
     ProjectStateRequest, ProjectNotesUpdate, AnalyzeRequest, AnalysisResult,
+    BulkGenerateRequest, BulkGenerateResponse, ProposalBatchCreate,
+    ProposalBatchResponse, ProposalBatchItemResponse, ProposalBatchListResponse,
+    BidsHistoryResponse, BidsHistoryPoint,
 )
 from app.auth import get_current_user
 from app.database import crud
@@ -103,6 +106,25 @@ async def update_catalog_notes(
         raise HTTPException(status_code=404, detail="Projeto não encontrado no catálogo.")
     await crud.set_catalog_project_notes(user["user_id"], workana_id, payload.notes)
     return {"success": True, "message": "Notas atualizadas!"}
+
+
+@router.get("/projects/{workana_id}/bids-history", response_model=BidsHistoryResponse)
+async def get_project_bids_history(
+    workana_id: str,
+    limit: int = Query(default=30, ge=1, le=200),
+    user: dict = Depends(get_current_user),
+):
+    """Evolução de propostas de um projeto do catálogo (gráfico de concorrência)."""
+    brief = await crud.get_catalog_brief(workana_id)
+    if brief is None:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado no catálogo.")
+    points = await crud.get_bids_history(workana_id, limit=limit)
+    return BidsHistoryResponse(
+        workana_id=workana_id,
+        title=brief["title"],
+        current_count=brief["proposals_count"],
+        points=[BidsHistoryPoint(**p) for p in points],
+    )
 
 
 async def _build_analysis_profile(user_id, filters: Optional[dict] = None) -> dict:
@@ -411,3 +433,179 @@ async def submit_proposal(project_id: str, proposal: ProposalSubmit, user: dict 
     except Exception as e:
         logger.error(f"Erro ao enviar proposta para {project_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== Geração e Disparo em Lote (Bulk & Batches) ====================
+
+@router.post("/projects/batch", response_model=ProposalBatchResponse)
+async def create_batch(
+    payload: ProposalBatchCreate,
+    user: dict = Depends(get_current_user),
+):
+    """Cria um novo lote de propostas para disparo em background ou fila."""
+    import asyncio
+    from app.services.batch_processor import ProposalBatchProcessor
+
+    if not payload.project_ids and not payload.filters and not payload.custom_proposals:
+        raise HTTPException(status_code=422, detail="Informe project_ids, filters ou custom_proposals.")
+
+    custom_proposals_dicts = [p.model_dump() for p in payload.custom_proposals] if payload.custom_proposals else None
+    filters_dict = payload.filters.model_dump() if payload.filters else None
+
+    result = await crud.create_proposal_batch(
+        user_id=user["user_id"],
+        project_ids=payload.project_ids,
+        filters=filters_dict,
+        exclude_ids=payload.exclude_ids,
+        template_ref=payload.template_ref,
+        custom_proposals=custom_proposals_dicts,
+        daily_limit=payload.daily_limit,
+    )
+
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Erro ao criar lote de propostas."))
+
+    batch = await crud.get_proposal_batch(user["user_id"], result["batch_id"])
+    if batch:
+        # Aciona o worker para iniciar o processamento imediatamente
+        asyncio.create_task(ProposalBatchProcessor.process_one())
+        return batch
+
+    return result
+
+
+@router.get("/projects/batches/{batch_id}/items", response_model=List[ProposalBatchItemResponse])
+async def get_batch_items(
+    batch_id: int,
+    user: dict = Depends(get_current_user),
+):
+    """Lista os itens individuais de um lote de propostas."""
+    batch = await crud.get_proposal_batch(user["user_id"], batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="Lote de propostas não encontrado.")
+    return batch.get("items", [])
+
+
+@router.post("/projects/batches/{batch_id}/start")
+async def start_batch(
+    batch_id: int,
+    user: dict = Depends(get_current_user),
+):
+    """Inicia o processamento de um lote de propostas."""
+    from app.services.batch_processor import ProposalBatchProcessor
+
+    batch = await crud.get_proposal_batch(user["user_id"], batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="Lote de propostas não encontrado.")
+
+    if batch["status"] not in ["queued", "failed"]:
+        raise HTTPException(status_code=400, detail=f"Não é possível iniciar um lote com status '{batch['status']}'.")
+
+    # Dispara o processamento
+    processed = await ProposalBatchProcessor.process_one()
+
+    return {
+        "success": True,
+        "batch_id": batch_id,
+        "status": batch["status"],
+        "processed": processed,
+        "message": "Processamento do lote iniciado."
+    }
+
+
+@router.post("/projects/batches")
+async def create_batch(
+    payload: ProposalBatchCreate,
+    user: dict = Depends(get_current_user),
+):
+    """Cria um novo lote de propostas para disparo em background ou fila."""
+    import asyncio
+    from app.services.batch_processor import ProposalBatchProcessor
+
+    if not payload.project_ids and not payload.filters and not payload.custom_proposals:
+        raise HTTPException(status_code=422, detail="Informe project_ids, filters ou custom_proposals.")
+
+    custom_proposals_dicts = [p.model_dump() for p in payload.custom_proposals] if payload.custom_proposals else None
+    filters_dict = payload.filters.model_dump() if payload.filters else None
+
+    result = await crud.create_proposal_batch(
+        user_id=user["user_id"],
+        project_ids=payload.project_ids,
+        filters=filters_dict,
+        exclude_ids=payload.exclude_ids,
+        template_ref=payload.template_ref,
+        custom_proposals=custom_proposals_dicts,
+        daily_limit=payload.daily_limit,
+    )
+
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Erro ao criar lote de propostas."))
+
+    # Aciona o worker para iniciar o processamento imediatamente
+    asyncio.create_task(ProposalBatchProcessor.process_one())
+
+    return result
+
+
+@router.get("/projects/batches", response_model=ProposalBatchListResponse)
+async def list_batches(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    user: dict = Depends(get_current_user),
+):
+    """Lista o histórico de lotes de proposta do usuário."""
+    batches = await crud.get_proposal_batches(user["user_id"], limit=limit, offset=offset)
+    total = await crud.count_proposal_batches(user["user_id"])
+    return ProposalBatchListResponse(batches=batches, total=total)
+
+
+@router.get("/projects/batches/{batch_id}", response_model=ProposalBatchResponse)
+async def get_batch_detail(
+    batch_id: int,
+    user: dict = Depends(get_current_user),
+):
+    """Retorna detalhes e itens individuais de um lote de proposta."""
+    batch = await crud.get_proposal_batch(user["user_id"], batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="Lote de propostas não encontrado.")
+    return batch
+
+
+@router.post("/projects/batches/{batch_id}/cancel")
+async def cancel_batch(
+    batch_id: int,
+    user: dict = Depends(get_current_user),
+):
+    """Cancela um lote de propostas em andamento."""
+    success = await crud.cancel_proposal_batch(user["user_id"], batch_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Lote não encontrado ou não pertence a você.")
+    return {"success": True, "message": "Lote de propostas cancelado com sucesso."}
+
+
+@router.post("/projects/batches/{batch_id}/retry")
+async def retry_batch(
+    batch_id: int,
+    user: dict = Depends(get_current_user),
+):
+    """Reinicia itens que falharam ou foram cancelados em um lote."""
+    import asyncio
+    from app.services.batch_processor import ProposalBatchProcessor
+
+    success = await crud.retry_failed_batch_items(user["user_id"], batch_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Lote não encontrado ou não pertence a você.")
+
+    asyncio.create_task(ProposalBatchProcessor.process_one())
+    return {"success": True, "message": "Itens do lote reiniciados para reenvio."}
+
+
+@router.post("/projects/batches/process-now")
+async def trigger_batch_processing(
+    user: dict = Depends(get_current_user),
+):
+    """Aciona manualmente o processamento de um item da fila de lotes."""
+    from app.services.batch_processor import ProposalBatchProcessor
+    processed = await ProposalBatchProcessor.process_one()
+    return {"success": True, "processed": processed}
+

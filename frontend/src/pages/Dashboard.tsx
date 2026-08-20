@@ -37,12 +37,14 @@ interface AutomationStatus {
     last_error: string | null;
 }
 
+import { useAuth } from "../context/AuthContext";
+
 export default function Dashboard() {
     const { toast } = useToast();
-    // Temporary mock until AuthContext is fully implemented
-    const user = { name: 'Comandante' };
+    const { user } = useAuth();
+    const displayName = user?.user_metadata?.full_name || (user?.email ? user.email.split('@')[0] : 'Operador');
     
-    // Stats / Metrics State
+    // Stats / Metrics State - inicializados com valores do backend quando disponíveis
     const [metrics, setMetrics] = useState<DashboardStats>({
         total_proposals_sent: 0,
         proposals_today: 0,
@@ -52,11 +54,8 @@ export default function Dashboard() {
         accepted_proposals: 0,
         pending_proposals: 0,
         last_activity: null,
-        active_projects: 3, 
-        earnings_simulated: 1250, 
-        success_rate: 15
     });
-
+    
     const [automationStatus, setAutomationStatus] = useState<AutomationStatus>({
         is_running: false,
         current_action: null,
@@ -64,15 +63,15 @@ export default function Dashboard() {
         max_proposals_per_day: 10,
         last_error: null,
     });
-
+    
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Animated Counters
+    // Animated Counters - usam os valores reais do dashboard
     const animatedTotalProposals = useCounter(metrics.total_proposals_sent);
-    const animatedActiveProjects = useCounter(metrics.active_projects || 0);
+    const animatedActiveProjects = useCounter(metrics.accepted_proposals);
     const animatedResponseRate = useCounter(metrics.response_rate);
-    const animatedEarnings = useCounter(metrics.earnings_simulated || 0);
+    const animatedEarnings = useCounter(0); // Ganhos estimados - não disponível no backend atual
 
     useEffect(() => {
         fetchDashboardData();
@@ -86,13 +85,7 @@ export default function Dashboard() {
             setAutomationStatus(statusData);
 
             const statsData = await api.getDashboardStats();
-            setMetrics(prev => ({
-                ...prev,
-                ...statsData,
-                active_projects: prev.active_projects,
-                earnings_simulated: prev.earnings_simulated,
-                success_rate: statsData.response_rate || prev.success_rate
-            }));
+            setMetrics(statsData);
             
             setError(null);
         } catch (err: any) {
@@ -111,9 +104,9 @@ export default function Dashboard() {
     return (
         <div className={styles.container}>
             <CyberHeader 
-                title="MISSION CONTROL" 
-                subtitle="SYSTEM_READY // INITIATE_SEARCH"
-                description={`Bem-vindo de volta, Agente ${user?.name || 'Guest'}. Identifique e capture as melhores oportunidades do mercado.`}
+                title="PAINEL DE CONTROLE" 
+                subtitle="VISÃO GERAL // MÉTRICAS" 
+                description={`Olá, ${displayName}. Acompanhe seu desempenho e novas oportunidades no Workana.`}
             />
 
             {/* Standard Metrics Grid */}
@@ -127,7 +120,7 @@ export default function Dashboard() {
                 <div className={`${styles.card} holo-card`}>
                     <div className={styles.cardIcon}>⚡</div>
                     <div className="stat-value-big">{animatedActiveProjects}</div>
-                    <div className={styles.cardLabel}>Projetos Ativos</div>
+                    <div className={styles.cardLabel}>Propostas Aceitas</div>
                 </div>
                 
                 <div className={`${styles.card} holo-card`}>

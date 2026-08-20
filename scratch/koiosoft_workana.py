@@ -1,0 +1,412 @@
+import re
+import os
+import shutil
+from datetime import datetime, timezone
+from urllib.parse import urljoin
+from playwright.async_api import Page, async_playwright, TimeoutError as PlaywrightTimeoutError
+from loguru import logger
+from ..base import ScraperPort
+
+class WorkanaScraperAdapter(ScraperPort):
+    def __init__(self):
+            self.state_file = os.getenv("STATE_FILE_PATH", "/usr/src/app/state.json")
+            self.browser_profile = {
+                "user_agent": os.getenv(
+                    "WORKANA_USER_AGENT",
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+                ),
+                "locale": os.getenv("WORKANA_LOCALE", "es-ES"),
+                "timezone_id": os.getenv("WORKANA_TIMEZONE", "America/Santo_Domingo"),
+                "extra_http_headers": {
+                    "Accept-Language": os.getenv("WORKANA_ACCEPT_LANGUAGE", "es-ES,es;q=0.9,en;q=0.8")
+                },
+            }
+            self.pub_filter = os.getenv("WORKANA_PUBLICATION_FILTER", "1d")
+            self.max_pages = int(os.getenv("WORKANA_MAX_PAGES", "30"))
+            self.visit_project_pages = os.getenv("WORKANA_VISIT_PROJECT_PAGES", "false").lower() == "true"
+            self.max_detail_visits = int(os.getenv("WORKANA_MAX_DETAIL_VISITS", "20"))
+            self.jobs_url = (
+            f"https://www.workana.com/jobs?category=it-programming"
+            f"&language=es"
+            f"&publication={self.pub_filter}"
+            f"&skills=angular%2Cnode-js%2Cpostgressql%2Cpython%2Creact-js%2Creact-native%2Cvue-js"
+            f"&subcategory=web-development"
+        )
+    
+    def _ensure_valid_state_file(self) -> bool:
+        """
+        Ensure state_file path refers to a regular file, not a directory.
+        Verifies existence, type, permissions (read+write), and content.
+        Returns True if a valid, accessible session file exists and can be used.
+        Cleans up invalid entries (directories, broken symlinks, etc.)
+        """
+        if not os.path.exists(self.state_file):
+            logger.error(
+                f"❌ Archivo de sesión no encontrado: {self.state_file}. "
+                "El bot operará sin sesión (no autenticado). "
+                "Verifica que STATE_FILE_PATH apunte a un archivo válido. "
+                "Ejecuta 'python scripts/extract_session.py' para generar uno."
+            )
+            return False
+
+        if os.path.isdir(self.state_file):
+            logger.error(
+                f"❌ {self.state_file} es un directorio, no un archivo. "
+                "Eliminando directorio inválido. Asegúrate de que STATE_FILE_PATH "
+                "apunte a un archivo (ej. /usr/src/app/state.json), no a un directorio."
+            )
+            try:
+                shutil.rmtree(self.state_file)
+            except PermissionError:
+                logger.error(
+                    f"❌ Permiso denegado al eliminar el directorio {self.state_file}. "
+                    "Ejecuta el contenedor con los permisos adecuados o elimina el directorio manualmente."
+                )
+            except OSError as cleanup_err:
+                logger.error(f"No se pudo eliminar el directorio {self.state_file}: {cleanup_err}")
+            return False
+
+        if not os.path.isfile(self.state_file):
+            logger.error(
+                f"❌ {self.state_file} existe pero no es un archivo regular. "
+                f"Eliminando entrada inválida."
+            )
+            try:
+                os.remove(self.state_file)
+            except PermissionError:
+                logger.error(
+                    f"❌ Permiso denegado al eliminar {self.state_file}. "
+                    "Verifica los permisos del sistema de archivos."
+                )
+            except OSError as cleanup_err:
+                logger.error(f"No se pudo eliminar {self.state_file}: {cleanup_err}")
+            return False
+
+        # Verify read permission
+        if not os.access(self.state_file, os.R_OK):
+            logger.error(
+                f"❌ Sin permisos de lectura para {self.state_file}. "
+                "Ajusta los permisos del archivo (chmod +r) o ejecuta el proceso con el usuario adecuado."
+            )
+            return False
+
+        # Verify write permission (needed for storage_state updates)
+        if not os.access(self.state_file, os.W_OK):
+            logger.warning(
+                f"⚠️ Sin permisos de escritura para {self.state_file}. "
+                "La sesión se podrá leer pero no se actualizará. "
+                "Ajusta los permisos (chmod +w) para permitir la renovación automática."
+            )
+            # Still return True — we can read, just can't update
+
+        try:
+            file_size = os.path.getsize(self.state_file)
+        except OSError as e:
+            logger.error(f"❌ No se pudo leer el tamaño de {self.state_file}: {e}")
+            return False
+
+        if file_size == 0:
+            logger.warning(
+                f"⚠️ {self.state_file} es un archivo vacío. "
+                "La sesión no contiene datos. El bot operará sin autenticación."
+            )
+            return False
+
+        # File exists, is a regular file, has content, and has correct permissions
+        perm_str = "lectura/escritura" if os.access(self.state_file, os.W_OK) else "solo lectura"
+        logger.info(f"✅ Archivo de sesión válido encontrado: {self.state_file} "
+                     f"({file_size} bytes, {perm_str})")
+        return True
+
+    @staticmethod
+    def _normalize_project_link(href: str | None) -> str:
+        if not href:
+            return "N/A"
+        return urljoin("https://www.workana.com", href)
+
+    async def _is_logged_in(self, page) -> bool:
+        is_logged = await page.query_selector(".user-avatar") is not None
+        if not is_logged:
+            logger.warning(
+                "⚠️ No se detectó sesión activa (avatar de usuario no encontrado en la página). "
+                "Verifica que el archivo de sesión state.json sea válido y no esté expirado."
+            )
+            self._ensure_valid_state_file()
+        else:
+            logger.info("🔎 Sesión activa detectada en Workana.")
+        return is_logged
+            
+    async def auto_scroll(self, page):
+        """Hace scroll hacia abajo para disparar la carga de elementos lazy"""
+        logger.info("🖱️ Realizando scroll para cargar todos los proyectos...")
+        for _ in range(5): # Scroll 5 veces para asegurar
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            await page.wait_for_timeout(1500) # Esperar a que carguen los nuevos items
+            
+    async def get_projects(self) -> list:
+        logger.info(f"🕸️ Iniciando scraping exhaustivo (Filtro: {self.pub_filter})...")
+        all_projects = []
+        max_projects_first_page = None
+        
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-setuid-sandbox"]
+            )
+            context_kwargs = {}
+            if self._ensure_valid_state_file():
+                context_kwargs["storage_state"] = self.state_file
+                logger.info(f"🔐 Cargando sesión desde {self.state_file}...")
+            context_kwargs.update(self.browser_profile)
+            context = await browser.new_context(**context_kwargs)
+            page = await context.new_page()
+            
+            try:
+                # Recorremos páginas de forma dinámica con un tope de seguridad.
+                current_page = 1
+                while current_page <= self.max_pages:
+                    url = f"{self.jobs_url}&page={current_page}"
+                    logger.info(f"🔍 Navegando a página {current_page}...")
+                    logger.info(f"🔍 URL=  {url}")
+
+                    try:
+                        await page.goto(url, wait_until="networkidle", timeout=60000)
+                    except PlaywrightTimeoutError:
+                        logger.error(f"⏱️ Timeout navegando página {current_page}. Se cierra el flujo.")
+                        break
+
+                    if current_page == 1:
+                        is_logged_in = await self._is_logged_in(page)
+                        logger.info(f"🔎 Sesión activa detectada: {is_logged_in}")
+
+                    # 📸 TOMAR FOTO DE CONTROL
+                    screenshot_path = "debug_screenshot.png"
+                    await page.screenshot(path=screenshot_path, full_page=True)
+                    #logger.info(f"📸 Foto de control guardada en: {screenshot_path}")
+
+                    # OPCIONAL: Ver el contenido del HTML en el log para ver si hay 10 o 19
+                    content = await page.content()
+                    items_count = content.count('class="project-item')
+                    logger.info(f"🔍 Conteo de 'project-item' en el HTML crudo: {items_count}")
+
+                    await self.auto_scroll(page)
+                    
+                    # Esperar a que el contenedor de proyectos esté presente
+                    try:
+                        await page.wait_for_selector(".project-item", timeout=15000)
+                    except PlaywrightTimeoutError:
+                        logger.error(f"⏱️ Timeout esperando proyectos en página {current_page}. Se cierra el flujo.")
+                        break
+                    job_elements = await page.query_selector_all(".project-item")
+                    
+                    if not job_elements:
+                        logger.info(f"🏁 No se encontraron más proyectos en la página {current_page}.")
+                        break
+
+                    page_projects_count = len(job_elements)
+                    page_projects: list[dict] = []
+                    stop_after_current_page = False
+                    if current_page == 1:
+                        max_projects_first_page = page_projects_count
+                        logger.info(f"📌 Referencia de paginación: {max_projects_first_page} proyectos en página 1.")
+                    elif max_projects_first_page and page_projects_count < max_projects_first_page:
+                        stop_after_current_page = True
+                        logger.info(
+                            "🏁 Página con menos proyectos que la primera "
+                            f"({page_projects_count} < {max_projects_first_page}). "
+                            "No se consultarán más páginas."
+                        )
+
+                    for job_el in job_elements:
+                        # 1. Título y Link
+                        title_el = await job_el.query_selector(".project-title")
+                        link_el = await job_el.query_selector(".project-title a")
+                        
+                        # 2. Detalles (Fecha y Bids)
+                        details_el = await job_el.query_selector(".project-main-details")
+                        details_text = await details_el.inner_text() if details_el else ""
+                        
+                        # 3. Presupuesto
+                        budget_el = await job_el.query_selector(".values")
+                        
+                        if title_el and link_el:
+                            title = (await title_el.inner_text()).strip()
+                            href = await link_el.get_attribute("href")
+                            link = self._normalize_project_link(href)
+                            budget = (await budget_el.inner_text()).strip() if budget_el else "N/A"
+                            
+                            # Regex para limpiar la fecha y las propuestas
+                            date_match = re.search(r'Publicado:\s*(.*?)(?=\s*Propuestas:|$)', details_text)
+                            bids_match = re.search(r'Propuestas:\s*(\d+)', details_text)
+
+                            # 1. Buscamos todos los elementos h3 que están dentro de las etiquetas de skill
+                            # Como job_el es un ElementHandle, usamos query_selector_all
+                            skill_handles = await job_el.query_selector_all(".skill h3")
+
+                            skills = []
+                            for handle in skill_handles:
+                                text = await handle.inner_text()
+                                if text.strip():
+                                    skills.append(text.strip())
+
+                            desc_el = await job_el.query_selector(".project-details")
+                            short_description = ""
+                            if desc_el:
+                                short_description = (await desc_el.inner_text()).replace("Ver más detalles", "").strip()
+                            
+                            project = {
+                                "title": title,
+                                "budget": budget,
+                                "link": link,
+                                "published": date_match.group(1).strip() if date_match else "N/A",
+                                "bids": bids_match.group(1) if bids_match else "0",
+                                "extracted_at": datetime.utcnow().isoformat(),
+                                "short_description": short_description,
+                                "skills": skills,
+                            }
+                            all_projects.append(project)
+                            page_projects.append(project)
+
+                    if self.visit_project_pages:
+                        links_to_visit = [
+                            project["link"] for project in page_projects if project.get("link") and project["link"] != "N/A"
+                        ]
+                        if links_to_visit:
+                            detail_page = await context.new_page()
+                            try:
+                                visits_limit = min(len(links_to_visit), self.max_detail_visits)
+                                logger.info(
+                                    f"🔎 Visitando detalles de proyectos ({visits_limit}/{len(links_to_visit)}) "
+                                    f"en página {current_page}..."
+                                )
+                                for link in links_to_visit[:visits_limit]:
+                                    try:
+                                        await detail_page.goto(link, wait_until="domcontentloaded", timeout=30000)
+                                        await detail_page.wait_for_timeout(700)
+                                        logger.info(f"✅ Se abrió detalle de proyecto: {link}")
+                                    except PlaywrightTimeoutError:
+                                        logger.warning(f"⏱️ Timeout al abrir detalle: {link}")
+                            finally:
+                                await detail_page.close()
+
+                    if stop_after_current_page:
+                        break
+
+                    current_page += 1
+
+                if current_page > self.max_pages:
+                    logger.warning(
+                        f"⚠️ Se alcanzó el tope de seguridad WORKANA_MAX_PAGES={self.max_pages}."
+                    )
+
+                # Guardamos una "foto" de la sesión en el JSON por si acaso
+                # Validar que la ruta de destino es un archivo (no un directorio) antes de escribir.
+                if os.path.exists(self.state_file) and not os.path.isfile(self.state_file):
+                    logger.error(
+                        f"❌ No se puede guardar la sesión: {self.state_file} no es un archivo regular."
+                    )
+                    if os.path.isdir(self.state_file):
+                        logger.error(
+                            f"❌ {self.state_file} es un directorio. "
+                            "Elimínalo manualmente o corrige STATE_FILE_PATH para que apunte a un archivo."
+                        )
+                else:
+                    # Asegurar que el directorio padre existe
+                    parent_dir = os.path.dirname(self.state_file)
+                    if parent_dir and not os.path.exists(parent_dir):
+                        os.makedirs(parent_dir, exist_ok=True)
+                        logger.info(f"📁 Directorio padre creado: {parent_dir}")
+                    await context.storage_state(path=self.state_file)
+                    logger.info(f"💾 Sesión guardada en {self.state_file}")
+                
+            except Exception as e:
+                logger.error(f"❌ Error durante el scraping: {e}")
+            finally:
+                await context.close()
+                await browser.close()
+                
+        return all_projects
+
+    async def _is_project_not_found(self, page: Page) -> bool:
+        """
+        Verifica si la página actual es una de 'Proyecto no encontrado' usando Locators de Playwright.
+        Esta función asume que el elemento ya es visible y no espera.
+        """
+        error_locator = page.locator("section.error-section h2.error-title")
+        # Usamos count() que es inmediato y no espera.
+        if await error_locator.count() > 0:
+            text = await error_locator.inner_text()
+            if text.strip() == "Proyecto no encontrado":
+                logger.warning(f"🚫 Detectada página 'Proyecto no encontrado' en: {page.url}")
+                return True
+        return False
+
+    async def fetch_full_detail(self, url: str) -> dict | None:
+        """
+        Navega al detalle del proyecto y extrae la información profunda.
+        Devuelve None si el proyecto no fue encontrado (Early-Exit).
+        """
+        async with async_playwright() as p:
+            context_kwargs = {}
+            if self._ensure_valid_state_file():
+                context_kwargs["storage_state"] = self.state_file
+                logger.info(f"🔐 Cargando sesión desde {self.state_file}...")
+            browser = await p.chromium.launch(headless=True)
+            context_kwargs.update(self.browser_profile)
+            context = await browser.new_context(**context_kwargs)
+            page = await context.new_page()
+            
+            try:
+                logger.info(f"🔍 Extrayendo detalle profundo de: {url}")
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+
+                # --- INICIO: Lógica de espera robusta ---
+                combined_selector = "article, section.error-section"
+                try:
+                    # Esperamos a que CUALQUIERA de los dos selectores principales esté presente
+                    await page.wait_for_selector(combined_selector, timeout=15000)
+                except PlaywrightTimeoutError:
+                    # Si ninguno aparece, es un error irrecuperable para este scraper.
+                    await page.screenshot(path="debug_timeout_page.png", full_page=True)
+                    logger.error(
+                        f"Timeout esperando el contenido principal ('article') o una sección de error "
+                        f"en {url}. Screenshot guardado en 'debug_timeout_page.png'."
+                    )
+                    raise # Relanzamos la excepción para que la maneje el bucle de reintentos
+
+                # Ahora que sabemos que uno de los dos elementos existe, verificamos si es la página de error.
+                if await self._is_project_not_found(page):
+                    return None
+                # --- FIN: Lógica de espera robusta ---
+
+                # Si no es una página de error, podemos proceder a la extracción de forma segura.
+                full_description = await page.locator(".expander").inner_text()
+                extra_details_list = await page.locator("article > p.mt20").all_text_contents()
+                if extra_details_list:
+                    filtered_details = [
+                        text.strip() 
+                        for text in extra_details_list 
+                        if text.strip() and "Habilidades necesarias" not in text
+                    ]
+                    if filtered_details:
+                        full_description += "\n" + "\n".join(filtered_details)
+                
+                skills_elements = await page.locator(".skills .skill").all_text_contents()
+                skills = [s.strip() for s in skills_elements if s.strip()]
+
+                budget_text = await page.locator(".budget").inner_text()
+
+                return {
+                    "full_description": full_description.strip(),
+                    "skills": skills,
+                    "budget_detail": budget_text.strip(),
+                    "scraped_at_detail": datetime.now(timezone.utc).isoformat()
+                }
+
+            except Exception as e:
+                logger.error(f"❌ Error al scrapear detalle de {url}: {e}")
+                raise e
+            finally:
+                await context.close()
+                await browser.close()

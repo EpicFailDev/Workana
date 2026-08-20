@@ -6,6 +6,32 @@ Builder para prompts de proposta.
 class ProposalPromptBuilder:
     @staticmethod
     def build(project: dict, user_name: str) -> str:
+        import random
+        greetings = [
+            "Olá! Tudo bem?",
+            "Olá! Espero que esteja tendo um ótimo dia.",
+            "Olá! Analisei com bastante atenção os detalhes do seu projeto.",
+            "Oi, tudo bem? Li seu briefing e achei a proposta excelente.",
+            "Olá! Muito prazer. Analisei os requisitos técnicos do seu projeto."
+        ]
+        chosen_greeting = random.choice(greetings)
+        
+        bullet_styles = [
+            ("🔹", "✔️"),
+            ("▪️", "✅"),
+            ("🚀", "⭐"),
+            ("📌", "✨")
+        ]
+        feature_bullet, diff_bullet = random.choice(bullet_styles)
+        
+        closings = [
+            "Estou à disposição no chat para alinharmos os detalhes e tirarmos dúvidas. Um abraço!",
+            "Podemos agendar uma breve conversa para combinarmos o início do projeto. Até breve!",
+            "Se fizer sentido para você, me mande uma mensagem no chat para definirmos o pontapé inicial!",
+            "Fico no aguardo do seu contato para colocarmos este projeto em produção. Atenciosamente!"
+        ]
+        chosen_closing = random.choice(closings)
+
         return f"""
         Você é um Arquiteto de Software e Consultor de Negócios Sênior.
         Seu objetivo é escrever uma proposta TÉCNICA e ESTRATÉGICA para um projeto no Workana.
@@ -22,51 +48,41 @@ class ProposalPromptBuilder:
         Nome: {user_name}
 
         === ESTRUTURA DA PROPOSTA (MUITO IMPORTANTE) ===
-        A proposta deve ser em TEXTO PURO (Plane Text), sem sintaxe Markdown (não use **negrito** e não use * para listas).
+        A proposta deve ser em TEXTO PURO (Plain Text), sem sintaxe Markdown (não use **negrito** e não use * para listas).
         Use EMOJIS e CAIXA ALTA para destacar títulos e pontos importantes.
 
-        Siga EXATAMENTE esta estrutura visual:
+        Siga EXATAMENTE esta estrutura visual e natural:
 
         1. INTRODUÇÃO ESTRATÉGICA
-           - Comece direto (sem título "Introdução").
-           - Comece com "Olá! Tudo bem?"
-           - Mostre entendimento de negócio.
+           - Comece direto (sem o título "Introdução").
+           - Comece com: "{chosen_greeting}"
+           - Demonstre entendimento direto do problema do cliente.
 
         2. A SOLUÇÃO (VISÃO GERAL)
-           - Explique a entrega em parágrafos curtos.
+           - Explique a entrega técnica e a estratégia em 1 ou 2 parágrafos curtos e objetivos.
 
         3. 🎯 VISÃO DO PRODUTO
-           - Descreva o resultado final.
+           - Descreva o resultado final e o impacto positivo para o cliente.
 
         4. 🧩 FUNCIONALIDADES PRINCIPAIS
-           - Liste agrupando por temas.
-           - Em vez de bullet points comuns, use:
-             🔹 [Funcionalidade]
-             🔹 [Funcionalidade]
-           - Para os grupos, use CAIXA ALTA e um emoji específico (ex: 📁 GESTÃO, 💰 FINANCEIRO).
+           - Agrupe por módulos ou temas em CAIXA ALTA (ex: 📁 GESTÃO, 💰 FINANCEIRO, ⚡ INTEGRAÇÃO).
+           - Use o marcador {feature_bullet} para cada funcionalidade.
 
         5. 🧠 DIFERENCIAIS DA MINHA ENTREGA
-           - Use este formato de lista:
-             ✔️ [Diferencial 1]
-             ✔️ [Diferencial 2]
-             ✔️ [Diferencial 3]
-             ✔️ [Diferencial 4]
+           - Liste 3 ou 4 diferenciais práticos com o marcador {diff_bullet}.
 
         6. 📌 ENCERRAMENTO
-           - Chamada para ação profissional.
+           - Fechamento consultivo: "{chosen_closing}"
 
         === REGRAS VISUAIS CRÍTICAS ===
         - NÃO USE asteriscos (*) em lugar nenhum.
         - NÃO USE hashtags (#) para títulos.
-        - Para dar destaque, USE LEITRA MAIÚSCULA.
-        - Mantenha espaçamento duplo entre seções para boa leitura.
-        - O visual deve ser "Clean e Profissional".
+        - Para dar destaque, USE LETRA MAIÚSCULA.
+        - Mantenha espaçamento duplo entre seções para ótima legibilidade.
+        - O visual deve ser "Clean, Autêntico e Profissional" (evite clichês de IA).
 
-        === TOM DE VOZ ===
-        - Consultivo, Especialista, Parceiro.
-
-        === PREÇO ===
-        - Sugira valor justo.
+        === PREÇO E PRAZO ===
+        - Sugira valor justo alinhado ao orçamento informado ou à complexidade do escopo.
 
         Retorne EXATAMENTE neste formato JSON:
         {{

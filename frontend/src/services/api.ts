@@ -89,6 +89,9 @@ export interface CatalogProject {
     client_plan?: string | null;
     proposals_count?: number | null;
     payment_verified?: boolean | null;
+    estimated_published_at?: string | null;
+    proposals_delta?: number | null;
+    contract_type?: string | null;
     posted_at?: string | null;
     published_at?: string | null;
     last_client_activity?: string | null;
@@ -99,6 +102,9 @@ export interface CatalogProject {
     notes?: string | null;
     analysis?: Record<string, unknown> | null;
     analyzed_at?: string | null;
+    status?: string;
+    first_seen_at?: string | null;
+    last_seen_at?: string | null;
 }
 
 export interface CatalogFilters {
@@ -109,6 +115,18 @@ export interface CatalogFilters {
     payment_verified?: boolean;
     favorites_only?: boolean;
     hidden_only?: boolean;
+}
+
+export interface BidsHistoryPoint {
+    proposals_count: number;
+    captured_at: string;
+}
+
+export interface BidsHistoryResponse {
+    workana_id: string;
+    title?: string | null;
+    current_count?: number | null;
+    points: BidsHistoryPoint[];
 }
 
 export interface AnalysisDimensions {
@@ -132,6 +150,83 @@ export interface AnalyzeRequest {
     project_ids?: string[];
     filters?: CatalogFilters;
     exclude_ids?: string[];
+}
+
+export interface BulkProposalCustomItem {
+    workana_id: string;
+    proposal_text: string;
+    budget?: number | null;
+    deadline_days?: number | null;
+}
+
+export interface ProposalBatchCreate {
+    project_ids?: string[];
+    filters?: CatalogFilters;
+    exclude_ids?: string[];
+    template_ref?: string;
+    custom_proposals?: BulkProposalCustomItem[];
+    daily_limit?: number;
+}
+
+export interface ProposalBatchItem {
+    id: number;
+    batch_id: number;
+    workana_id: string;
+    project_title?: string | null;
+    project_url?: string | null;
+    status: "queued" | "generating" | "ready" | "sending" | "sent" | "failed" | "skipped" | "cancelled";
+    generated_message?: string | null;
+    suggested_price?: string | null;
+    budget?: number | null;
+    deadline_days?: number | null;
+    error?: string | null;
+    attempts: number;
+    created_at?: string | null;
+    updated_at?: string | null;
+    sent_at?: string | null;
+}
+
+export interface ProposalBatch {
+    id: number;
+    user_id: string;
+    template_ref?: string | null;
+    summary?: Record<string, unknown> | null;
+    status: "queued" | "running" | "completed" | "cancelled" | "failed";
+    total: number;
+    sent_count: number;
+    failed_count: number;
+    skipped_count: number;
+    daily_limit?: number | null;
+    error?: string | null;
+    created_at?: string | null;
+    started_at?: string | null;
+    finished_at?: string | null;
+    items?: ProposalBatchItem[];
+}
+
+export interface ProposalBatchList {
+    batches: ProposalBatch[];
+    total: number;
+}
+
+export interface BulkGenerateItemResult {
+    workana_id: string;
+    title: string;
+    url: string;
+    success: boolean;
+    proposal: string;
+    suggested_price: string;
+    suggested_budget?: number | null;
+    suggested_deadline_days: number;
+    error?: string | null;
+}
+
+export interface BulkGenerateResponse {
+    success: boolean;
+    results: BulkGenerateItemResult[];
+    total: number;
+    generated: number;
+    failed: number;
 }
 
 class ApiService {
@@ -285,6 +380,39 @@ class ApiService {
         }>(`/projects?${query.toString()}`);
     }
 
+    async getBidsHistory(workanaId: string, limit = 30) {
+        return this.request<BidsHistoryResponse>(
+            `/projects/${encodeURIComponent(workanaId)}/bids-history?limit=${limit}`
+        );
+    }
+
+    async downloadCatalogCsv(includeInactive = false) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token;
+        const query = new URLSearchParams({
+            include_inactive: String(includeInactive),
+        });
+        const response = await fetch(
+            `${this.baseUrl}/projects/export.csv?${query.toString()}`,
+            {
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+            }
+        );
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ detail: "Erro no download" }));
+            throw new Error(error.detail || `HTTP error! status: ${response.status}`);
+        }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "catalog.csv";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
     async bulkState(body: {
         action: "favorite" | "unfavorite" | "hide" | "restore";
         project_ids?: string[];
@@ -368,6 +496,77 @@ class ApiService {
         return this.request<{ success: boolean; message: string }>(`/proposals/${proposalId}/status`, {
             method: "PUT",
             body: { status }
+        });
+    }
+
+    // ==================== Lotes (Batches) ====================
+
+    async createBatch(body: {
+        project_ids?: string[];
+        filters?: Record<string, any>;
+        template_ref?: string | null;
+        exclude_ids?: string[];
+        summary?: Record<string, any>;
+        daily_limit?: number;
+    }) {
+        return this.request<{
+            success: boolean;
+            batch_id: number;
+            status: string;
+            total: number;
+            message: string;
+        }>("/projects/batch", {
+            method: "POST",
+            body,
+        });
+    }
+
+    async getBatches(status?: string, limit: number = 20) {
+        const params = new URLSearchParams();
+        if (status) params.set("status", status);
+        params.set("limit", String(limit));
+        return this.request<Array<{
+            id: number;
+            status: string;
+            total: number;
+            sent_count: number;
+            failed_count: number;
+            skipped_count: number;
+            summary: Record<string, any>;
+            template_ref: string | null;
+            created_at: string;
+            started_at: string;
+            finished_at: string;
+            error: string;
+        }>>(`/projects/batches?${params.toString()}`);
+    }
+
+    async getBatchItems(batchId: number) {
+        return this.request<Array<{
+            id: number;
+            workana_id: string;
+            project_title: string;
+            project_url: string;
+            status: string;
+            generated_message: string;
+            suggested_price: string;
+            budget: number;
+            deadline_days: number;
+            error: string;
+            attempts: number;
+            created_at: string;
+            sent_at: string;
+        }>>(`/projects/batches/${batchId}/items`);
+    }
+
+    async startBatch(batchId: number) {
+        return this.request<{
+            success: boolean;
+            batch_id: number;
+            status: string;
+            message: string;
+        }>(`/projects/batches/${batchId}/start`, {
+            method: "POST",
         });
     }
 
@@ -536,6 +735,57 @@ class ApiService {
             username?: string;
             error?: string;
         }>(`/profile/validate?url=${encodeURIComponent(url)}`, { method: "POST" });
+    }
+
+    // ==================== Lotes de Proposta (Bulk & Batches) ====================
+
+    async bulkGenerateProposals(projectIds: string[], templateRef?: string) {
+        return this.request<BulkGenerateResponse>("/projects/bulk-generate-proposals", {
+            method: "POST",
+            body: {
+                project_ids: projectIds,
+                template_ref: templateRef,
+            },
+        });
+    }
+
+    async createProposalBatch(payload: ProposalBatchCreate) {
+        return this.request<{
+            success: boolean;
+            batch_id: number;
+            total: number;
+            status: string;
+            template_ref?: string;
+        }>("/projects/batches", {
+            method: "POST",
+            body: payload,
+        });
+    }
+
+    async listProposalBatches(limit: number = 20, offset: number = 0) {
+        return this.request<ProposalBatchList>(`/projects/batches?limit=${limit}&offset=${offset}`);
+    }
+
+    async getProposalBatch(batchId: number) {
+        return this.request<ProposalBatch>(`/projects/batches/${batchId}`);
+    }
+
+    async cancelProposalBatch(batchId: number) {
+        return this.request<{ success: boolean; message: string }>(`/projects/batches/${batchId}/cancel`, {
+            method: "POST",
+        });
+    }
+
+    async retryProposalBatch(batchId: number) {
+        return this.request<{ success: boolean; message: string }>(`/projects/batches/${batchId}/retry`, {
+            method: "POST",
+        });
+    }
+
+    async triggerBatchProcessingNow() {
+        return this.request<{ success: boolean; processed: boolean }>("/projects/batches/process-now", {
+            method: "POST",
+        });
     }
 }
 

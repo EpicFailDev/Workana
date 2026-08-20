@@ -9,7 +9,7 @@ interface SidebarProps {
 
 const menuItems = [
     {
-        name: "Mission Control",
+        name: "Dashboard",
         href: "/",
         icon: (
             <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
@@ -21,7 +21,7 @@ const menuItems = [
         ),
     },
     {
-        name: "Project Intercept",
+        name: "Projetos",
         href: "/projects",
         icon: (
             <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
@@ -31,7 +31,16 @@ const menuItems = [
         ),
     },
     {
-        name: "Tactical Proposals",
+        name: "Lotes",
+        href: "/batches",
+        icon: (
+            <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+            </svg>
+        ),
+    },
+    {
+        name: "Modelos de Proposta",
         href: "/templates",
         icon: (
             <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
@@ -43,7 +52,7 @@ const menuItems = [
         ),
     },
     {
-        name: "Operative Profile",
+        name: "Meu Perfil",
         href: "/profile",
         icon: (
             <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
@@ -53,7 +62,7 @@ const menuItems = [
         ),
     },
     {
-        name: "Mission History",
+        name: "Histórico",
         href: "/history",
         icon: (
             <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
@@ -63,7 +72,7 @@ const menuItems = [
         ),
     },
     {
-        name: "System Config",
+        name: "Configurações",
         href: "/settings",
         icon: (
             <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
@@ -101,8 +110,8 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                 <div className={styles.logoText}>
                     <h1>Workana</h1>
                     <div className={styles.subtextContainer}>
-                        <span className={styles.subtextMain}>AUTOMATION</span>
-                        <span className={styles.subtextStatus}>• SYSTEM ACTIVE</span>
+                        <span className={styles.subtextMain}>ACCELERATOR</span>
+                        <span className={styles.subtextStatus}>• ONLINE</span>
                     </div>
                 </div>
             </div>
@@ -130,10 +139,10 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                     <div className={styles.avatar} />
 
                     <div className={styles.userDetails}>
-                        <span className={styles.userName} title={user?.email || "Operador"}>
-                            {user?.email ? user.email.split("@")[0] : "Operador"}
+                        <span className={styles.userName} title={user?.email || "Usuário"}>
+                            {user?.email ? user.email.split("@")[0] : "Usuário"}
                         </span>
-                        <span className={styles.userStatus}>Plano Premium</span>
+                        <span className={styles.userStatus}>Plano Ativo</span>
                     </div>
                 </div>
 
@@ -168,7 +177,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                     <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                     </svg>
-                    <span>Terminar Sessão</span>
+                    <span>Sair da Conta</span>
                 </button>
             </div>
         </aside>

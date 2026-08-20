@@ -3,7 +3,7 @@ Modelos SQLAlchemy para o banco de dados.
 """
 import contextvars
 import time
-from sqlalchemy import BigInteger, Column, Integer, String, Float, Boolean, DateTime, Text, JSON, UniqueConstraint, Uuid, event, ForeignKeyConstraint, Index, PrimaryKeyConstraint
+from sqlalchemy import BigInteger, Column, Integer, String, Float, Boolean, DateTime, Text, JSON, UniqueConstraint, Uuid, event, ForeignKeyConstraint, ForeignKey, Index, PrimaryKeyConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.engine import make_url
@@ -416,12 +416,40 @@ class ProjectCatalog(Base):
     last_client_activity = Column(String(100), nullable=True)
     is_urgent = Column(Boolean, default=False)
     is_featured = Column(Boolean, default=False)
+    # Dados normalizados (ver migration 20260820000000_bids_history_and_est_published.sql)
     # active = visível; gone = não apareceu no último ciclo (soft); closed = encerrado.
     status = Column(String(20), nullable=False, default="active")
     first_seen_at = Column(DateTime(timezone=True), default=utcnow)
     last_seen_at = Column(DateTime(timezone=True), default=utcnow)
     closed_at = Column(DateTime(timezone=True), nullable=True)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    # Data de publicação estimada, normalizada a partir do texto relativo do Workana
+    # ("Publicado: há 2 horas", "ontem") — base para recência, ordenação e stats.
+    estimated_published_at = Column(DateTime(timezone=True), nullable=True)
+    # Contagem anterior de propostas e variação (atual - anterior) para delta O(1).
+    previous_proposals_count = Column(Integer, nullable=True)
+    proposals_delta = Column(Integer, nullable=True)
+    # Modalidade do contrato: project_fixed | hourly | staff_augmentation.
+    contract_type = Column(String(50), nullable=False, default="project_fixed")
+
+
+class ProjectBidsHistory(Base):
+    """Série temporal de contagem de propostas por projeto do catálogo.
+
+    Preenchido exclusivamente pelo worker: um snapshot é gravado sempre que o
+    proposals_count de um projeto muda (ou na primeira captura). Permite analisar
+    a evolução da concorrência ("ganhou X propostas nas últimas 24h").
+    """
+    __tablename__ = "project_bids_history"
+
+    id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
+    workana_id = Column(String(255), ForeignKey("projects_catalog.workana_id", ondelete="CASCADE"), nullable=False, index=True)
+    proposals_count = Column(Integer, nullable=False)
+    captured_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("idx_bids_history_workana_captured", "workana_id", "captured_at"),
+    )
 
 
 class UserProjectState(Base):

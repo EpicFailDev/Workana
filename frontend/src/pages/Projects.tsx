@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, type AnalysisResult, type CatalogProject } from "../services/api";
+import { api, type AnalysisResult, type CatalogProject, type ProposalBatch, type ProposalBatchItem, type ProposalBatchCreate, type BidsHistoryResponse } from "../services/api";
 import styles from "./Projects.module.css";
 import Loader from "../components/Loader";
 import { useToast } from "../context/ToastContext";
@@ -35,6 +35,9 @@ interface Project {
     last_client_activity?: string | null;
     is_urgent?: boolean;
     is_featured?: boolean;
+    estimated_published_at?: string | null;
+    proposals_delta?: number | null;
+    contract_type?: string | null;
     url: string;
     match_score?: number | null;
     is_favorite?: boolean;
@@ -149,6 +152,36 @@ export default function Projects() {
     const [showSaveModal, setShowSaveModal] = useState(false);
     const [newFilterName, setNewFilterName] = useState("");
     const [isSavingFilter, setIsSavingFilter] = useState(false);
+
+    // Estado do modal de histórico de bids (evolução de propostas)
+    const [bidsProject, setBidsProject] = useState<Project | null>(null);
+    const [bidsData, setBidsData] = useState<BidsHistoryResponse | null>(null);
+    const [bidsLoading, setBidsLoading] = useState(false);
+
+    const CONTRACT_LABELS: Record<string, string> = {
+        project_fixed: "Projeto fixo",
+        hourly: "Por hora",
+        staff_augmentation: "Staff augmentation",
+    };
+
+    const formatDelta = (delta: number | null | undefined) => {
+        if (delta === null || delta === undefined || delta === 0) return null;
+        return delta > 0 ? `+${delta}` : `${delta}`;
+    };
+
+    const openBidsHistory = async (project: Project) => {
+        setBidsProject(project);
+        setBidsData(null);
+        setBidsLoading(true);
+        try {
+            const res = await api.getBidsHistory(project.id);
+            setBidsData(res);
+        } catch (err: any) {
+            toast.error(err.message || "Erro ao carregar histórico de propostas.");
+        } finally {
+            setBidsLoading(false);
+        }
+    };
 
     // Efeito para buscar automaticamente se houver filtros na URL
     useEffect(() => {
@@ -302,6 +335,9 @@ export default function Projects() {
         details: project.details as Record<string, string> | undefined,
         analysis: project.analysis ? (project.analysis as unknown as AnalysisResult) : null,
         analyzed_at: project.analyzed_at ?? null,
+        estimated_published_at: project.estimated_published_at ?? null,
+        proposals_delta: project.proposals_delta ?? null,
+        contract_type: project.contract_type ?? null,
     });
 
     const clearSelection = () => {
@@ -742,6 +778,250 @@ export default function Projects() {
         }
     };
 
+    // ==================== Estados de Envio em Lote (Batch & Queue) ====================
+    interface BatchItemState {
+        workana_id: string;
+        title: string;
+        url: string;
+        proposal_text: string;
+        budget: number;
+        deadline_days: number;
+        score: number;
+        selected: boolean;
+        status: "idle" | "generating" | "ready" | "error";
+        error?: string;
+    }
+
+    const [showBatchModal, setShowBatchModal] = useState(false);
+    const [isBatchGenerating, setIsBatchGenerating] = useState(false);
+    const [isSubmittingBatch, setIsSubmittingBatch] = useState(false);
+    const [batchItems, setBatchItems] = useState<BatchItemState[]>([]);
+    const [batchTemplateRef, setBatchTemplateRef] = useState<string | null>(null);
+
+    // Fila / Monitor de Lotes
+    const [showQueueDrawer, setShowQueueDrawer] = useState(false);
+    const [batches, setBatches] = useState<ProposalBatch[]>([]);
+    const [selectedBatchDetail, setSelectedBatchDetail] = useState<ProposalBatch | null>(null);
+    const [isLoadingBatches, setIsLoadingBatches] = useState(false);
+
+    // Carregar batches para o Drawer
+    const loadBatches = async () => {
+        setIsLoadingBatches(true);
+        try {
+            const res = await api.listProposalBatches(15, 0);
+            setBatches(res.batches || []);
+            if (res.batches && res.batches.length > 0 && !selectedBatchDetail) {
+                const detail = await api.getProposalBatch(res.batches[0].id);
+                setSelectedBatchDetail(detail);
+            }
+        } catch (err) {
+            console.error("Erro ao carregar lotes de propostas:", err);
+        } finally {
+            setIsLoadingBatches(false);
+        }
+    };
+
+    const loadBatchDetail = async (batchId: number) => {
+        try {
+            const detail = await api.getProposalBatch(batchId);
+            setSelectedBatchDetail(detail);
+        } catch (err) {
+            console.error("Erro ao carregar detalhes do lote:", err);
+        }
+    };
+
+    // Polling automático da fila quando o drawer estiver aberto
+    useEffect(() => {
+        if (!showQueueDrawer) return;
+        loadBatches();
+        const interval = setInterval(() => {
+            loadBatches();
+            if (selectedBatchDetail) {
+                loadBatchDetail(selectedBatchDetail.id);
+            }
+        }, 4000);
+        return () => clearInterval(interval);
+    }, [showQueueDrawer, selectedBatchDetail?.id]);
+
+    const handleCancelBatch = async (batchId: number) => {
+        try {
+            await api.cancelProposalBatch(batchId);
+            toast.success("Lote cancelado!");
+            await loadBatches();
+            if (selectedBatchDetail?.id === batchId) {
+                await loadBatchDetail(batchId);
+            }
+        } catch (err: any) {
+            toast.error(err?.message || "Erro ao cancelar lote.");
+        }
+    };
+
+    const handleRetryBatch = async (batchId: number) => {
+        try {
+            await api.retryProposalBatch(batchId);
+            toast.success("Lote reiniciado para processamento!");
+            await loadBatches();
+            if (selectedBatchDetail?.id === batchId) {
+                await loadBatchDetail(batchId);
+            }
+        } catch (err: any) {
+            toast.error(err?.message || "Erro ao reiniciar lote.");
+        }
+    };
+
+    // Seleção Rápida: Top 5 / Top 10 por score
+    const handleQuickSelectTop = (count: number) => {
+        const sorted = [...projects].sort((a, b) => calculateMatch(b) - calculateMatch(a));
+        const topIds = sorted.slice(0, count).map(p => p.id);
+        setSelectAllFiltered(false);
+        setExcludedIds(new Set());
+        setSelectedIds(new Set(topIds));
+        toast.success(`Top ${topIds.length} projetos selecionados por Score de Relevância!`);
+    };
+
+    // Abrir Modal de Revisão em Lote
+    const handleOpenBatchReviewModal = async () => {
+        let targetProjects: Project[] = [];
+        if (selectAllFiltered) {
+            targetProjects = projects.filter(p => !excludedIds.has(p.id));
+        } else {
+            targetProjects = Array.from(selectedIds)
+                .map(id => knownProjects.current.get(id) || projects.find(p => p.id === id))
+                .filter((p): p is Project => Boolean(p));
+        }
+
+        if (!targetProjects.length) {
+            toast.error("Nenhum projeto selecionado.");
+            return;
+        }
+
+        const limitedProjects = targetProjects.slice(0, 20);
+        if (targetProjects.length > 20) {
+            toast.info("Limitando o lote aos 20 primeiros projetos selecionados por segurança.");
+        }
+
+        const tId = selectedTemplateId || undefined;
+        setBatchTemplateRef(tId || null);
+
+        const initialItems: BatchItemState[] = limitedProjects.map(proj => {
+            const minB = proj.budget_min || 0;
+            const maxB = proj.budget_max || 0;
+            const defaultB = maxB > 0 ? maxB : (minB > 0 ? minB : 150);
+            return {
+                workana_id: proj.id,
+                title: proj.title,
+                url: proj.url,
+                proposal_text: "",
+                budget: defaultB,
+                deadline_days: 7,
+                score: calculateMatch(proj),
+                selected: true,
+                status: "generating",
+            };
+        });
+
+        setBatchItems(initialItems);
+        setShowBatchModal(true);
+        setIsBatchGenerating(true);
+
+        try {
+            const projectIds = limitedProjects.map(p => p.id);
+            const genRes = await api.bulkGenerateProposals(projectIds, tId);
+            
+            if (genRes.success && genRes.results) {
+                const resultMap = new Map(genRes.results.map(r => [r.workana_id, r]));
+                setBatchItems(prev => prev.map(item => {
+                    const res = resultMap.get(item.workana_id);
+                    if (res && res.success) {
+                        return {
+                            ...item,
+                            proposal_text: res.proposal,
+                            budget: res.suggested_budget || item.budget,
+                            deadline_days: res.suggested_deadline_days || 7,
+                            status: "ready",
+                        };
+                    } else {
+                        return {
+                            ...item,
+                            status: "error",
+                            error: res?.error || "Falha ao gerar proposta",
+                        };
+                    }
+                }));
+                toast.success(`${genRes.generated} de ${genRes.total} propostas geradas com sucesso!`);
+            }
+        } catch (err: any) {
+            toast.error(err?.message || "Erro na geração em lote das propostas.");
+            setBatchItems(prev => prev.map(item => ({ ...item, status: "error", error: "Erro de conexão" })));
+        } finally {
+            setIsBatchGenerating(false);
+        }
+    };
+
+    // Submeter o Lote Aprovado para a Fila de Disparos
+    const handleSubmitBatchToQueue = async () => {
+        const approvedItems = batchItems.filter(item => item.selected && item.proposal_text.trim().length > 0);
+        if (!approvedItems.length) {
+            toast.error("Nenhuma proposta com texto selecionada para envio.");
+            return;
+        }
+
+        setIsSubmittingBatch(true);
+        try {
+            const payload: ProposalBatchCreate = {
+                template_ref: batchTemplateRef || undefined,
+                custom_proposals: approvedItems.map(item => ({
+                    workana_id: item.workana_id,
+                    proposal_text: item.proposal_text,
+                    budget: item.budget,
+                    deadline_days: item.deadline_days,
+                })),
+            };
+
+            const res = await api.createProposalBatch(payload);
+            if (res.success) {
+                toast.success(`Lote #${res.batch_id} criado com ${res.total} propostas! Envio em background iniciado.`);
+                setShowBatchModal(false);
+                clearSelection();
+                setShowQueueDrawer(true);
+                await loadBatches();
+                await loadBatchDetail(res.batch_id);
+            } else {
+                toast.error("Não foi possível criar o lote de propostas.");
+            }
+        } catch (err: any) {
+            toast.error(err?.message || "Erro ao enfileirar lote de propostas.");
+        } finally {
+            setIsSubmittingBatch(false);
+        }
+    };
+
+    // Enfileiramento 100% automático direto (sem passar pelo modal de rascunhos)
+    const handleDirectBatchEnqueue = async () => {
+        if (selectedCount === 0) return;
+        try {
+            const payload: ProposalBatchCreate = selectAllFiltered ? {
+                filters: toCatalogFilters(filters),
+                exclude_ids: Array.from(excludedIds),
+                template_ref: selectedTemplateId || undefined,
+            } : {
+                project_ids: Array.from(selectedIds),
+                template_ref: selectedTemplateId || undefined,
+            };
+
+            const res = await api.createProposalBatch(payload);
+            if (res.success) {
+                toast.success(`Lote #${res.batch_id} com ${res.total} propostas enfileirado para envio automático!`);
+                clearSelection();
+                setShowQueueDrawer(true);
+                await loadBatches();
+                await loadBatchDetail(res.batch_id);
+            }
+        } catch (err: any) {
+            toast.error(err?.message || "Erro ao enfileirar propostas.");
+        }
+    };
+
     const totalPages = Math.max(1, Math.ceil(total / filters.pages_to_fetch));
 
     return (
@@ -872,16 +1152,31 @@ export default function Projects() {
 
             {selectedCount > 0 && (
                 <div className={styles.bulkActionBar} role="region" aria-label="Ações dos projetos selecionados">
-                    <strong>{selectedCount} selecionado(s)</strong>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <strong style={{ color: '#c7d2fe' }}>{selectedCount} projeto(s) selecionado(s)</strong>
+                    </div>
                     <div className={styles.bulkActions}>
+                        <button 
+                            className="btn btn-primary" 
+                            style={{ background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', boxShadow: '0 0 15px rgba(99, 102, 241, 0.4)' }}
+                            onClick={handleOpenBatchReviewModal}
+                            title="Abre o painel para gerar e revisar propostas de todos os selecionados com 1 clique"
+                        >
+                            ⚡ Gerar e Revisar em Lote
+                        </button>
+                        <button 
+                            className="btn btn-secondary" 
+                            onClick={handleDirectBatchEnqueue}
+                            title="Enfileira diretamente no background para envio sequencial seguro"
+                        >
+                            🚀 Enfileirar Direto
+                        </button>
+                        <button className="btn btn-secondary" onClick={runAnalysis}>Analisar IA</button>
                         <button className="btn btn-secondary" onClick={() => runBulkAction("favorite")}>Salvar</button>
                         <button className="btn btn-secondary" onClick={() => runBulkAction(filters.hidden_only ? "restore" : "hide")}>
                             {filters.hidden_only ? "Restaurar" : "Ocultar"}
                         </button>
                         <button className="btn btn-secondary" onClick={shareSelectedProjects}>Compartilhar</button>
-                        <button className="btn btn-secondary" onClick={runAnalysis}>Analisar</button>
-                        <button className="btn btn-secondary" onClick={selectRecommendedProjects}>Selecionar recomendados</button>
-                        <button className="btn btn-primary" disabled title="Disponível na Fase 6">Enviar propostas</button>
                         <button className="btn btn-ghost" onClick={clearSelection}>Limpar</button>
                     </div>
                 </div>
@@ -918,7 +1213,40 @@ export default function Projects() {
                                         <button type="button" className={styles.textAction} onClick={selectEveryFilteredProject}>
                                             Selecionar todos os {total} resultados
                                         </button>
-                                        <span className="badge badge-neutral">{total} Projetos Encontrados</span>
+                                        
+                                        {/* Quick Select Buttons */}
+                                        <button type="button" className={styles.quickSelectPill} onClick={() => handleQuickSelectTop(5)}>
+                                            ⚡ Top 5 Score
+                                        </button>
+                                        <button type="button" className={styles.quickSelectPill} onClick={() => handleQuickSelectTop(10)}>
+                                            ⚡ Top 10 Score
+                                        </button>
+                                        <button type="button" className={styles.quickSelectPill} onClick={selectRecommendedProjects}>
+                                            🎯 Recomendados
+                                        </button>
+                                        <button 
+                                            type="button" 
+                                            className={styles.quickSelectPill} 
+                                            style={{ background: 'rgba(16, 185, 129, 0.15)', borderColor: 'rgba(16, 185, 129, 0.4)', color: '#6ee7b7' }}
+                                            onClick={() => { setShowQueueDrawer(true); loadBatches(); }}
+                                        >
+                                            📊 Fila de Envios
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className={styles.quickSelectPill}
+                                            title="Baixar catálogo em CSV (Excel)"
+                                            onClick={async () => {
+                                                try {
+                                                    await api.downloadCatalogCsv();
+                                                    toast.success("Catálogo exportado em CSV!", "Exportado!");
+                                                } catch (err: any) {
+                                                    toast.error(err.message || "Erro ao exportar CSV.");
+                                                }
+                                            }}
+                                        >
+                                            ⬇️ Exportar CSV
+                                        </button>
                                     </div>
                                     <select 
                                         className={styles.controlInput} 
@@ -1018,16 +1346,37 @@ export default function Projects() {
 
                                             <div className={styles.cardFooter}>
                                                 <div className={styles.metaInfo}>
-                                                    <div className={styles.metaItem}>
-                                                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                                                        {project.posted_at}
+                                                        {project.contract_type && (
+                                                            <span className={styles.contractBadge}>
+                                                                {CONTRACT_LABELS[project.contract_type] || project.contract_type}
+                                                            </span>
+                                                        )}
+                                                        <div className={styles.metaItem}>
+                                                            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                                            {project.posted_at}
+                                                        </div>
                                                     </div>
+                                                    <button
+                                                        type="button"
+                                                        className={styles.proposalCount}
+                                                        title="Ver histórico de propostas"
+                                                        onClick={(e) => { e.stopPropagation(); openBidsHistory(project); }}
+                                                    >
+                                                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                                                        <span>{project.proposals_count ?? 0} propostas</span>
+                                                        {formatDelta(project.proposals_delta) && (
+                                                            <span
+                                                                className={styles.deltaChip}
+                                                                style={{
+                                                                    color: (project.proposals_delta ?? 0) > 0 ? '#6ee7b7' : '#fca5a5',
+                                                                    background: (project.proposals_delta ?? 0) > 0 ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
+                                                                }}
+                                                            >
+                                                                {formatDelta(project.proposals_delta)}
+                                                            </span>
+                                                        )}
+                                                    </button>
                                                 </div>
-                                                <div className={styles.proposalCount}>
-                                                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                                                    {project.proposals_count} propostas
-                                                </div>
-                                            </div>
 
                                             {/* Quick Actions Toolbar (Slides up on Hover) */}
                                             <div className={styles.quickActions}>
@@ -1232,6 +1581,55 @@ export default function Projects() {
                 </div>
             )}
             
+            {bidsProject && (
+                <div className="modal-overlay" onClick={() => setBidsProject(null)}>
+                    <div className="modal-content" style={{ maxWidth: '560px' }} onClick={e => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3 className="modal-title">📈 Evolução de Propostas</h3>
+                            <button className="btn-close" onClick={() => setBidsProject(null)}>×</button>
+                        </div>
+                        <div className="modal-body">
+                            <p style={{ marginBottom: '0.75rem', color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>{bidsProject.title}</p>
+                            {bidsLoading ? (
+                                <p style={{ color: 'var(--color-text-muted)' }}>Carregando histórico...</p>
+                            ) : bidsData && bidsData.points.length > 0 ? (
+                                <>
+                                    <div style={{ display: 'flex', gap: '2px', alignItems: 'flex-end', height: '160px', marginBottom: '0.5rem' }}>
+                                        {[...bidsData.points].reverse().map((p, i) => {
+                                            const max = Math.max(...bidsData.points.map(x => x.proposals_count), 1);
+                                            const h = Math.max(6, Math.round((p.proposals_count / max) * 150));
+                                            return (
+                                                <div
+                                                    key={i}
+                                                    title={`${p.proposals_count} propostas em ${new Date(p.captured_at).toLocaleString('pt-BR')}`}
+                                                    style={{ flex: 1, background: 'linear-gradient(180deg, #22d3ee, #0ea5e9)', borderRadius: '3px 3px 0 0', height: `${h}px`, minWidth: '8px' }}
+                                                />
+                                            );
+                                        })}
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.25rem' }}>
+                                        {[...bidsData.points].reverse().map((p, i) => (
+                                            <span key={i} style={{ color: 'var(--color-text-muted)', fontSize: '0.7rem' }}>
+                                                {new Date(p.captured_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                                                <span style={{ marginLeft: 2, color: '#22d3ee' }}>{p.proposals_count}</span>
+                                            </span>
+                                        ))}
+                                    </div>
+                                </>
+                            ) : (
+                                <p style={{ color: 'var(--color-text-muted)' }}>Sem histórico de propostas para este projeto.</p>
+                            )}
+                        </div>
+                        <div className="modal-footer">
+                            <span style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>
+                                Atual: {bidsData?.current_count ?? "—"} propostas
+                            </span>
+                            <button className="btn btn-ghost" onClick={() => setBidsProject(null)}>Fechar</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {showAiModal && (
                 <div className="modal-overlay">
                     <div className="modal-content" style={{ maxWidth: '800px' }}>
@@ -1369,6 +1767,315 @@ export default function Projects() {
                     </div>
                 </div>
             )}
+
+            {/* ==================== Modal de Revisão em Lote (Semi-Automático) ==================== */}
+            {showBatchModal && (
+                <div className={styles.batchModalOverlay} onClick={() => !isSubmittingBatch && setShowBatchModal(false)}>
+                    <div className={styles.batchModalContainer} onClick={e => e.stopPropagation()}>
+                        <div className={styles.batchModalHeader}>
+                            <div className={styles.batchModalTitle}>
+                                <h2>⚡ Envio de Propostas em Lote</h2>
+                                <span className={styles.batchModalBadge}>{batchItems.filter(i => i.selected).length} de {batchItems.length} selecionados</span>
+                            </div>
+                            <button className="btn-close" onClick={() => !isSubmittingBatch && setShowBatchModal(false)}>×</button>
+                        </div>
+
+                        <div className={styles.batchModalToolbar}>
+                            <div className={styles.batchTemplateSelect}>
+                                <label>Template de IA:</label>
+                                <select 
+                                    value={batchTemplateRef || ""}
+                                    onChange={(e) => setBatchTemplateRef(e.target.value || null)}
+                                    disabled={isBatchGenerating || isSubmittingBatch}
+                                >
+                                    <option value="">Prompt Padrão (Sem Template)</option>
+                                    {templates.map(t => (
+                                        <option key={t.template_ref} value={t.template_ref}>
+                                            {t.name} {t.is_system ? "🛡️ (Oficial)" : ""} {t.is_default ? "⭐" : ""}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <button 
+                                    className="btn btn-secondary btn-sm"
+                                    disabled={isBatchGenerating || isSubmittingBatch}
+                                    onClick={() => handleOpenBatchReviewModal()}
+                                    title="Regera todas as propostas usando o template selecionado"
+                                >
+                                    {isBatchGenerating ? <span className="spinner spinner-sm"></span> : "✨ Regerar Todas com IA"}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className={styles.batchModalBody}>
+                            {isBatchGenerating && batchItems.every(i => i.status === "generating") ? (
+                                <div style={{ padding: '60px 20px', textAlign: 'center' }}>
+                                    <Loader type="scanning" message="Gerando propostas hiper-personalizadas com IA para os projetos selecionados..." />
+                                </div>
+                            ) : (
+                                batchItems.map((item, idx) => {
+                                    const scoreClass = item.score >= 80 ? styles.batchScoreHigh : (item.score >= 60 ? styles.batchScoreMed : styles.batchScoreLow);
+                                    return (
+                                        <div key={item.workana_id} className={`${styles.batchProjectCard} ${!item.selected ? styles.batchProjectCardDisabled : ''}`}>
+                                            <div className={styles.batchCardTop}>
+                                                <div className={styles.batchCardTitleGroup}>
+                                                    <input 
+                                                        type="checkbox"
+                                                        checked={item.selected}
+                                                        onChange={(e) => {
+                                                            const val = e.target.checked;
+                                                            setBatchItems(prev => prev.map((it, i) => i === idx ? { ...it, selected: val } : it));
+                                                        }}
+                                                        disabled={isSubmittingBatch}
+                                                        style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: 'var(--color-primary)' }}
+                                                    />
+                                                    <div>
+                                                        <h4>{item.title}</h4>
+                                                        <div className={styles.batchCardMeta}>
+                                                            <span>Score de Match:</span>
+                                                            <span className={`${styles.batchScoreBadge} ${scoreClass}`}>{item.score}%</span>
+                                                            <a href={item.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-primary)', textDecoration: 'underline' }}>Ver no Workana ↗</a>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                {item.status === "generating" ? (
+                                                    <span className={`${styles.queueStatusBadge} ${styles.statusGenerating}`}>Gerando IA...</span>
+                                                ) : item.status === "error" ? (
+                                                    <span className={`${styles.queueStatusBadge} ${styles.statusFailed}`}>Erro IA</span>
+                                                ) : (
+                                                    <span className={`${styles.queueStatusBadge} ${styles.statusReady}`}>Pronta</span>
+                                                )}
+                                            </div>
+
+                                            {item.selected && (
+                                                <>
+                                                    <textarea 
+                                                        className={styles.batchProposalTextarea}
+                                                        value={item.proposal_text}
+                                                        placeholder="Texto da proposta personalizada..."
+                                                        onChange={(e) => {
+                                                            const text = e.target.value;
+                                                            setBatchItems(prev => prev.map((it, i) => i === idx ? { ...it, proposal_text: text } : it));
+                                                        }}
+                                                        disabled={isSubmittingBatch || item.status === "generating"}
+                                                    />
+                                                    <div className={styles.batchInputRow}>
+                                                        <div className={styles.batchInputGroup}>
+                                                            <label>Orçamento (R$):</label>
+                                                            <input 
+                                                                type="number"
+                                                                className={styles.batchSmallInput}
+                                                                value={item.budget}
+                                                                onChange={(e) => {
+                                                                    const val = Number(e.target.value);
+                                                                    setBatchItems(prev => prev.map((it, i) => i === idx ? { ...it, budget: val } : it));
+                                                                }}
+                                                                disabled={isSubmittingBatch}
+                                                            />
+                                                        </div>
+                                                        <div className={styles.batchInputGroup}>
+                                                            <label>Prazo (dias):</label>
+                                                            <input 
+                                                                type="number"
+                                                                className={styles.batchSmallInput}
+                                                                style={{ width: '80px' }}
+                                                                value={item.deadline_days}
+                                                                onChange={(e) => {
+                                                                    const val = Number(e.target.value);
+                                                                    setBatchItems(prev => prev.map((it, i) => i === idx ? { ...it, deadline_days: val } : it));
+                                                                }}
+                                                                disabled={isSubmittingBatch}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </div>
+
+                        <div className={styles.batchModalFooter}>
+                            <div className={styles.batchFooterInfo}>
+                                <span>🛡️ O envio será executado sequencialmente com proteção anti-ban e delays inteligentes.</span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '12px' }}>
+                                <button 
+                                    className="btn btn-ghost"
+                                    onClick={() => setShowBatchModal(false)}
+                                    disabled={isSubmittingBatch}
+                                >
+                                    Cancelar
+                                </button>
+                                <button 
+                                    className="btn btn-primary"
+                                    onClick={handleSubmitBatchToQueue}
+                                    disabled={isSubmittingBatch || isBatchGenerating || batchItems.filter(i => i.selected && i.proposal_text.trim()).length === 0}
+                                    style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', boxShadow: '0 0 15px rgba(16, 185, 129, 0.35)' }}
+                                >
+                                    {isSubmittingBatch ? <span className="spinner spinner-sm"></span> : `🚀 Iniciar Disparo em Fila (${batchItems.filter(i => i.selected && i.proposal_text.trim()).length})`}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ==================== Drawer do Monitor de Fila (Batches & Queue) ==================== */}
+            {showQueueDrawer && (
+                <div className={styles.queueDrawerOverlay} onClick={() => setShowQueueDrawer(false)}>
+                    <div className={styles.queueDrawerContainer} onClick={e => e.stopPropagation()}>
+                        <div className={styles.queueDrawerHeader}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#f1f5f9' }}>📊 Fila de Envios & Lotes</h3>
+                            </div>
+                            <button className="btn-close" onClick={() => setShowQueueDrawer(false)}>×</button>
+                        </div>
+
+                        <div className={styles.queueDrawerBody}>
+                            {isLoadingBatches && batches.length === 0 ? (
+                                <div style={{ padding: '40px', textAlign: 'center' }}>
+                                    <Loader type="scanning" message="Consultando status da fila..." />
+                                </div>
+                            ) : batches.length === 0 ? (
+                                <div className="empty-state" style={{ padding: '40px 20px', textAlign: 'center' }}>
+                                    <div style={{ fontSize: '3rem', marginBottom: '12px' }}>📭</div>
+                                    <h4 style={{ color: '#94a3b8', margin: '0 0 8px' }}>Nenhum lote na fila</h4>
+                                    <p style={{ fontSize: '0.85rem', color: '#64748b' }}>Selecione projetos no catálogo e clique em "Gerar e Revisar em Lote" ou "Enfileirar Direto" para disparar propostas.</p>
+                                </div>
+                            ) : (
+                                batches.map(batch => {
+                                    const percent = batch.total > 0 ? Math.round(((batch.sent_count + batch.failed_count + batch.skipped_count) / batch.total) * 100) : 0;
+                                    const isSelected = selectedBatchDetail?.id === batch.id;
+                                    return (
+                                        <div 
+                                            key={batch.id} 
+                                            className={styles.queueBatchCard}
+                                            style={{ borderColor: isSelected ? 'var(--color-primary)' : 'rgba(255,255,255,0.08)' }}
+                                            onClick={() => loadBatchDetail(batch.id)}
+                                        >
+                                            <div className={styles.queueBatchTop}>
+                                                <div>
+                                                    <span className={styles.queueBatchTitle}>Lote #{batch.id}</span>
+                                                    <span style={{ fontSize: '0.75rem', color: '#64748b', marginLeft: '8px' }}>
+                                                        {batch.created_at ? new Date(batch.created_at).toLocaleTimeString() : ''}
+                                                    </span>
+                                                </div>
+                                                <span className={`${styles.queueStatusBadge} ${
+                                                    batch.status === "completed" ? styles.statusSent :
+                                                    batch.status === "running" ? styles.statusSending :
+                                                    batch.status === "cancelled" ? styles.statusCancelled :
+                                                    batch.status === "failed" ? styles.statusFailed : styles.statusQueued
+                                                }`}>
+                                                    {batch.status === "completed" ? "Concluído" :
+                                                     batch.status === "running" ? "Em Envio 🚀" :
+                                                     batch.status === "cancelled" ? "Cancelado" :
+                                                     batch.status === "failed" ? "Falhou" : "Na Fila"}
+                                                </span>
+                                            </div>
+
+                                            <div className={styles.queueProgressTrack}>
+                                                <div className={styles.queueProgressBar} style={{ width: `${percent}%` }}></div>
+                                            </div>
+
+                                            <div className={styles.queueStatsRow}>
+                                                <span>Progresso: {batch.sent_count}/{batch.total} enviadas</span>
+                                                <span>{percent}% concluído</span>
+                                            </div>
+
+                                            {batch.failed_count > 0 && (
+                                                <div style={{ fontSize: '0.78rem', color: '#f87171', marginTop: '6px' }}>
+                                                    ⚠️ {batch.failed_count} proposta(s) falharam
+                                                </div>
+                                            )}
+
+                                            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                                                {batch.status === "running" || batch.status === "queued" ? (
+                                                    <button 
+                                                        className="btn btn-ghost btn-sm"
+                                                        style={{ color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '4px 10px', fontSize: '0.75rem' }}
+                                                        onClick={(e) => { e.stopPropagation(); handleCancelBatch(batch.id); }}
+                                                    >
+                                                        🛑 Cancelar
+                                                    </button>
+                                                ) : null}
+
+                                                {batch.failed_count > 0 || batch.status === "cancelled" || batch.status === "failed" ? (
+                                                    <button 
+                                                        className="btn btn-secondary btn-sm"
+                                                        style={{ padding: '4px 10px', fontSize: '0.75rem' }}
+                                                        onClick={(e) => { e.stopPropagation(); handleRetryBatch(batch.id); }}
+                                                    >
+                                                        🔁 Reenviar Falhas
+                                                    </button>
+                                                ) : null}
+
+                                                <button 
+                                                    className="btn btn-ghost btn-sm"
+                                                    style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: '0.75rem' }}
+                                                    onClick={(e) => { e.stopPropagation(); loadBatchDetail(batch.id); }}
+                                                >
+                                                    {isSelected ? "Ocultar Detalhes" : "Ver Itens ▾"}
+                                                </button>
+                                            </div>
+
+                                            {/* Detalhe dos itens do lote */}
+                                            {isSelected && selectedBatchDetail?.items && (
+                                                <div style={{ marginTop: '14px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '10px' }}>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#94a3b8', marginBottom: '8px' }}>
+                                                        Itens do Lote ({selectedBatchDetail.items.length}):
+                                                    </div>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                        {selectedBatchDetail.items.map(item => (
+                                                            <div key={item.id} className={styles.queueItemRow}>
+                                                                <div style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: '10px' }}>
+                                                                    <a 
+                                                                        href={item.project_url || `https://www.workana.com/job/${item.workana_id}`} 
+                                                                        target="_blank" 
+                                                                        rel="noopener noreferrer"
+                                                                        style={{ color: '#e2e8f0', textDecoration: 'none' }}
+                                                                    >
+                                                                        {item.project_title || item.workana_id}
+                                                                    </a>
+                                                                    {item.error && (
+                                                                        <div style={{ fontSize: '0.72rem', color: '#f87171', marginTop: '2px' }}>
+                                                                            {item.error}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                                <span className={`${styles.queueStatusBadge} ${
+                                                                    item.status === "sent" ? styles.statusSent :
+                                                                    item.status === "sending" ? styles.statusSending :
+                                                                    item.status === "ready" ? styles.statusReady :
+                                                                    item.status === "generating" ? styles.statusGenerating :
+                                                                    item.status === "failed" ? styles.statusFailed :
+                                                                    item.status === "skipped" ? styles.statusSkipped :
+                                                                    item.status === "cancelled" ? styles.statusCancelled : styles.statusQueued
+                                                                }`}>
+                                                                    {item.status === "sent" ? "Enviada" :
+                                                                     item.status === "sending" ? "Enviando..." :
+                                                                     item.status === "ready" ? "Pronta" :
+                                                                     item.status === "generating" ? "Gerando IA" :
+                                                                     item.status === "failed" ? "Falhou" :
+                                                                     item.status === "skipped" ? "Ignorada" :
+                                                                     item.status === "cancelled" ? "Cancelada" : "Na Fila"}
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
+

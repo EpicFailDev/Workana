@@ -216,9 +216,9 @@ export default function Profile() {
         <div className={styles.profilePage}>
             <div style={{ marginBottom: '2rem' }}>
                 <CyberHeader 
-                    title="OPERATIVE PROFILE" 
-                    subtitle="PERSONNEL_FILE // CLASSIFIED"
-                    description="Visualize e gerencie suas métricas públicas."
+                    title="PERFIL PROFISSIONAL" 
+                    subtitle="WORKANA // SINCRONIZAÇÃO"
+                    description="Visualize e sincronize suas métricas públicas e reputação no Workana."
                 />
             </div>
             

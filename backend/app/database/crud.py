@@ -19,6 +19,8 @@ from app.database.models import (
     ActivityLog as ActivityLogModel, DailyStatistics as DailyStatisticsModel,
     BlacklistedClient as BlacklistedClientModel, SystemProposalTemplate as SystemProposalTemplateModel,
     ProjectCatalog as ProjectCatalogModel, UserProjectState as UserProjectStateModel,
+    ProjectBidsHistory as ProjectBidsHistoryModel,
+    ProposalBatch as ProposalBatchModel, ProposalBatchItem as ProposalBatchItemModel,
 )
 from app.api.schemas import (
     SavedFilter, ProposalTemplate, ProposalTemplateCreate,
@@ -440,6 +442,9 @@ async def delete_template(user_id: Any, template_id: int) -> bool:
         await session.delete(db_template)
         await session.commit()
         return True
+
+
+# ==================== Lotes de Propostas ====================
 
 
 # ==================== Histórico de Propostas ====================
@@ -1344,10 +1349,10 @@ async def search_catalog(
         # Ordenação
         sort_value = getattr(sort, "value", sort)
         sort_map = {
-            "newest": ProjectCatalogModel.last_seen_at.desc(),
-            "created_at_desc": ProjectCatalogModel.last_seen_at.desc(),
-            "oldest": ProjectCatalogModel.last_seen_at.asc(),
-            "created_at_asc": ProjectCatalogModel.last_seen_at.asc(),
+            "newest": ProjectCatalogModel.estimated_published_at.desc().nullslast(),
+            "created_at_desc": ProjectCatalogModel.estimated_published_at.desc().nullslast(),
+            "oldest": ProjectCatalogModel.estimated_published_at.asc().nullsfirst(),
+            "created_at_asc": ProjectCatalogModel.estimated_published_at.asc().nullsfirst(),
             "budget_desc": ProjectCatalogModel.budget_max.desc().nullslast(),
             "budget_asc": ProjectCatalogModel.budget_min.asc().nullsfirst(),
             "bids_asc": ProjectCatalogModel.proposals_count.asc().nullsfirst(),
@@ -1404,6 +1409,9 @@ async def search_catalog(
                 "last_client_activity": cat.last_client_activity,
                 "is_urgent": cat.is_urgent,
                 "is_featured": cat.is_featured,
+                "estimated_published_at": cat.estimated_published_at.isoformat() if cat.estimated_published_at else None,
+                "proposals_delta": cat.proposals_delta,
+                "contract_type": cat.contract_type,
                 "status": cat.status,
                 "first_seen_at": cat.first_seen_at.isoformat() if cat.first_seen_at else None,
                 "last_seen_at": cat.last_seen_at.isoformat() if cat.last_seen_at else None,
@@ -1446,6 +1454,9 @@ def _serialize_catalog_row(cat: ProjectCatalogModel, state: Optional[UserProject
         "last_client_activity": cat.last_client_activity,
         "is_urgent": cat.is_urgent,
         "is_featured": cat.is_featured,
+        "estimated_published_at": cat.estimated_published_at.isoformat() if cat.estimated_published_at else None,
+        "proposals_delta": cat.proposals_delta,
+        "contract_type": cat.contract_type,
         "status": cat.status,
         "first_seen_at": cat.first_seen_at.isoformat() if cat.first_seen_at else None,
         "last_seen_at": cat.last_seen_at.isoformat() if cat.last_seen_at else None,
@@ -1628,6 +1639,105 @@ async def catalog_project_exists(workana_id: str) -> bool:
         return result.scalar_one_or_none() is not None
 
 
+async def get_bids_history(workana_id: str, limit: int = 30) -> List[Dict[str, Any]]:
+    """Retorna a evolução de contagem de propostas de um projeto do catálogo.
+
+    Ordenado do mais recente ao mais antigo (a série é gravada na captura do
+    worker quando a contagem muda ou é a primeira).
+    """
+    async with async_session() as session:
+        result = await session.execute(
+            select(
+                ProjectBidsHistoryModel.proposals_count,
+                ProjectBidsHistoryModel.captured_at,
+            )
+            .where(ProjectBidsHistoryModel.workana_id == workana_id)
+            .order_by(ProjectBidsHistoryModel.captured_at.desc())
+            .limit(limit)
+        )
+    return [
+        {
+            "proposals_count": count,
+            "captured_at": captured_at.isoformat() if captured_at else None,
+        }
+        for count, captured_at in result.all()
+    ]
+
+
+async def get_catalog_brief(workana_id: str) -> Optional[Dict[str, Any]]:
+    """Retorna título e contagem atual de um projeto do catálogo (para o head do gráfico)."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(
+                ProjectCatalogModel.title,
+                ProjectCatalogModel.proposals_count,
+            ).where(ProjectCatalogModel.workana_id == workana_id)
+        )
+        row = result.first()
+    if row is None:
+        return None
+    return {"title": row.title, "proposals_count": row.proposals_count}
+
+
+async def export_catalog_rows(
+    limit: int = 5000,
+    include_inactive: bool = False,
+) -> List[Dict[str, Any]]:
+    """Retorna as linhas do catálogo para exportação CSV (worker/API).
+
+    Ordenado por data de publicação estimada (mais recentes primeiro), com as
+    colunas normalizadas já disponíveis para a planilha.
+    """
+    async with async_session() as session:
+        query = select(ProjectCatalogModel)
+        if not include_inactive:
+            query = query.where(ProjectCatalogModel.status == "active")
+        query = query.order_by(
+            ProjectCatalogModel.estimated_published_at.desc().nulls_last(),
+            ProjectCatalogModel.last_seen_at.desc(),
+        ).limit(limit)
+        rows = (await session.execute(query)).scalars().all()
+
+    def _iso(value) -> Optional[str]:
+        return value.isoformat() if value else None
+
+    return [
+        {
+            "workana_id": c.workana_id,
+            "title": c.title,
+            "url": c.url,
+            "category": c.category,
+            "subcategory": c.subcategory,
+            "budget_min": c.budget_min,
+            "budget_max": c.budget_max,
+            "budget_type": c.budget_type,
+            "deadline": c.deadline,
+            "skills": ", ".join(c.skills) if isinstance(c.skills, list) else c.skills,
+            "proposals_count": c.proposals_count,
+            "proposals_delta": c.proposals_delta,
+            "contract_type": c.contract_type,
+            "estimated_published_at": _iso(c.estimated_published_at),
+            "posted_at": c.posted_at,
+            "published_at": c.published_at,
+            "last_client_activity": c.last_client_activity,
+            "is_urgent": c.is_urgent,
+            "is_featured": c.is_featured,
+            "status": c.status,
+            "client_name": c.client_name,
+            "client_country": c.client_country,
+            "client_rating": c.client_rating,
+            "client_projects_posted": c.client_projects_posted,
+            "client_projects_paid": c.client_projects_paid,
+            "client_member_since": c.client_member_since,
+            "client_plan": c.client_plan,
+            "payment_verified": c.payment_verified,
+            "first_seen_at": _iso(c.first_seen_at),
+            "last_seen_at": _iso(c.last_seen_at),
+        }
+        for c in rows
+    ]
+
+
 async def set_catalog_project_notes(user_id: Any, workana_id: str, notes: str) -> None:
     """Cria ou atualiza apenas as notas do overlay do usuário."""
     now = datetime.now(timezone.utc)
@@ -1651,7 +1761,14 @@ async def set_catalog_project_notes(user_id: Any, workana_id: str, notes: str) -
 
 
 async def upsert_catalog_row(project_data: dict) -> None:
-    """Upsert um projeto no catálogo. Chamado pelo worker."""
+    """Upsert um projeto no catálogo. Chamado pelo worker.
+
+    Responsibilities:
+        - Insere/atualiza a linha do catálogo.
+        - Calcula proposals_delta O(1) (atual - anterior) comparando com o valor
+          antigo da própria linha (sem subqueries).
+        - Persiste um snapshot em project_bids_history quando a contagem muda.
+    """
     async with async_session() as session:
         now = datetime.now(timezone.utc)
         values = {
@@ -1662,30 +1779,67 @@ async def upsert_catalog_row(project_data: dict) -> None:
                 "client_name", "client_country", "client_rating", "client_projects_posted",
                 "client_projects_paid", "client_member_since", "client_plan", "proposals_count",
                 "payment_verified", "posted_at", "published_at", "last_client_activity",
-                "is_urgent", "is_featured",
+                "is_urgent", "is_featured", "estimated_published_at",
             )
         }
+        values["contract_type"] = project_data.get("contract_type") or "project_fixed"
         values.update(
             status="active",
             first_seen_at=project_data.get("first_seen_at") or now,
             last_seen_at=now,
             updated_at=now,
+            proposals_delta=0,
         )
         statement = pg_insert(ProjectCatalogModel).values(**values)
         excluded = statement.excluded
+        # No conflito, o valor "anterior" é da linha existente (coluna da tabela),
+        # permitindo calcular proposals_delta sem busca prévia.
         update_fields = {
             column: getattr(excluded, column)
             for column in values
-            if column not in {"workana_id", "first_seen_at", "last_seen_at", "updated_at", "status"}
+            if column not in {
+                "workana_id", "first_seen_at", "last_seen_at", "updated_at", "status",
+                "previous_proposals_count", "proposals_delta",
+            }
         }
-        update_fields.update(last_seen_at=now, updated_at=now, status="active", closed_at=None)
-        await session.execute(
+        update_fields.update(
+            last_seen_at=now,
+            updated_at=now,
+            status="active",
+            closed_at=None,
+            previous_proposals_count=ProjectCatalogModel.proposals_count,
+            proposals_delta=(
+                excluded.proposals_count - ProjectCatalogModel.proposals_count
+            ),
+        )
+        result = await session.execute(
             statement.on_conflict_do_update(
                 index_elements=[ProjectCatalogModel.workana_id],
                 set_=update_fields,
+            ).returning(
+                ProjectCatalogModel.workana_id,
+                ProjectCatalogModel.proposals_count,
+                ProjectCatalogModel.previous_proposals_count,
+                ProjectCatalogModel.proposals_delta,
             )
         )
+        row = result.first()
         await session.commit()
+
+        # Snapshot do histórico de bids:
+        #  - primeira captura com contagem conhecida -> baseline
+        #  - contagem mudou -> nova observação
+        if row is not None and row.proposals_count is not None and (
+            row.previous_proposals_count is None or row.proposals_delta != 0
+        ):
+            await session.execute(
+                pg_insert(ProjectBidsHistoryModel).values(
+                    workana_id=row.workana_id,
+                    proposals_count=row.proposals_count,
+                    captured_at=now,
+                )
+            )
+            await session.commit()
 
 
 async def mark_gone_catalog_projects(
@@ -1755,3 +1909,476 @@ async def get_distinct_saved_filter_queries() -> List[dict]:
                 entry["_metric_user_ids"].append(str(user_id))
 
         return list(queries_by_key.values())
+
+
+# ============================================================================ #
+# Lotes de Proposta (Batches & Items)
+# ============================================================================ #
+
+async def create_proposal_batch(
+    user_id: Any,
+    project_ids: Optional[List[str]] = None,
+    filters: Optional[dict] = None,
+    exclude_ids: Optional[List[str]] = None,
+    template_ref: Optional[str] = None,
+    custom_proposals: Optional[List[dict]] = None,
+    daily_limit: Optional[int] = None,
+) -> dict:
+    """Cria um novo lote de propostas com itens individuais."""
+    async with async_session() as session:
+        # Se vier custom_proposals explícito, prioriza os IDs desse payload
+        custom_map = {}
+        if custom_proposals:
+            for item in custom_proposals:
+                wid = item.get("workana_id")
+                if wid:
+                    custom_map[wid] = item
+
+        if custom_map and not project_ids and not filters:
+            resolved_ids = list(custom_map.keys())
+        else:
+            resolved_ids = await resolve_target_workana_ids(
+                user_id=user_id,
+                project_ids=project_ids or (list(custom_map.keys()) if custom_map else None),
+                filters=filters,
+                exclude_ids=exclude_ids or [],
+                cap=500,
+            )
+
+        if not resolved_ids:
+            return {"success": False, "error": "Nenhum projeto selecionado para o lote."}
+
+        # Buscar dados dos projetos no catálogo para preencher títulos e URLs
+        catalog_result = await session.execute(
+            select(
+                ProjectCatalogModel.workana_id,
+                ProjectCatalogModel.title,
+                ProjectCatalogModel.url,
+                ProjectCatalogModel.budget_min,
+                ProjectCatalogModel.budget_max,
+            ).where(ProjectCatalogModel.workana_id.in_(resolved_ids))
+        )
+        catalog_dict = {
+            row.workana_id: {
+                "title": row.title,
+                "url": row.url,
+                "budget_min": row.budget_min,
+                "budget_max": row.budget_max,
+            }
+            for row in catalog_result.all()
+        }
+
+        # Obter configuração de template padrão se não informado
+        if not template_ref:
+            config = await get_automation_config(user_id)
+            pref_tid = config.get("preferred_template_id")
+            if pref_tid:
+                template_ref = f"personal:{pref_tid}"
+            else:
+                template_ref = "system:workana-consultivo"
+
+        now = datetime.now(timezone.utc)
+        batch = ProposalBatchModel(
+            user_id=user_id,
+            template_ref=template_ref,
+            summary={"source": "manual_selection" if project_ids else "filtered_catalog"},
+            status="queued",
+            total=len(resolved_ids),
+            sent_count=0,
+            failed_count=0,
+            skipped_count=0,
+            daily_limit=daily_limit,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(batch)
+        await session.flush()
+
+        batch_items = []
+        for wid in resolved_ids:
+            cat_data = catalog_dict.get(wid, {})
+            custom_data = custom_map.get(wid)
+
+            if custom_data and custom_data.get("proposal_text"):
+                item_status = "ready"
+                gen_msg = custom_data.get("proposal_text")
+                budget_val = custom_data.get("budget")
+                deadline_val = custom_data.get("deadline_days") or 7
+            else:
+                item_status = "queued"
+                gen_msg = None
+                budget_val = cat_data.get("budget_min") or cat_data.get("budget_max")
+                deadline_val = 7
+
+            item = ProposalBatchItemModel(
+                batch_id=batch.id,
+                user_id=user_id,
+                workana_id=wid,
+                project_title=cat_data.get("title", f"Projeto {wid}"),
+                project_url=cat_data.get("url", f"https://www.workana.com/job/{wid}"),
+                status=item_status,
+                generated_message=gen_msg,
+                budget=budget_val,
+                deadline_days=deadline_val,
+                attempts=0,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(item)
+            batch_items.append(item)
+
+        await session.commit()
+        await session.refresh(batch)
+
+        return {
+            "success": True,
+            "batch_id": batch.id,
+            "total": batch.total,
+            "status": batch.status,
+            "template_ref": batch.template_ref,
+        }
+
+
+async def get_proposal_batches(user_id: Any, limit: int = 20, offset: int = 0) -> List[dict]:
+    """Lista lotes de proposta do usuário."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(ProposalBatchModel)
+            .where(ProposalBatchModel.user_id == user_id)
+            .order_by(ProposalBatchModel.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        batches = result.scalars().all()
+
+        return [
+            {
+                "id": b.id,
+                "user_id": str(b.user_id),
+                "template_ref": b.template_ref,
+                "summary": b.summary,
+                "status": b.status,
+                "total": b.total,
+                "sent_count": b.sent_count,
+                "failed_count": b.failed_count,
+                "skipped_count": b.skipped_count,
+                "daily_limit": b.daily_limit,
+                "error": b.error,
+                "created_at": b.created_at,
+                "started_at": b.started_at,
+                "finished_at": b.finished_at,
+            }
+            for b in batches
+        ]
+
+
+async def count_proposal_batches(user_id: Any) -> int:
+    """Retorna contagem total de lotes do usuário."""
+    async with async_session() as session:
+        res = await session.execute(
+            select(func.count(ProposalBatchModel.id)).where(ProposalBatchModel.user_id == user_id)
+        )
+        return res.scalar() or 0
+
+
+async def get_proposal_batch(user_id: Any, batch_id: int) -> Optional[dict]:
+    """Retorna detalhes completos de um lote com seus itens."""
+    async with async_session() as session:
+        batch_res = await session.execute(
+            select(ProposalBatchModel).where(
+                and_(ProposalBatchModel.id == batch_id, ProposalBatchModel.user_id == user_id)
+            )
+        )
+        batch = batch_res.scalar_one_or_none()
+        if not batch:
+            return None
+
+        items_res = await session.execute(
+            select(ProposalBatchItemModel)
+            .where(
+                and_(
+                    ProposalBatchItemModel.batch_id == batch_id,
+                    ProposalBatchItemModel.user_id == user_id,
+                )
+            )
+            .order_by(ProposalBatchItemModel.id.asc())
+        )
+        items = items_res.scalars().all()
+
+        return {
+            "id": batch.id,
+            "user_id": str(batch.user_id),
+            "template_ref": batch.template_ref,
+            "summary": batch.summary,
+            "status": batch.status,
+            "total": batch.total,
+            "sent_count": batch.sent_count,
+            "failed_count": batch.failed_count,
+            "skipped_count": batch.skipped_count,
+            "daily_limit": batch.daily_limit,
+            "error": batch.error,
+            "created_at": batch.created_at,
+            "started_at": batch.started_at,
+            "finished_at": batch.finished_at,
+            "items": [
+                {
+                    "id": item.id,
+                    "batch_id": item.batch_id,
+                    "workana_id": item.workana_id,
+                    "project_title": item.project_title,
+                    "project_url": item.project_url,
+                    "status": item.status,
+                    "generated_message": item.generated_message,
+                    "suggested_price": item.suggested_price,
+                    "budget": item.budget,
+                    "deadline_days": item.deadline_days,
+                    "error": item.error,
+                    "attempts": item.attempts,
+                    "created_at": item.created_at,
+                    "updated_at": item.updated_at,
+                    "sent_at": item.sent_at,
+                }
+                for item in items
+            ],
+        }
+
+
+async def cancel_proposal_batch(user_id: Any, batch_id: int) -> bool:
+    """Cancela um lote e todos os itens ainda não processados."""
+    async with async_session() as session:
+        now = datetime.now(timezone.utc)
+        batch_res = await session.execute(
+            select(ProposalBatchModel).where(
+                and_(ProposalBatchModel.id == batch_id, ProposalBatchModel.user_id == user_id)
+            )
+        )
+        batch = batch_res.scalar_one_or_none()
+        if not batch:
+            return False
+
+        batch.status = "cancelled"
+        batch.finished_at = now
+        batch.updated_at = now
+
+        await session.execute(
+            update(ProposalBatchItemModel)
+            .where(
+                and_(
+                    ProposalBatchItemModel.batch_id == batch_id,
+                    ProposalBatchItemModel.user_id == user_id,
+                    ProposalBatchItemModel.status.in_(["queued", "generating", "ready"]),
+                )
+            )
+            .values(status="cancelled", updated_at=now)
+        )
+
+        await session.commit()
+        return True
+
+
+async def retry_failed_batch_items(user_id: Any, batch_id: int) -> bool:
+    """Reinicia itens que falharam ou foram cancelados em um lote."""
+    async with async_session() as session:
+        now = datetime.now(timezone.utc)
+        batch_res = await session.execute(
+            select(ProposalBatchModel).where(
+                and_(ProposalBatchModel.id == batch_id, ProposalBatchModel.user_id == user_id)
+            )
+        )
+        batch = batch_res.scalar_one_or_none()
+        if not batch:
+            return False
+
+        batch.status = "queued"
+        batch.error = None
+        batch.finished_at = None
+        batch.updated_at = now
+
+        # Itens que já têm mensagem gerada voltam para ready; os demais para queued
+        await session.execute(
+            update(ProposalBatchItemModel)
+            .where(
+                and_(
+                    ProposalBatchItemModel.batch_id == batch_id,
+                    ProposalBatchItemModel.user_id == user_id,
+                    ProposalBatchItemModel.status.in_(["failed", "skipped", "cancelled"]),
+                )
+            )
+            .values(
+                status=func.case(
+                    (ProposalBatchItemModel.generated_message.isnot(None), "ready"),
+                    else_="queued",
+                ),
+                error=None,
+                updated_at=now,
+            )
+        )
+
+        await session.commit()
+        return True
+
+
+async def get_next_batch_item_for_processing() -> Optional[tuple[dict, dict]]:
+    """Busca o próximo item pendente em qualquer lote ativo para processamento no worker."""
+    async with async_session() as session:
+        # Encontra o lote mais antigo ativo
+        batch_res = await session.execute(
+            select(ProposalBatchModel)
+            .where(ProposalBatchModel.status.in_(["queued", "running"]))
+            .order_by(ProposalBatchModel.created_at.asc())
+            .limit(1)
+        )
+        batch = batch_res.scalar_one_or_none()
+        if not batch:
+            return None
+
+        # Atualiza status do lote para running se estava queued
+        now = datetime.now(timezone.utc)
+        if batch.status == "queued":
+            batch.status = "running"
+            batch.started_at = batch.started_at or now
+            batch.updated_at = now
+            await session.commit()
+
+        # Encontra o próximo item no lote
+        item_res = await session.execute(
+            select(ProposalBatchItemModel)
+            .where(
+                and_(
+                    ProposalBatchItemModel.batch_id == batch.id,
+                    ProposalBatchItemModel.status.in_(["queued", "ready"]),
+                )
+            )
+            .order_by(ProposalBatchItemModel.id.asc())
+            .limit(1)
+        )
+        item = item_res.scalar_one_or_none()
+        if not item:
+            # Não há mais itens pendentes neste lote; atualizar progresso final
+            await recalculate_batch_progress(batch.id)
+            return None
+
+        batch_dict = {
+            "id": batch.id,
+            "user_id": str(batch.user_id),
+            "template_ref": batch.template_ref,
+            "daily_limit": batch.daily_limit,
+            "status": batch.status,
+        }
+        item_dict = {
+            "id": item.id,
+            "batch_id": item.batch_id,
+            "user_id": str(item.user_id),
+            "workana_id": item.workana_id,
+            "project_title": item.project_title,
+            "project_url": item.project_url,
+            "status": item.status,
+            "generated_message": item.generated_message,
+            "suggested_price": item.suggested_price,
+            "budget": item.budget,
+            "deadline_days": item.deadline_days,
+            "attempts": item.attempts,
+        }
+        return batch_dict, item_dict
+
+
+async def update_batch_item_status(
+    item_id: int,
+    status: str,
+    error: Optional[str] = None,
+    generated_message: Optional[str] = None,
+    budget: Optional[float] = None,
+    deadline_days: Optional[int] = None,
+    suggested_price: Optional[str] = None,
+    increment_attempts: bool = False,
+) -> None:
+    """Atualiza o status e dados de um item de lote."""
+    async with async_session() as session:
+        now = datetime.now(timezone.utc)
+        values: dict = {"status": status, "updated_at": now}
+        if error is not None:
+            values["error"] = error
+        if generated_message is not None:
+            values["generated_message"] = generated_message
+        if budget is not None:
+            values["budget"] = budget
+        if deadline_days is not None:
+            values["deadline_days"] = deadline_days
+        if suggested_price is not None:
+            values["suggested_price"] = suggested_price
+        if status == "sent":
+            values["sent_at"] = now
+            values["error"] = None
+        if increment_attempts:
+            values["attempts"] = ProposalBatchItemModel.attempts + 1
+
+        await session.execute(
+            update(ProposalBatchItemModel)
+            .where(ProposalBatchItemModel.id == item_id)
+            .values(**values)
+        )
+        await session.commit()
+
+
+async def recalculate_batch_progress(batch_id: int) -> dict:
+    """Recalcula contadores e status geral do lote."""
+    async with async_session() as session:
+        now = datetime.now(timezone.utc)
+        items_res = await session.execute(
+            select(
+                ProposalBatchItemModel.status,
+                func.count(ProposalBatchItemModel.id),
+            )
+            .where(ProposalBatchItemModel.batch_id == batch_id)
+            .group_by(ProposalBatchItemModel.status)
+        )
+        counts = {status: count for status, count in items_res.all()}
+
+        sent = counts.get("sent", 0)
+        failed = counts.get("failed", 0)
+        skipped = counts.get("skipped", 0)
+        cancelled = counts.get("cancelled", 0)
+        pending = (
+            counts.get("queued", 0)
+            + counts.get("generating", 0)
+            + counts.get("ready", 0)
+            + counts.get("sending", 0)
+        )
+        total = sum(counts.values())
+
+        batch_res = await session.execute(
+            select(ProposalBatchModel).where(ProposalBatchModel.id == batch_id)
+        )
+        batch = batch_res.scalar_one_or_none()
+        if not batch:
+            return {"batch_id": batch_id, "status": "not_found"}
+
+        batch.sent_count = sent
+        batch.failed_count = failed
+        batch.skipped_count = skipped + cancelled
+        batch.total = total
+        batch.updated_at = now
+
+        if pending == 0:
+            if batch.status != "cancelled":
+                if sent > 0 or (failed == 0 and skipped == 0):
+                    batch.status = "completed"
+                else:
+                    batch.status = "failed"
+            batch.finished_at = batch.finished_at or now
+        else:
+            if batch.status == "queued":
+                batch.status = "running"
+                batch.started_at = batch.started_at or now
+
+        await session.commit()
+        return {
+            "batch_id": batch_id,
+            "status": batch.status,
+            "sent_count": sent,
+            "failed_count": failed,
+            "skipped_count": batch.skipped_count,
+            "total": total,
+            "pending": pending,
+        }
+
