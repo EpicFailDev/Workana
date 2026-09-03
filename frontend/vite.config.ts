@@ -41,39 +41,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     build: {
-      chunkSizeWarningLimit: 600,
-      rollupOptions: {
-        output: {
-          manualChunks(id) {
-            if (id.includes('node_modules')) {
-              if (
-                id.includes('react-router') ||
-                id.includes('react-dom') ||
-                id.includes('/react/')
-              ) {
-                return 'vendor-react';
-              }
-              if (id.includes('@supabase')) {
-                return 'vendor-supabase';
-              }
-              if (id.includes('framer-motion')) {
-                return 'vendor-motion';
-              }
-              if (id.includes('lucide-react')) {
-                return 'vendor-icons';
-              }
-              if (
-                id.includes('@radix-ui') ||
-                id.includes('clsx') ||
-                id.includes('tailwind-merge')
-              ) {
-                return 'vendor-ui';
-              }
-              return 'vendor-libs';
-            }
-          },
-        },
-      },
+      chunkSizeWarningLimit: 1000,
     },
     test: {
       globals: true,

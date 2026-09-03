@@ -160,6 +160,10 @@ echo    CONFIGURANDO REDE, FIREWALL E CERTIFICADO SSL
 echo =======================================================
 echo.
 echo [1/4] Instalando Certificado SSL Raiz no Windows...
+docker ps -q -f name=caddy >nul 2>&1
+if %errorlevel% equ 0 (
+    docker cp workana-caddy-1:/data/caddy/pki/authorities/local/root.crt "%~dp0caddy-root-ca.crt" >nul 2>&1
+)
 if exist "%~dp0caddy-root-ca.crt" (
     certutil -addstore -f "ROOT" "%~dp0caddy-root-ca.crt" >nul 2>&1
     echo [SUCESSO] Certificado SSL instalado como Confiavel no Windows!
