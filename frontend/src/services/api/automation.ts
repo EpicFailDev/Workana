@@ -37,6 +37,22 @@ export interface CredentialsStatus {
   session_updated_at?: string | null;
 }
 
+export interface SessionHealthResponse {
+  status: 'healthy' | 'warning' | 'expired' | 'disconnected' | 'empty';
+  valid: boolean;
+  message: string;
+  cookies_count: number;
+  has_cloudflare_clearance: boolean;
+  account_email?: string | null;
+  last_tested_at?: string;
+}
+
+export interface RealtimeStatusResponse {
+  is_active: boolean;
+  channels: string[];
+  gateway: string;
+}
+
 export const automationApi = {
   async getAutomationStatus() {
     return apiRequest<AutomationStatus>('/automation/status');
@@ -84,6 +100,14 @@ export const automationApi = {
     });
   },
 
+  async getSessionHealth() {
+    return apiRequest<SessionHealthResponse>('/automation/session/health');
+  },
+
+  async getRealtimeStatus() {
+    return apiRequest<RealtimeStatusResponse>('/automation/realtime-status');
+  },
+
   async refreshCatalog(filters?: Record<string, any>) {
     return apiRequest<{
       success: boolean;
@@ -94,6 +118,17 @@ export const automationApi = {
     }>('/automation/catalog/refresh', {
       method: 'POST',
       body: filters,
+    });
+  },
+
+  async restoreGoneCatalog(category?: string) {
+    const query = category ? `?category=${encodeURIComponent(category)}` : '';
+    return apiRequest<{
+      success: boolean;
+      restored: number;
+      message: string;
+    }>(`/automation/catalog/restore-gone${query}`, {
+      method: 'POST',
     });
   },
 };

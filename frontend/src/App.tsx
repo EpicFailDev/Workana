@@ -1,8 +1,14 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useState, useEffect, useCallback } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import BottomNavigation from './components/BottomNavigation';
+import AppHeader from './components/AppHeader';
+import CommandPalette from './components/CommandPalette';
+import InvestmentCalculatorModal from './components/InvestmentCalculatorModal';
+import SystemHealthModal from './components/SystemHealthModal';
 import { useAuth } from './context/AuthContext';
+import { useToast } from './context/ToastContext';
+import { api } from './services/api';
 
 // Lazy-loaded pages para otimização de bundle e code-splitting
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -101,6 +107,110 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function AppLayout() {
+  const { toast } = useToast();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
+  const [isHealthOpen, setIsHealthOpen] = useState(false);
+  const [isSyncingCatalog, setIsSyncingCatalog] = useState(false);
+
+  // Atalho global Ctrl+K / Cmd+K
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsSearchOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const handleRefreshCatalog = useCallback(async () => {
+    setIsSyncingCatalog(true);
+    try {
+      const res = await api.refreshCatalog();
+      if (res.success) {
+        toast.success(
+          res.message ||
+            `Catálogo sincronizado! +${res.upserted || 0} novas oportunidades coletadas.`
+        );
+      } else {
+        toast.error(res.message || 'Falha ao sincronizar catálogo.');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao comunicar com o servidor.');
+    } finally {
+      setIsSyncingCatalog(false);
+    }
+  }, [toast]);
+
+  const handleDownloadCsv = useCallback(async () => {
+    try {
+      toast.info('Iniciando download do catálogo em CSV...');
+      await api.downloadCatalogCsv(false);
+      toast.success('Download do catálogo concluído!');
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao exportar catálogo.');
+    }
+  }, [toast]);
+
+  return (
+    <div className="app-layout">
+      <AppHeader
+        onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+        onOpenSearch={() => setIsSearchOpen(true)}
+        onOpenCalculator={() => setIsCalculatorOpen(true)}
+        onOpenHealth={() => setIsHealthOpen(true)}
+        onRefreshCatalog={handleRefreshCatalog}
+        isSyncingCatalog={isSyncingCatalog}
+      />
+
+      <Sidebar
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        onOpenSearch={() => setIsSearchOpen(true)}
+      />
+
+      <main className="main-content">
+        <Suspense fallback={<PageFallback label="CARREGANDO MÓDULO..." />}>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/projects" element={<Projects />} />
+            <Route path="/batches" element={<Batches />} />
+            <Route path="/history" element={<History />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/templates" element={<Templates />} />
+            <Route path="/profile" element={<Profile />} />
+            {/* Fallback */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
+      </main>
+
+      <BottomNavigation />
+
+      {/* Modais Globais */}
+      <CommandPalette
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
+        onOpenCalculator={() => setIsCalculatorOpen(true)}
+        onOpenHealth={() => setIsHealthOpen(true)}
+        onRefreshCatalog={handleRefreshCatalog}
+        onDownloadCsv={handleDownloadCsv}
+      />
+
+      <InvestmentCalculatorModal
+        isOpen={isCalculatorOpen}
+        onClose={() => setIsCalculatorOpen(false)}
+      />
+
+      <SystemHealthModal isOpen={isHealthOpen} onClose={() => setIsHealthOpen(false)} />
+    </div>
+  );
+}
+
 function App() {
   return (
     <Suspense fallback={<PageFallback label="INICIANDO APLICAÇÃO..." />}>
@@ -121,27 +231,7 @@ function App() {
           path="/*"
           element={
             <ProtectedRoute>
-              <div className="app-layout">
-                <Sidebar isOpen={false} onClose={() => {}} />
-
-                <main className="main-content">
-                  <Suspense fallback={<PageFallback label="CARREGANDO MÓDULO..." />}>
-                    <Routes>
-                      <Route path="/" element={<Dashboard />} />
-                      <Route path="/projects" element={<Projects />} />
-                      <Route path="/batches" element={<Batches />} />
-                      <Route path="/history" element={<History />} />
-                      <Route path="/settings" element={<Settings />} />
-                      <Route path="/templates" element={<Templates />} />
-                      <Route path="/profile" element={<Profile />} />
-                      {/* Fallback */}
-                      <Route path="*" element={<Navigate to="/" replace />} />
-                    </Routes>
-                  </Suspense>
-                </main>
-
-                <BottomNavigation />
-              </div>
+              <AppLayout />
             </ProtectedRoute>
           }
         />

@@ -84,9 +84,9 @@ echo [3/3] Servicos iniciados com sucesso!
 docker compose ps
 echo.
 echo =======================================================
-echo   SISTEMA NO AR: http://%APP_URL% (ou http://localhost)
+echo   SISTEMA NO AR: https://%APP_URL% (ou http://localhost)
 echo =======================================================
-start http://%APP_URL%
+start https://%APP_URL%
 echo.
 pause
 goto menu

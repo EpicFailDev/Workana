@@ -1,15 +1,46 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import {
+  Shield,
+  Ban,
+  Sliders,
+  Settings as SettingsIcon,
+  KeyRound,
+  AlertTriangle,
+} from 'lucide-react';
 import styles from './Settings.module.css';
-import { api, type CredentialsStatus, type AutomationConfig } from '../services/api';
+import {
+  api,
+  type CredentialsStatus,
+  type AutomationConfig,
+  type AntibanConfig,
+  type AntibanStatus,
+  type BlacklistedClient,
+  type SessionHealthResponse,
+} from '../services/api';
 import { useToast } from '../context/ToastContext';
 import Loader from '../components/Loader';
 import CyberHeader from '../components/CyberHeader';
+import {
+  GeneralTab,
+  WorkanaAccountTab,
+  AutomationTab,
+  AntibanTab,
+  BlacklistTab,
+  DangerZoneTab,
+} from '../components/settings';
 
-type SettingsTab = 'general' | 'workana' | 'automation' | 'danger';
+type SettingsTab = 'general' | 'workana' | 'automation' | 'antiban' | 'blacklist' | 'danger';
 
 export default function Settings() {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<SettingsTab>('general');
+  const [searchParams] = useSearchParams();
+  const initialTab = (searchParams.get('tab') as SettingsTab) || 'general';
+  const [activeTab, setActiveTab] = useState<SettingsTab>(
+    ['general', 'workana', 'automation', 'antiban', 'blacklist', 'danger'].includes(initialTab)
+      ? initialTab
+      : 'general'
+  );
 
   // Config States
   const [currentTheme, setCurrentTheme] = useState('default');
@@ -28,9 +59,27 @@ export default function Settings() {
     user_full_name: '',
   });
 
+  // Anti-Ban & Blacklist States
+  const [antibanConfig, setAntibanConfig] = useState<AntibanConfig>({
+    max_searches_per_hour: 30,
+    min_delay_between_searches_sec: 5,
+    max_delay_between_searches_sec: 15,
+    cooldown_period_minutes: 15,
+    safe_mode: true,
+    user_agent_rotation: true,
+  });
+  const [antibanStatus, setAntibanStatus] = useState<AntibanStatus | null>(null);
+  const [sessionHealth, setSessionHealth] = useState<SessionHealthResponse | null>(null);
+  const [blacklist, setBlacklist] = useState<BlacklistedClient[]>([]);
+  const [newClientName, setNewClientName] = useState('');
+  const [newClientReason, setNewClientReason] = useState('');
+
   // UI States
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingAntiban, setIsSavingAntiban] = useState(false);
+  const [isAddingBlacklist, setIsAddingBlacklist] = useState(false);
+  const [isCheckingHealth, setIsCheckingHealth] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
 
@@ -44,18 +93,35 @@ export default function Settings() {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const [credentialsStatus, automationConfig] = await Promise.all([
+        const [
+          credentialsStatus,
+          automationConfig,
+          antibanCfg,
+          antibanStat,
+          blacklistData,
+          healthData,
+        ] = await Promise.allSettled([
           api.getCredentialsStatus(),
           api.getAutomationConfig(),
+          api.getAntibanConfig(),
+          api.getAntibanStatus(),
+          api.getBlacklistedClients(),
+          api.getSessionHealth(),
         ]);
 
-        setCredentials(credentialsStatus);
-        setConfig((prev) => ({
-          ...prev,
-          ...automationConfig,
-          gemini_api_key: automationConfig.gemini_api_key || '',
-          user_full_name: automationConfig.user_full_name || '',
-        }));
+        if (credentialsStatus.status === 'fulfilled') setCredentials(credentialsStatus.value);
+        if (automationConfig.status === 'fulfilled') {
+          setConfig((prev) => ({
+            ...prev,
+            ...automationConfig.value,
+            gemini_api_key: automationConfig.value.gemini_api_key || '',
+            user_full_name: automationConfig.value.user_full_name || '',
+          }));
+        }
+        if (antibanCfg.status === 'fulfilled') setAntibanConfig(antibanCfg.value);
+        if (antibanStat.status === 'fulfilled') setAntibanStatus(antibanStat.value);
+        if (blacklistData.status === 'fulfilled') setBlacklist(blacklistData.value?.clients || []);
+        if (healthData.status === 'fulfilled') setSessionHealth(healthData.value);
       } catch (error) {
         console.error('Failed to load settings:', error);
         toast.error('Erro ao carregar configurações.');
@@ -88,7 +154,7 @@ export default function Settings() {
       } else {
         toast.error(response.message || 'Erro ao salvar credenciais.');
       }
-    } catch (error) {
+    } catch {
       toast.error('Erro de conexão ao salvar credenciais.');
     } finally {
       setIsSaving(false);
@@ -112,7 +178,7 @@ export default function Settings() {
       } else {
         toast.error(response.message || 'Erro ao salvar.');
       }
-    } catch (error) {
+    } catch {
       toast.error('Erro ao salvar configurações.');
     } finally {
       setIsSaving(false);
@@ -141,22 +207,21 @@ export default function Settings() {
         }
       }
     } catch (error: any) {
-      toast.error(error.message || 'Erro ao abrir o login via Google.');
-      setImportMode(true);
+      toast.error(error.message || 'Erro ao tentar login com Google.');
     } finally {
       setIsGoogleLogging(false);
     }
   };
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (e) => {
-      const content = e.target?.result as string;
+    reader.onload = (ev) => {
+      const content = ev.target?.result as string;
       if (content) {
         setSessionJson(content);
-        toast.info(`Arquivo "${file.name}" carregado! Clique em "Importar Sessão" para salvar.`);
+        toast.info(`Arquivo "${file.name}" carregado! Clique em "Salvar e Conectar Sessão".`);
       }
     };
     reader.readAsText(file);
@@ -211,6 +276,83 @@ export default function Settings() {
     }
   };
 
+  const handleSaveAntibanConfig = async () => {
+    setIsSavingAntiban(true);
+    try {
+      const res = await api.updateAntibanConfig(antibanConfig);
+      if (res.success) {
+        setAntibanConfig(res.config);
+        toast.success('Configuração Anti-Ban atualizada com sucesso!');
+      } else {
+        toast.error(res.message || 'Erro ao atualizar Anti-Ban.');
+      }
+    } catch {
+      toast.error('Falha de conexão ao salvar Anti-Ban.');
+    } finally {
+      setIsSavingAntiban(false);
+    }
+  };
+
+  const handleTestSessionHealth = async () => {
+    setIsCheckingHealth(true);
+    try {
+      const res = await api.getSessionHealth();
+      setSessionHealth(res);
+      if (res.status === 'healthy') {
+        toast.success('Sessão Workana ativa e saudável!');
+      } else if (res.status === 'warning') {
+        toast.warning(res.message || 'Sessão requer atenção.');
+      } else {
+        toast.error(res.message || 'Sessão desconectada ou expirada.');
+      }
+    } catch {
+      toast.error('Erro ao testar saúde da sessão.');
+    } finally {
+      setIsCheckingHealth(false);
+    }
+  };
+
+  const handleAddBlacklist = async () => {
+    if (!newClientName.trim()) {
+      toast.error('Informe o nome do cliente a bloquear.');
+      return;
+    }
+    setIsAddingBlacklist(true);
+    try {
+      const res = await api.addToBlacklist({
+        client_name: newClientName.trim(),
+        reason: newClientReason.trim() || undefined,
+      });
+      if (res.success) {
+        toast.success(res.message);
+        setNewClientName('');
+        setNewClientReason('');
+        const updated = await api.getBlacklistedClients();
+        setBlacklist(updated?.clients || []);
+      } else {
+        toast.error(res.message || 'Erro ao adicionar à lista negra.');
+      }
+    } catch {
+      toast.error('Falha ao adicionar à lista negra.');
+    } finally {
+      setIsAddingBlacklist(false);
+    }
+  };
+
+  const handleRemoveBlacklist = async (id: number) => {
+    try {
+      const res = await api.removeFromBlacklist(id);
+      if (res.success) {
+        toast.success('Cliente removido da lista negra.');
+        setBlacklist((prev) => prev.filter((c) => c.id !== id));
+      } else {
+        toast.error(res.message || 'Erro ao remover cliente.');
+      }
+    } catch {
+      toast.error('Falha ao remover cliente da lista negra.');
+    }
+  };
+
   if (isLoading) return <Loader type="overlay" message="Carregando configurações..." />;
 
   return (
@@ -218,7 +360,7 @@ export default function Settings() {
       <CyberHeader
         title="CONFIGURAÇÕES DO SISTEMA"
         subtitle="PREFERÊNCIAS // PARÂMETROS"
-        description="Configure suas credenciais, chave da IA Gemini e preferências de automação."
+        description="Configure suas credenciais, proteções anti-ban, lista negra e preferências de automação."
       />
 
       <div className={styles.settingsGrid}>
@@ -228,16 +370,7 @@ export default function Settings() {
             className={`${styles.navItem} ${activeTab === 'general' ? styles.active : ''}`}
             onClick={() => setActiveTab('general')}
           >
-            <svg
-              className={styles.navIcon}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <circle cx="12" cy="12" r="3"></circle>
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-            </svg>
+            <SettingsIcon size={18} className={styles.navIcon} />
             Geral & Visual
           </button>
 
@@ -245,16 +378,7 @@ export default function Settings() {
             className={`${styles.navItem} ${activeTab === 'workana' ? styles.active : ''}`}
             onClick={() => setActiveTab('workana')}
           >
-            <svg
-              className={styles.navIcon}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-              <circle cx="12" cy="7" r="4"></circle>
-            </svg>
+            <KeyRound size={18} className={styles.navIcon} />
             Conta Workana
           </button>
 
@@ -262,16 +386,24 @@ export default function Settings() {
             className={`${styles.navItem} ${activeTab === 'automation' ? styles.active : ''}`}
             onClick={() => setActiveTab('automation')}
           >
-            <svg
-              className={styles.navIcon}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-            </svg>
+            <Sliders size={18} className={styles.navIcon} />
             Automação & IA
+          </button>
+
+          <button
+            className={`${styles.navItem} ${activeTab === 'antiban' ? styles.active : ''}`}
+            onClick={() => setActiveTab('antiban')}
+          >
+            <Shield size={18} className={styles.navIcon} />
+            Segurança & Anti-Ban
+          </button>
+
+          <button
+            className={`${styles.navItem} ${activeTab === 'blacklist' ? styles.active : ''}`}
+            onClick={() => setActiveTab('blacklist')}
+          >
+            <Ban size={18} className={styles.navIcon} />
+            Lista Negra
           </button>
 
           <div style={{ flex: 1 }}></div>
@@ -281,420 +413,84 @@ export default function Settings() {
             onClick={() => setActiveTab('danger')}
             style={{ color: activeTab === 'danger' ? '#ef4444' : 'var(--color-text-muted)' }}
           >
-            <svg
-              className={styles.navIcon}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
-              <line x1="12" y1="9" x2="12" y2="13"></line>
-              <line x1="12" y1="17" x2="12.01" y2="17"></line>
-            </svg>
+            <AlertTriangle size={18} className={styles.navIcon} />
             Zona de Perigo
           </button>
         </div>
 
         {/* Content Area */}
         <div className={styles.contentArea}>
-          {/* GENERAL TAB */}
           {activeTab === 'general' && (
-            <div className={styles.animated}>
-              <h2 className={styles.sectionTitle}>Aparência</h2>
-              <p className={styles.sectionSubtitle}>Personalize o visual do seu painel</p>
-
-              <div className={styles.card}>
-                <div className={styles.themeGrid}>
-                  {['default', 'cyberpunk', 'minimal'].map((theme) => (
-                    <div
-                      key={theme}
-                      className={`${styles.themeBtn} ${currentTheme === theme ? styles.active : ''}`}
-                      onClick={() => changeTheme(theme)}
-                    >
-                      <div style={{ fontSize: '24px' }}>
-                        {theme === 'default' ? '🌙' : theme === 'cyberpunk' ? '👾' : '☀️'}
-                      </div>
-                      <span>{theme.charAt(0).toUpperCase() + theme.slice(1)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
+            <GeneralTab currentTheme={currentTheme} changeTheme={changeTheme} />
           )}
 
-          {/* WORKANA TAB */}
           {activeTab === 'workana' && (
-            <div className={styles.animated}>
-              <h2 className={styles.sectionTitle}>Conexão Workana</h2>
-              <p className={styles.sectionSubtitle}>Gerencie o acesso à sua conta</p>
-
-              <div className={styles.card}>
-                <div className="flex justify-between items-center mb-6">
-                  <h3 className="text-lg font-bold">Status da Conexão</h3>
-                  {credentials.configured ? (
-                    <span className="badge badge-success">
-                      ● Conectado{credentials.login_method === 'google' ? ' via Google' : ''}{' '}
-                      {credentials.email ? `como ${credentials.email}` : ''}
-                    </span>
-                  ) : (
-                    <span className="badge badge-neutral">● Desconectado</span>
-                  )}
-                </div>
-
-                {credentials.login_method === 'google' && credentials.session_ready ? (
-                  <div className="text-center py-6">
-                    <div className="mb-3 text-5xl">🔐</div>
-                    <p className="mb-1">
-                      Sua sessão do navegador está salva e será usada para enviar propostas.
-                    </p>
-                    <p className="text-xs text-muted mb-4">
-                      O worker restaura os cookies localmente — não precisa de senha.
-                    </p>
-                    <div className="flex flex-wrap gap-3 justify-center">
-                      <button
-                        className="btn btn-secondary"
-                        onClick={handleGoogleLogin}
-                        disabled={isGoogleLogging}
-                      >
-                        {isGoogleLogging
-                          ? 'Aguardando login no navegador...'
-                          : 'Refazer Login Google'}
-                      </button>
-                      <button
-                        className="btn btn-secondary"
-                        onClick={() => setImportMode(!importMode)}
-                      >
-                        Importar Sessão
-                      </button>
-                      <button className="btn btn-danger" onClick={handleDisconnect}>
-                        Desconectar
-                      </button>
-                    </div>
-                  </div>
-                ) : credentials.configured ? (
-                  <div className="text-center py-8">
-                    <div className="mb-4 text-6xl">🔒</div>
-                    <p className="mb-6">Sua conta está conectada e segura.</p>
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() => setCredentials({ configured: false, email: null })}
-                    >
-                      Desconectar / Alterar Conta
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-5">
-                    <div
-                      style={{
-                        padding: '16px',
-                        background: 'rgba(59, 130, 246, 0.05)',
-                        borderRadius: '8px',
-                        border: '1px solid rgba(59, 130, 246, 0.2)',
-                      }}
-                    >
-                      <h4 className="text-base font-bold text-primary mb-2 flex items-center gap-2">
-                        <svg width="20" height="20" viewBox="0 0 24 24">
-                          <path
-                            fill="#EA4335"
-                            d="M12 5.04c1.62 0 3.06.56 4.2 1.65l3.1-3.1C17.4 1.67 14.9.68 12 .68 7.36.68 3.36 3.3 1.55 7.11l3.62 2.8C6 7.17 8.77 5.04 12 5.04z"
-                          />
-                          <path
-                            fill="#4285F4"
-                            d="M23.32 12.28c0-.85-.08-1.48-.24-2.13H12v3.86h6.5c-.14.7-.84 1.74-2.42 2.44l3.54 2.74c2.11-1.95 3.7-4.82 3.7-6.91z"
-                          />
-                          <path
-                            fill="#FBBC05"
-                            d="M5.17 14.09a6.7 6.7 0 0 1-.35-2.09c0-.72.13-1.42.34-2.09l-3.62-2.8C.62 8.88 0 10.37 0 12s.63 3.12 1.54 4.89l3.63-2.8z"
-                          />
-                          <path
-                            fill="#34A853"
-                            d="M12 23.32c3.05 0 5.62-1 7.49-2.73l-3.54-2.74c-1.02.72-2.37 1.22-3.95 1.22-3.23 0-6-2.13-6.84-5.09l-3.63 2.8C3.36 20.7 7.36 23.32 12 23.32z"
-                          />
-                        </svg>
-                        Login com Conta Google / Importar Sessão
-                      </h4>
-                      <p className="text-xs text-muted mb-3">
-                        Como o sistema roda dentro do Docker, o navegador para o login com Google
-                        deve ser aberto no Windows pelo script <strong>LOGIN-WORKANA.bat</strong>:
-                      </p>
-                      <ol
-                        className="text-xs text-muted space-y-1 pl-4 mb-4"
-                        style={{ listStyleType: 'decimal' }}
-                      >
-                        <li>
-                          Dê dois cliques no arquivo{' '}
-                          <strong>
-                            <code>LOGIN-WORKANA.bat</code>
-                          </strong>{' '}
-                          na pasta do projeto.
-                        </li>
-                        <li>Faça o login com sua conta Google na janela do Chrome que abrir.</li>
-                        <li>
-                          O script fechará o navegador e{' '}
-                          <strong>copiará a sessão para sua Área de Transferência</strong>{' '}
-                          automaticamente.
-                        </li>
-                        <li>
-                          Volte aqui, cole (<code>Ctrl + V</code>) ou clique em{' '}
-                          <em>Carregar Arquivo</em> e salve.
-                        </li>
-                      </ol>
-
-                      <div className="flex justify-between items-center mb-2">
-                        <label className={styles.label} style={{ margin: 0, fontWeight: 'bold' }}>
-                          JSON da Sessão / Cookies
-                        </label>
-                        <label
-                          className="btn btn-secondary text-xs"
-                          style={{ cursor: 'pointer', margin: 0, padding: '4px 8px' }}
-                        >
-                          📁 Carregar Arquivo (.json / .har)
-                          <input
-                            type="file"
-                            accept=".json,.har,.txt"
-                            onChange={handleFileUpload}
-                            style={{ display: 'none' }}
-                          />
-                        </label>
-                      </div>
-
-                      <textarea
-                        className={styles.input}
-                        rows={5}
-                        style={{ fontFamily: 'monospace', fontSize: '11px' }}
-                        placeholder="Cole aqui a sessão com Ctrl + V..."
-                        value={sessionJson}
-                        onChange={(e) => setSessionJson(e.target.value)}
-                      />
-                      <div className={styles.formGroup} style={{ marginTop: '8px' }}>
-                        <label className={styles.label}>Email da conta Workana (opcional)</label>
-                        <input
-                          type="email"
-                          className={styles.input}
-                          placeholder="seuemail@gmail.com"
-                          value={accountEmail}
-                          onChange={(e) => setAccountEmail(e.target.value)}
-                        />
-                      </div>
-                      <button
-                        className="btn btn-primary w-full mt-3"
-                        onClick={handleImportSession}
-                        disabled={isImporting || !sessionJson.trim()}
-                      >
-                        {isImporting ? 'Importando...' : 'Salvar e Conectar Sessão'}
-                      </button>
-                    </div>
-
-                    <div className={styles.divider}>ou use email e senha</div>
-
-                    <div className="space-y-4">
-                      <div className={styles.formGroup}>
-                        <label className={styles.label}>Email</label>
-                        <input
-                          type="email"
-                          className={styles.input}
-                          placeholder="email@workana.com"
-                          value={newCredentials.email}
-                          onChange={(e) =>
-                            setNewCredentials({ ...newCredentials, email: e.target.value })
-                          }
-                        />
-                      </div>
-                      <div className={styles.formGroup}>
-                        <label className={styles.label}>Senha</label>
-                        <div className="relative">
-                          <input
-                            type={showPassword ? 'text' : 'password'}
-                            className={styles.input}
-                            placeholder="••••••••"
-                            value={newCredentials.password}
-                            onChange={(e) =>
-                              setNewCredentials({ ...newCredentials, password: e.target.value })
-                            }
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowPassword(!showPassword)}
-                            style={{
-                              position: 'absolute',
-                              right: '12px',
-                              top: '12px',
-                              background: 'none',
-                              border: 'none',
-                              cursor: 'pointer',
-                              color: 'var(--color-text-muted)',
-                            }}
-                          >
-                            {showPassword ? 'Ocultar' : 'Mostrar'}
-                          </button>
-                        </div>
-                      </div>
-                      <button
-                        className="btn btn-primary w-full"
-                        onClick={handleSaveCredentials}
-                        disabled={!newCredentials.email || !newCredentials.password || isSaving}
-                      >
-                        {isSaving ? 'Salvando...' : 'Conectar Conta'}
-                      </button>
-                      <p className="text-xs text-muted mt-4 text-center">
-                        Suas credenciais são criptografadas e salvas apenas no seu dispositivo.
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
+            <WorkanaAccountTab
+              credentials={credentials}
+              newCredentials={newCredentials}
+              setNewCredentials={setNewCredentials}
+              showPassword={showPassword}
+              setShowPassword={setShowPassword}
+              isSaving={isSaving}
+              handleSaveCredentials={handleSaveCredentials}
+              handleGoogleLogin={handleGoogleLogin}
+              isGoogleLogging={isGoogleLogging}
+              importMode={importMode}
+              setImportMode={setImportMode}
+              sessionJson={sessionJson}
+              setSessionJson={setSessionJson}
+              accountEmail={accountEmail}
+              setAccountEmail={setAccountEmail}
+              isImporting={isImporting}
+              handleImportSession={handleImportSession}
+              handleFileUpload={handleFileUpload}
+              handleDisconnect={handleDisconnect}
+              setCredentials={setCredentials}
+            />
           )}
 
-          {/* AUTOMATION TAB */}
           {activeTab === 'automation' && (
-            <div className={styles.animated}>
-              <h2 className={styles.sectionTitle}>Inteligência Artificial & Bots</h2>
-              <p className={styles.sectionSubtitle}>Configure como o sistema trabalha por você</p>
-
-              {/* Gemini Config */}
-              <div className={styles.card}>
-                <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                  <span className="text-primary">✨</span> Google Gemini AI
-                </h3>
-                <div className={styles.formGroup}>
-                  <label className={styles.label}>API Key</label>
-                  <div className="relative">
-                    <input
-                      type={showApiKey ? 'text' : 'password'}
-                      className={styles.input}
-                      placeholder="Ex: AIzaSy..."
-                      value={config.gemini_api_key}
-                      onChange={(e) => setConfig({ ...config, gemini_api_key: e.target.value })}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowApiKey(!showApiKey)}
-                      style={{
-                        position: 'absolute',
-                        right: '12px',
-                        top: '12px',
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        color: 'var(--color-text-muted)',
-                      }}
-                    >
-                      {showApiKey ? 'Ocultar' : 'Mostrar'}
-                    </button>
-                  </div>
-                </div>
-                <div className={styles.formGroup}>
-                  <label className={styles.label}>Nome na Assinatura</label>
-                  <input
-                    type="text"
-                    className={styles.input}
-                    placeholder="Ex: João Silva - Desenvolvedor Full Stack"
-                    value={config.user_full_name}
-                    onChange={(e) => setConfig({ ...config, user_full_name: e.target.value })}
-                  />
-                  <p className="text-xs text-muted mt-2">
-                    Este nome será usado para assinar as propostas geradas.
-                  </p>
-                </div>
-              </div>
-
-              {/* Bot Behavior */}
-              <div className={styles.card}>
-                <h3 className="text-lg font-bold mb-4">Comportamento do Robô</h3>
-
-                <div className={styles.configItem}>
-                  <div className={styles.itemInfo}>
-                    <h4>Modo Fantasma (Headless)</h4>
-                    <p>O navegador roda invisível em segundo plano</p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={config.headless}
-                    onChange={(e) => setConfig({ ...config, headless: e.target.checked })}
-                    style={{ width: '20px', height: '20px' }}
-                  />
-                </div>
-
-                <div className={styles.configItem}>
-                  <div className={styles.itemInfo}>
-                    <h4>Velocidade Humana</h4>
-                    <p>Delay de {config.delay_between_actions_ms}ms entre ações</p>
-                  </div>
-                  <input
-                    type="range"
-                    min="500"
-                    max="5000"
-                    step="100"
-                    value={config.delay_between_actions_ms}
-                    onChange={(e) =>
-                      setConfig({ ...config, delay_between_actions_ms: Number(e.target.value) })
-                    }
-                    style={{ width: '120px' }}
-                  />
-                </div>
-
-                <div className={styles.configItem}>
-                  <div className={styles.itemInfo}>
-                    <h4>Limite Diário</h4>
-                    <p>Máximo de {config.max_proposals_per_day} propostas por dia</p>
-                  </div>
-                  <input
-                    type="range"
-                    min="1"
-                    max="50"
-                    value={config.max_proposals_per_day}
-                    onChange={(e) =>
-                      setConfig({ ...config, max_proposals_per_day: Number(e.target.value) })
-                    }
-                    style={{ width: '120px' }}
-                  />
-                </div>
-              </div>
-
-              <button className="btn btn-primary" onClick={handleSaveConfig} disabled={isSaving}>
-                {isSaving ? 'Salvando...' : 'Salvar Todas Configurações'}
-              </button>
-            </div>
+            <AutomationTab
+              config={config}
+              setConfig={setConfig}
+              showApiKey={showApiKey}
+              setShowApiKey={setShowApiKey}
+              handleSaveConfig={handleSaveConfig}
+              isSaving={isSaving}
+            />
           )}
 
-          {/* DANGER TAB */}
+          {activeTab === 'antiban' && (
+            <AntibanTab
+              antibanStatus={antibanStatus}
+              antibanConfig={antibanConfig}
+              setAntibanConfig={setAntibanConfig}
+              handleSaveAntibanConfig={handleSaveAntibanConfig}
+              isSavingAntiban={isSavingAntiban}
+              sessionHealth={sessionHealth}
+              handleTestSessionHealth={handleTestSessionHealth}
+              isCheckingHealth={isCheckingHealth}
+            />
+          )}
+
+          {activeTab === 'blacklist' && (
+            <BlacklistTab
+              blacklist={blacklist}
+              newClientName={newClientName}
+              setNewClientName={setNewClientName}
+              newClientReason={newClientReason}
+              setNewClientReason={setNewClientReason}
+              handleAddBlacklist={handleAddBlacklist}
+              isAddingBlacklist={isAddingBlacklist}
+              handleRemoveBlacklist={handleRemoveBlacklist}
+            />
+          )}
+
           {activeTab === 'danger' && (
-            <div className={styles.animated}>
-              <h2 className={styles.sectionTitle} style={{ color: '#ef4444' }}>
-                Zona de Perigo
-              </h2>
-              <p className={styles.sectionSubtitle}>Cuidado: Ações irreversíveis</p>
-
-              <div className={`${styles.card} ${styles.dangerZone}`}>
-                <div className={styles.configItem}>
-                  <div className={styles.itemInfo}>
-                    <h4>Limpar Histórico de Propostas</h4>
-                    <p>Apaga permanentemente o registro de propostas enviadas.</p>
-                  </div>
-                  <button
-                    className={styles.dangerBtn}
-                    onClick={() => toast.info('Funcionalidade em desenvolvimento')}
-                  >
-                    Limpar Tudo
-                  </button>
-                </div>
-
-                <div className={styles.configItem}>
-                  <div className={styles.itemInfo}>
-                    <h4>Resetar Aplicação</h4>
-                    <p>Restaura todas as configurações para o padrão de fábrica.</p>
-                  </div>
-                  <button
-                    className={styles.dangerBtn}
-                    onClick={() => toast.info('Funcionalidade em desenvolvimento')}
-                  >
-                    Resetar Fábrica
-                  </button>
-                </div>
-              </div>
-            </div>
+            <DangerZoneTab
+              onClearHistory={() => toast.info('Funcionalidade em desenvolvimento')}
+              onResetFactory={() => toast.info('Funcionalidade em desenvolvimento')}
+            />
           )}
         </div>
       </div>

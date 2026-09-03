@@ -14,6 +14,7 @@ import styles from './Projects.module.css';
 import Loader from '../components/Loader';
 import { useToast } from '../context/ToastContext';
 import CyberHeader from '../components/CyberHeader';
+import { useProposalGeneration } from '../hooks/useProposalGeneration';
 import {
   ProjectCard,
   ProjectFiltersBar,
@@ -145,35 +146,43 @@ export default function Projects() {
   const [bidsData, setBidsData] = useState<BidsHistoryResponse | null>(null);
   const [bidsLoading, setBidsLoading] = useState(false);
 
-  // Modal de IA Proposta
-  const [showAiModal, setShowAiModal] = useState(false);
-  const [aiProposal, setAiProposal] = useState<{
-    id?: number;
-    proposal?: string;
-    suggested_price?: string;
-    justification?: string;
-    status?: string;
-    sent_at?: string;
-    is_cached?: boolean;
-    investment_breakdown?: any;
-    template_id?: any;
-    template_slug?: string;
-  } | null>(null);
-  const [proposalVersions, setProposalVersions] = useState<ProposalVersion[]>([]);
-  const [activeVersionId, setActiveVersionId] = useState<number | null>(null);
-  const [isGeneratingAi, setIsGeneratingAi] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-  const [modalBudget, setModalBudget] = useState<string>('');
-  const [modalDeadline, setModalDeadline] = useState<string>('7');
-  const [currentGeneratingProjectId, setCurrentGeneratingProjectId] = useState<string | null>(null);
-  const [isSubmittingProposal, setIsSubmittingProposal] = useState(false);
-
   // Templates
   const [templates, setTemplates] = useState<ProposalTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
 
   // Nível de Preço (budget, standard, premium)
   const [priceLevel, setPriceLevel] = useState<'budget' | 'standard' | 'premium'>('standard');
+
+  // Hook desacoplado de Geração e Gestão de Propostas IA
+  const {
+    showAiModal,
+    setShowAiModal,
+    aiProposal,
+    setAiProposal,
+    proposalVersions,
+    activeVersionId,
+    isGeneratingAi,
+    isSavingDraft,
+    isSubmittingProposal,
+    aiError,
+    modalBudget,
+    setModalBudget,
+    modalDeadline,
+    setModalDeadline,
+    currentGeneratingProjectId,
+    openAiModal: handleOpenProposalModal,
+    generateAiProposal: handleGenerateAiProposal,
+    selectProposalVersion: handleSelectProposalVersion,
+    deleteProposalVersion: handleDeleteProposalVersion,
+    saveProposalDraft: handleSaveProposalDraft,
+    submitProposal: handleSubmitProposal,
+    copyProposal: handleCopyProposal,
+  } = useProposalGeneration({
+    selectedTemplateId,
+    setSelectedTemplateId,
+    priceLevel,
+    setPriceLevel,
+  });
 
   // Modal de Envio em Lote (Batches)
   const [showBatchModal, setShowBatchModal] = useState(false);
@@ -366,235 +375,6 @@ export default function Projects() {
       toast.error(err.message || 'Erro ao carregar histórico de propostas.');
     } finally {
       setBidsLoading(false);
-    }
-  };
-
-  // Geração e Gestão de Proposta IA
-  const [isSavingDraft, setIsSavingDraft] = useState(false);
-
-  const handleOpenProposalModal = async (
-    projectId: string,
-    templateRef?: string | null,
-    level?: 'budget' | 'standard' | 'premium',
-    autoGenerate = false
-  ) => {
-    setCurrentGeneratingProjectId(projectId);
-    if (templateRef !== undefined) setSelectedTemplateId(templateRef);
-    if (level) setPriceLevel(level);
-
-    setAiError(null);
-    setIsGeneratingAi(false);
-
-    try {
-      const proposalRes = await api.getProjectProposal(projectId);
-      if (proposalRes.has_proposal && proposalRes.proposal) {
-        const versionsList =
-          proposalRes.versions && proposalRes.versions.length > 0
-            ? proposalRes.versions
-            : [
-                {
-                  id: proposalRes.id || 1,
-                  project_id: projectId,
-                  proposal: proposalRes.proposal,
-                  budget: proposalRes.budget,
-                  deadline_days: proposalRes.deadline_days,
-                  status: proposalRes.status,
-                  sent_at: proposalRes.sent_at,
-                  template_id: proposalRes.template_id,
-                  template_slug: proposalRes.template_slug,
-                },
-              ];
-
-        setProposalVersions(versionsList);
-        const latest = versionsList[0];
-        setActiveVersionId(latest.id);
-        setAiProposal({
-          id: latest.id,
-          proposal: latest.proposal,
-          suggested_price: latest.budget ? `R$ ${latest.budget.toFixed(2)}` : '—',
-          justification: 'Versão carregada do histórico salvo.',
-          status: latest.status,
-          sent_at: latest.sent_at,
-          is_cached: true,
-          template_id: latest.template_id,
-          template_slug: latest.template_slug,
-        });
-        setModalBudget(latest.budget ? String(latest.budget) : '500');
-        setModalDeadline(latest.deadline_days ? String(latest.deadline_days) : '7');
-        setShowAiModal(true);
-        return;
-      }
-    } catch (e) {
-      console.log('No previous proposal found', e);
-    }
-
-    setProposalVersions([]);
-    setActiveVersionId(null);
-    setAiProposal(null);
-    setModalBudget('500');
-    setModalDeadline('7');
-    setShowAiModal(true);
-
-    if (autoGenerate) {
-      handleGenerateAiProposal(projectId, templateRef, level, true);
-    }
-  };
-
-  const handleGenerateAiProposal = async (
-    projectId: string,
-    templateRef?: string | null,
-    level?: 'budget' | 'standard' | 'premium',
-    saveAsNewVersion = true
-  ) => {
-    setCurrentGeneratingProjectId(projectId);
-    setShowAiModal(true);
-    setIsGeneratingAi(true);
-    setAiError(null);
-
-    const activeRef = templateRef !== undefined ? templateRef : selectedTemplateId;
-    const activeLevel = level || priceLevel;
-
-    try {
-      const res = await api.generateProposal(
-        projectId,
-        activeRef || undefined,
-        true,
-        activeLevel,
-        saveAsNewVersion
-      );
-
-      if (res.success) {
-        setAiProposal(res);
-        if (res.versions && res.versions.length > 0) {
-          setProposalVersions(res.versions);
-          if (res.proposal_id) {
-            setActiveVersionId(res.proposal_id);
-          } else {
-            setActiveVersionId(res.versions[0].id);
-          }
-        }
-        const suggestedNum = res.suggested_price ? res.suggested_price.replace(/[^0-9]/g, '') : '';
-        setModalBudget(suggestedNum || '500');
-        setModalDeadline(res.suggested_deadline_days ? String(res.suggested_deadline_days) : '7');
-        toast.success('✨ Nova versão gerada com sucesso!');
-      } else {
-        setAiError(res.error || 'Não foi possível gerar a proposta.');
-      }
-    } catch (err: any) {
-      setAiError(err.message || 'Erro de conexão ao gerar proposta.');
-    } finally {
-      setIsGeneratingAi(false);
-    }
-  };
-
-  const handleSelectProposalVersion = (version: ProposalVersion) => {
-    setActiveVersionId(version.id);
-    setAiProposal({
-      id: version.id,
-      proposal: version.proposal,
-      suggested_price: version.budget ? `R$ ${version.budget.toFixed(2)}` : '—',
-      justification: 'Versão carregada do histórico.',
-      status: version.status,
-      sent_at: version.sent_at,
-      is_cached: true,
-      template_id: version.template_id,
-      template_slug: version.template_slug,
-    });
-    setModalBudget(version.budget ? String(version.budget) : '500');
-    setModalDeadline(version.deadline_days ? String(version.deadline_days) : '7');
-    if (version.template_slug) {
-      setSelectedTemplateId(`system:${version.template_slug}`);
-    } else if (version.template_id) {
-      setSelectedTemplateId(String(version.template_id));
-    }
-  };
-
-  const handleDeleteProposalVersion = async (versionId: number) => {
-    if (!currentGeneratingProjectId) return;
-    try {
-      const res = await api.deleteProjectProposalVersion(currentGeneratingProjectId, versionId);
-      if (res.success) {
-        const nextVersions = res.versions || [];
-        setProposalVersions(nextVersions);
-        if (nextVersions.length > 0) {
-          if (activeVersionId === versionId) {
-            handleSelectProposalVersion(nextVersions[0]);
-          }
-        } else {
-          setAiProposal(null);
-          setActiveVersionId(null);
-        }
-        toast.info('Versão excluída com sucesso.');
-      }
-    } catch (err: any) {
-      toast.error(err.message || 'Erro ao excluir versão.');
-    }
-  };
-
-  const handleSaveProposalDraft = async () => {
-    if (!currentGeneratingProjectId || !aiProposal?.proposal) return;
-    setIsSavingDraft(true);
-    try {
-      const res = await api.saveProjectProposal(currentGeneratingProjectId, {
-        proposal_id: activeVersionId,
-        proposal_text: aiProposal.proposal,
-        budget: Number(modalBudget) || undefined,
-        deadline_days: Number(modalDeadline) || 7,
-        template_id: selectedTemplateId || undefined,
-        force_new_version: false,
-        add_to_batch: true,
-      });
-      if (res.success) {
-        toast.success('✨ Proposta salva com sucesso! Visível em Lotes / Batches.');
-        if (res.versions) setProposalVersions(res.versions);
-        if (res.proposal_id) setActiveVersionId(res.proposal_id);
-        setAiProposal((prev) => (prev ? { ...prev, is_cached: true } : null));
-      }
-    } catch (err: any) {
-      toast.error(err.message || 'Erro ao salvar rascunho de proposta.');
-    } finally {
-      setIsSavingDraft(false);
-    }
-  };
-
-  const handleSubmitProposal = async () => {
-    if (!currentGeneratingProjectId || !aiProposal?.proposal) return;
-    setIsSubmittingProposal(true);
-    try {
-      const investmentText = aiProposal.investment_breakdown?.breakdown_text || '';
-      const messageToSend =
-        investmentText && !aiProposal.proposal.includes(investmentText)
-          ? `${aiProposal.proposal}\n\n${investmentText}`
-          : aiProposal.proposal;
-
-      const res = await api.submitProposal(currentGeneratingProjectId, {
-        project_id: currentGeneratingProjectId,
-        custom_message: messageToSend,
-        budget: Number(modalBudget) || 500,
-        deadline_days: Number(modalDeadline) || 7,
-        template_id: selectedTemplateId || undefined,
-      });
-      if (res.success) {
-        toast.success('🚀 Proposta enviada com sucesso ao Workana! Status: Aguardando resposta');
-        setShowAiModal(false);
-      } else {
-        toast.error(res.message || 'Erro ao enviar proposta.');
-      }
-    } catch (err: any) {
-      toast.error(err.message || 'Erro ao enviar proposta.');
-    } finally {
-      setIsSubmittingProposal(false);
-    }
-  };
-
-  const handleCopyProposal = () => {
-    if (aiProposal?.proposal) {
-      const investmentText = aiProposal.investment_breakdown?.breakdown_text || '';
-      const fullProposal = investmentText
-        ? `${aiProposal.proposal}\n\n${investmentText}`
-        : aiProposal.proposal;
-      navigator.clipboard.writeText(fullProposal);
-      toast.success('Proposta completa copiada para a área de transferência!');
     }
   };
 

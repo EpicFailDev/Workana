@@ -1,10 +1,14 @@
+import { useState, useEffect } from 'react';
 import { useLocation, Link } from 'react-router-dom';
+import { Search, Shield, X, LogOut } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { api, type AntibanStatus } from '../services/api';
 import styles from './Sidebar.module.css';
 
 interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
+  onOpenSearch?: () => void;
 }
 
 const menuItems = [
@@ -83,117 +87,158 @@ const menuItems = [
   },
 ];
 
-export default function Sidebar({ isOpen, onClose }: SidebarProps) {
+export default function Sidebar({ isOpen, onClose, onOpenSearch }: SidebarProps) {
   const location = useLocation();
   const pathname = location.pathname;
   const { user, signOut } = useAuth();
+  const [antiban, setAntiban] = useState<AntibanStatus | null>(null);
+
+  useEffect(() => {
+    const loadAntiban = async () => {
+      try {
+        const res = await api.getAntibanStatus();
+        setAntiban(res);
+      } catch {
+        // Silencioso em sidebar
+      }
+    };
+    loadAntiban();
+    const interval = setInterval(loadAntiban, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
-    <aside className={`sidebar ${isOpen ? 'open' : ''} ${styles.sidebar}`}>
-      {/* Mobile Close Button */}
-      <button className={`${styles.closeBtn} mobile-only btn btn-ghost`} onClick={onClose}>
-        <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
+    <>
+      {/* Backdrop overlay para mobile quando sidebar aberta */}
+      {isOpen && <div className={styles.sidebarOverlay} onClick={onClose} />}
 
-      {/* Logo */}
-      <div className={styles.logo}>
-        <div className={styles.logoIcon}>
-          <img
-            src="https://media.licdn.com/dms/image/sync/v2/D4D27AQEiu3OUtuPafw/articleshare-shrink_800/B4DZmh2H6fJIAM-/0/1759356944429?e=2147483647&v=beta&t=RtaLDLIZf-4r34Z-ETQzA4mmzZRdYCEYXuV07qeXdDk"
-            alt="Workana Logo"
-            className={styles.officialLogo}
-          />
-          <div className={styles.statusPulse}></div>
-        </div>
-        <div className={styles.logoText}>
-          <h1>Workana</h1>
-          <div className={styles.subtextContainer}>
-            <span className={styles.subtextMain}>ACCELERATOR</span>
-            <span className={styles.subtextStatus}>• ONLINE</span>
+      <aside className={`sidebar ${isOpen ? 'open' : ''} ${styles.sidebar}`}>
+        {/* Mobile Close Button */}
+        <button className={`${styles.closeBtn} mobile-only btn btn-ghost`} onClick={onClose}>
+          <X size={20} />
+        </button>
+
+        {/* Logo */}
+        <div className={styles.logo}>
+          <div className={styles.logoIcon}>
+            <img
+              src="https://media.licdn.com/dms/image/sync/v2/D4D27AQEiu3OUtuPafw/articleshare-shrink_800/B4DZmh2H6fJIAM-/0/1759356944429?e=2147483647&v=beta&t=RtaLDLIZf-4r34Z-ETQzA4mmzZRdYCEYXuV07qeXdDk"
+              alt="Workana Logo"
+              className={styles.officialLogo}
+            />
+            <div className={styles.statusPulse}></div>
+          </div>
+          <div className={styles.logoText}>
+            <h1>Workana</h1>
+            <div className={styles.subtextContainer}>
+              <span className={styles.subtextMain}>ACCELERATOR</span>
+              <span className={styles.subtextStatus}>• ONLINE</span>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Navigation */}
-      <nav className={styles.nav}>
-        {menuItems.map((item) => (
-          <Link
-            key={item.href}
-            to={item.href}
-            className={`${styles.navItem} ${pathname === item.href ? styles.active : ''}`}
+        {/* Quick Command Palette Button */}
+        {onOpenSearch && (
+          <button
+            type="button"
+            className={styles.quickCmdBtn}
             onClick={() => {
+              onOpenSearch();
               if (window.innerWidth <= 1024) onClose();
             }}
           >
-            {item.icon}
-            <span>{item.name}</span>
-          </Link>
-        ))}
-      </nav>
-
-      {/* Footer */}
-      <div
-        className={styles.footer}
-        style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
-      >
-        <div className={styles.userInfo}>
-          <div className={styles.avatar} />
-
-          <div className={styles.userDetails}>
-            <span className={styles.userName} title={user?.email || 'Usuário'}>
-              {user?.email ? user.email.split('@')[0] : 'Usuário'}
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Search size={14} />
+              <span>Busca Rápida</span>
             </span>
-            <span className={styles.userStatus}>Plano Ativo</span>
-          </div>
-        </div>
+            <kbd className={styles.quickCmdKbd}>Ctrl+K</kbd>
+          </button>
+        )}
 
-        <button
-          onClick={signOut}
-          style={{
-            width: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            marginTop: '12px',
-            padding: '10px',
-            border: '1px solid rgba(239, 68, 68, 0.2)',
-            borderRadius: '8px',
-            color: '#ef4444',
-            background: 'rgba(239, 68, 68, 0.05)',
-            cursor: 'pointer',
-            fontWeight: '600',
-            fontSize: '0.85rem',
-            transition: 'all 0.3s ease',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)';
-            e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'rgba(239, 68, 68, 0.05)';
-            e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.2)';
-          }}
+        {/* Navigation */}
+        <nav className={styles.nav}>
+          {menuItems.map((item) => (
+            <Link
+              key={item.href}
+              to={item.href}
+              className={`${styles.navItem} ${pathname === item.href ? styles.active : ''}`}
+              onClick={() => {
+                if (window.innerWidth <= 1024) onClose();
+              }}
+            >
+              {item.icon}
+              <span>{item.name}</span>
+            </Link>
+          ))}
+        </nav>
+
+        {/* Footer */}
+        <div
+          className={styles.footer}
+          style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
         >
-          <svg
-            width="16"
-            height="16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            viewBox="0 0 24 24"
+          {/* Anti-Ban Shield status pill */}
+          {antiban && (
+            <div
+              className={`${styles.antibanBadge} ${
+                antiban.in_cooldown ? styles.antibanBadgeWarning : ''
+              }`}
+              title={`Limite de segurança: ${antiban.searches_this_hour} de ${antiban.max_per_hour} buscas nesta hora`}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Shield size={13} />
+                <span>Anti-Ban</span>
+              </span>
+              <span>
+                {antiban.searches_this_hour}/{antiban.max_per_hour}
+              </span>
+            </div>
+          )}
+
+          <div className={styles.userInfo}>
+            <div className={styles.avatar} />
+
+            <div className={styles.userDetails}>
+              <span className={styles.userName} title={user?.email || 'Usuário'}>
+                {user?.email ? user.email.split('@')[0] : 'Usuário'}
+              </span>
+              <span className={styles.userStatus}>Plano Pro Ativo</span>
+            </div>
+          </div>
+
+          <button
+            onClick={signOut}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              marginTop: '8px',
+              padding: '10px',
+              border: '1px solid rgba(239, 68, 68, 0.2)',
+              borderRadius: '8px',
+              color: '#ef4444',
+              background: 'rgba(239, 68, 68, 0.05)',
+              cursor: 'pointer',
+              fontWeight: '600',
+              fontSize: '0.85rem',
+              transition: 'all 0.3s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)';
+              e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.05)';
+              e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.2)';
+            }}
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-            />
-          </svg>
-          <span>Sair da Conta</span>
-        </button>
-      </div>
-    </aside>
+            <LogOut size={16} />
+            <span>Sair da Conta</span>
+          </button>
+        </div>
+      </aside>
+    </>
   );
 }

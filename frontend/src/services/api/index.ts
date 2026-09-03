@@ -8,6 +8,9 @@ import { automationApi } from './automation';
 import { filtersApi } from './filters';
 import { profileApi } from './profile';
 import { dashboardApi } from './dashboard';
+import { antibanApi } from './antiban';
+import { blacklistApi } from './blacklist';
+import { investmentApi } from './investment';
 
 export * from './client';
 export * from './projects';
@@ -17,6 +20,9 @@ export * from './automation';
 export * from './filters';
 export * from './profile';
 export * from './dashboard';
+export * from './antiban';
+export * from './blacklist';
+export * from './investment';
 
 export const api = {
   ...projectsApi,
@@ -26,6 +32,9 @@ export const api = {
   ...filtersApi,
   ...profileApi,
   ...dashboardApi,
+  ...antibanApi,
+  ...blacklistApi,
+  ...investmentApi,
 };
 
 export default api;
