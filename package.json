@@ -17,7 +17,14 @@
     "test:frontend": "npm --prefix frontend run test",
     "test:backend": "node scripts/py.js -m pytest",
     "test:all": "npm run test:frontend && npm run test:backend",
-    "typecheck": "npm --prefix frontend run build"
+    "typecheck": "npm --prefix frontend run build",
+    "jules": "jules",
+    "jules:new": "jules new",
+    "jules:list": "jules remote list --session",
+    "jules:teleport": "jules teleport"
+  },
+  "devDependencies": {
+    "@google/jules": "^0.1.42"
   },
   "keywords": [
     "workana",

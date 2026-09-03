@@ -1,0 +1,34 @@
+name: "🤖 Tarefa para o Google Jules"
+description: "Atribua uma tarefa automatizada para o Google Jules resolver no repositório"
+title: "[Jules]: "
+labels: ["jules", "automated"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        O **Google Jules** lerá esta issue, explorará a base de código, implementará a solução com testes no seu sandbox e abrirá um Pull Request automaticamente.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: "Descrição da Tarefa / Bug"
+      description: "Explique claramente o que precisa ser feito ou o bug a ser corrigido."
+      placeholder: "Ex: Corrigir o cálculo de pontuação no scorer.py quando o orçamento do projeto vier em moeda estrangeira."
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: "Critérios de Aceitação"
+      description: "O que deve estar funcionando para o PR ser aprovado?"
+      placeholder: "- [ ] Testes unitários cobrindo o caso de borda\n- [ ] Suíte pytest passando sem falhas\n- [ ] Tipagem Pydantic / TypeScript válida"
+    validations:
+      required: true
+
+  - type: textarea
+    id: relevant_files
+    attributes:
+      label: "Arquivos Relevantes (Opcional)"
+      description: "Indique os arquivos ou módulos principais envolvidos na tarefa."
+      placeholder: "backend/app/services/scorer.py\nbackend/tests/test_scorer.py"
