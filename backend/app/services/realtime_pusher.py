@@ -5,6 +5,7 @@ Conecta-se diretamente aos canais públicos 'projects-pt' e 'projects-en' da inf
 Pusher do Workana para capturar novos projetos no exato segundo em que são publicados,
 eliminando a latência de polling e garantindo vantagem competitiva no envio de propostas.
 """
+
 import asyncio
 import json
 import time
@@ -39,7 +40,9 @@ class WorkanaRealtimePusher:
             return
         self._running = True
         self._task = asyncio.create_task(self._listen_loop())
-        logger.bind(event="pusher.started").info("Listener WebSocket Pusher em Tempo Real iniciado.")
+        logger.bind(event="pusher.started").info(
+            "Listener WebSocket Pusher em Tempo Real iniciado."
+        )
 
     def stop(self):
         """Para o listener."""
@@ -89,12 +92,11 @@ class WorkanaRealtimePusher:
             logger.bind(event="pusher.handshake").info(f"Socket ID estabelecido: {socket_id}")
 
             for channel in ["projects-pt", "projects-en"]:
-                sub_payload = {
-                    "event": "pusher:subscribe",
-                    "data": {"channel": channel}
-                }
+                sub_payload = {"event": "pusher:subscribe", "data": {"channel": channel}}
                 await ws.send(json.dumps(sub_payload))
-                logger.bind(event="pusher.subscribed").info(f"Inscrito no canal de streaming: {channel}")
+                logger.bind(event="pusher.subscribed").info(
+                    f"Inscrito no canal de streaming: {channel}"
+                )
 
         while self._running:
             try:
@@ -139,12 +141,16 @@ class WorkanaRealtimePusher:
                     operation_id_var.reset(token)
 
         except Exception as exc:
-            logger.bind(event="pusher.process_error").error(f"Erro ao processar evento Pusher: {exc}")
+            logger.bind(event="pusher.process_error").error(
+                f"Erro ao processar evento Pusher: {exc}"
+            )
 
     @staticmethod
     def _normalize_pusher_project(payload: dict) -> Optional[Dict[str, Any]]:
         """Converte o payload bruto do Pusher para o modelo unificado de catálogo."""
-        workana_id = str(payload.get("id") or payload.get("slug") or payload.get("workana_id") or "").strip()
+        workana_id = str(
+            payload.get("id") or payload.get("slug") or payload.get("workana_id") or ""
+        ).strip()
         if not workana_id:
             return None
 
@@ -157,7 +163,9 @@ class WorkanaRealtimePusher:
         if isinstance(skills, str):
             skills = [s.strip() for s in skills.split(",") if s.strip()]
 
-        contract_type = "hourly" if payload.get("is_hourly") or "hora" in str(budget).lower() else "fixed"
+        contract_type = (
+            "hourly" if payload.get("is_hourly") or "hora" in str(budget).lower() else "fixed"
+        )
 
         return {
             "workana_id": slug,

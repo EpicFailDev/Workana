@@ -1,11 +1,11 @@
-"use client";
+'use client';
 
-import * as React from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
-import { motion } from "framer-motion";
-import { Button } from "@/components/ui/button";
+import * as React from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import { motion } from 'framer-motion';
+import { Button } from '@/components/ui/button';
 import {
   Form,
   FormControl,
@@ -13,18 +13,16 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Eye, EyeOff } from "lucide-react";
-import styles from "./login.module.css";
+} from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Loader2, Eye, EyeOff } from 'lucide-react';
+import styles from './login.module.css';
 
 // Validation schema for the form
 const formSchema = z.object({
-  email: z.string().email({ message: "Please enter a valid email." }),
-  password: z
-    .string()
-    .min(8, { message: "Password must be at least 8 characters." }),
+  email: z.string().email({ message: 'Please enter a valid email.' }),
+  password: z.string().min(8, { message: 'Password must be at least 8 characters.' }),
   rememberMe: z.boolean().default(false).optional(),
 });
 
@@ -55,7 +53,7 @@ export function AuthFormSplitScreen({
   forgotPasswordHref,
   createAccountHref,
   footerLabelText = "Don't have an account?",
-  footerLinkText = "Create one",
+  footerLinkText = 'Create one',
   showRememberMe = true,
   onGoogleClick,
 }: AuthFormSplitScreenProps) {
@@ -68,16 +66,16 @@ export function AuthFormSplitScreen({
   }, [imageSrc]);
 
   const handleImageError = () => {
-    if (currentImage !== "/login_bg.png") {
-      setCurrentImage("/login_bg.png");
+    if (currentImage !== '/login_bg.png') {
+      setCurrentImage('/login_bg.png');
     }
   };
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      email: "",
-      password: "",
+      email: '',
+      password: '',
       rememberMe: false,
     },
   });
@@ -87,7 +85,7 @@ export function AuthFormSplitScreen({
     try {
       await onSubmit(data);
     } catch (error) {
-      console.error("Submission failed:", error);
+      console.error('Submission failed:', error);
     } finally {
       setIsLoading(false);
     }
@@ -124,17 +122,14 @@ export function AuthFormSplitScreen({
             <motion.div variants={itemVariants} className={styles.logoBlock}>
               {logo}
             </motion.div>
-            
+
             <motion.div variants={itemVariants} className={styles.header}>
               {title}
               <p className={styles.description}>{description}</p>
             </motion.div>
 
             <Form {...form}>
-              <form
-                onSubmit={form.handleSubmit(handleFormSubmit)}
-                className={styles.form}
-              >
+              <form onSubmit={form.handleSubmit(handleFormSubmit)} className={styles.form}>
                 <motion.div variants={itemVariants}>
                   <FormField
                     control={form.control}
@@ -167,11 +162,11 @@ export function AuthFormSplitScreen({
                         <FormControl>
                           <div className={styles.passwordWrap}>
                             <Input
-                              type={showPassword ? "text" : "password"}
+                              type={showPassword ? 'text' : 'password'}
                               placeholder="••••••••••••"
                               {...field}
                               disabled={isLoading}
-                              autoComplete={showRememberMe ? "current-password" : "new-password"}
+                              autoComplete={showRememberMe ? 'current-password' : 'new-password'}
                               className={`${styles.input} ${styles.passwordInput}`}
                             />
                             <button
@@ -179,7 +174,7 @@ export function AuthFormSplitScreen({
                               onClick={() => setShowPassword(!showPassword)}
                               className={styles.eyeButton}
                               disabled={isLoading}
-                              aria-label={showPassword ? "Hide password" : "Show password"}
+                              aria-label={showPassword ? 'Hide password' : 'Show password'}
                             >
                               {showPassword ? (
                                 <EyeOff className="h-4.5 w-4.5" />
@@ -231,14 +226,12 @@ export function AuthFormSplitScreen({
                 )}
 
                 <motion.div variants={itemVariants} className="pt-3">
-                  <Button 
-                    type="submit" 
-                    className="h-[54px] w-full rounded-lg bg-gradient-to-r from-[#ff5a0a] via-[#e928bd] to-[#087cff] text-[15px] font-semibold text-white shadow-[0_8px_28px_rgba(37,74,210,0.2)] transition-all hover:brightness-110 active:scale-[0.99]" 
+                  <Button
+                    type="submit"
+                    className="h-[54px] w-full rounded-lg bg-gradient-to-r from-[#ff5a0a] via-[#e928bd] to-[#087cff] text-[15px] font-semibold text-white shadow-[0_8px_28px_rgba(37,74,210,0.2)] transition-all hover:brightness-110 active:scale-[0.99]"
                     disabled={isLoading}
                   >
-                    {isLoading ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : null}
+                    {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                     Continue
                   </Button>
                 </motion.div>
@@ -290,7 +283,7 @@ export function AuthFormSplitScreen({
               variants={itemVariants}
               className="mt-10 text-center text-[16px] text-[#a6a8b2]"
             >
-              {footerLabelText}{" "}
+              {footerLabelText}{' '}
               <a
                 href={createAccountHref}
                 className="font-semibold text-white transition-all hover:underline"

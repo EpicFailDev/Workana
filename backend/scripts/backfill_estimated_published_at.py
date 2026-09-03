@@ -11,6 +11,7 @@ Backfill das colunas normalizadas do catálogo introduzidas na migration
 
 Uso:  python -m scripts.backfill_estimated_published_at   (a partir de backend/)
 """
+
 import asyncio
 import sys
 from pathlib import Path

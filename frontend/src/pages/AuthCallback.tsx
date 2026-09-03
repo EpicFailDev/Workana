@@ -27,7 +27,8 @@ export default function AuthCallback() {
 
     if (code) {
       hasExchanged.current = true;
-      supabase.auth.exchangeCodeForSession(code)
+      supabase.auth
+        .exchangeCodeForSession(code)
         .then(({ data, error }) => {
           if (error) {
             toast.error(translateAuthError(error), 'Erro de Autenticação');
@@ -46,17 +47,20 @@ export default function AuthCallback() {
         });
     } else {
       // Se não houver código, verifica se já existe uma sessão ativa (caso do fluxo implícito / hash)
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session) {
-          const next = sessionStorage.getItem('auth_redirect_to') || '/';
-          sessionStorage.removeItem('auth_redirect_to');
-          navigate(next);
-        } else {
+      supabase.auth
+        .getSession()
+        .then(({ data: { session } }) => {
+          if (session) {
+            const next = sessionStorage.getItem('auth_redirect_to') || '/';
+            sessionStorage.removeItem('auth_redirect_to');
+            navigate(next);
+          } else {
+            navigate('/auth/login');
+          }
+        })
+        .catch(() => {
           navigate('/auth/login');
-        }
-      }).catch(() => {
-        navigate('/auth/login');
-      });
+        });
     }
   }, [code, errorCode, errorDesc, navigate, toast]);
 

@@ -1,4 +1,5 @@
 """Conversão do JSON público de listagem da Workana para o contrato da API."""
+
 import html
 import re
 from typing import Any, Optional, Dict
@@ -130,7 +131,7 @@ async def parse_project_json(data: dict, base_url: str) -> Optional[Project]:
         flags=re.IGNORECASE,
     )
     if metadata_start and metadata_start.start() > 0:
-        extracted_desc = description_with_metadata[:metadata_start.start()].strip()
+        extracted_desc = description_with_metadata[: metadata_start.start()].strip()
         if len(extracted_desc) >= 10:
             description = extracted_desc
         else:

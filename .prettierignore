@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build and cache
+dist/
+build/
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Project specific
+workana_storage_state.json
+.git/
+.agents/

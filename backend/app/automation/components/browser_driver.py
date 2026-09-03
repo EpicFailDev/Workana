@@ -1,4 +1,3 @@
-
 import asyncio
 from typing import Optional, Dict, Any
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
@@ -6,12 +5,13 @@ from loguru import logger
 from app.config import settings
 from app.automation.antiban import antiban
 
+
 class BrowserDriver:
     """
     Gerencia o ciclo de vida do navegador Playwright.
     Responsável por iniciar, configurar anti-ban e fechar o navegador.
     """
-    
+
     def __init__(self):
         self._playwright = None
         self._browser: Optional[Browser] = None
@@ -27,10 +27,16 @@ class BrowserDriver:
     def context(self) -> Optional[BrowserContext]:
         return self._context
 
-    async def init_browser(self, use_session: bool = True, session_loader=None, headless: bool = None, storage_state=None) -> Page:
+    async def init_browser(
+        self,
+        use_session: bool = True,
+        session_loader=None,
+        headless: bool = None,
+        storage_state=None,
+    ) -> Page:
         """
         Inicializa o navegador.
-        
+
         Args:
             use_session: Se True, tenta carregar sessão (via callback).
             session_loader: Função assíncrona para carregar cookies no contexto.
@@ -41,35 +47,35 @@ class BrowserDriver:
         if self._browser is None:
             logger.info("Inicializando navegador Playwright (Componente)...")
             self._playwright = await async_playwright().start()
-            
+
             is_headless = settings.headless if headless is None else headless
-            
+
             launch_kwargs = {
                 "headless": is_headless,
                 "slow_mo": settings.slow_mo,
                 "args": [
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-dev-shm-usage',
-                    '--no-sandbox',
-                    '--disable-web-security',
-                    '--disable-features=IsolateOrigins,site-per-process',
-                    '--start-maximized' if not is_headless else '',
-                ]
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-dev-shm-usage",
+                    "--no-sandbox",
+                    "--disable-web-security",
+                    "--disable-features=IsolateOrigins,site-per-process",
+                    "--start-maximized" if not is_headless else "",
+                ],
             }
             if settings.proxy_url:
                 launch_kwargs["proxy"] = {"server": settings.proxy_url}
-                
+
             self._browser = await self._playwright.chromium.launch(**launch_kwargs)
-            
+
             context_options = self._antiban.get_browser_context_options()
             if not is_headless:
-                context_options['viewport'] = None # Usar tamanho da janela
+                context_options["viewport"] = None  # Usar tamanho da janela
 
             if storage_state:
-                context_options['storage_state'] = storage_state
+                context_options["storage_state"] = storage_state
 
             self._context = await self._browser.new_context(**context_options)
-            
+
             # Scripts Anti-Detecção
             await self._context.add_init_script("""
                 Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
@@ -83,13 +89,13 @@ class BrowserDriver:
                         originalQuery(parameters)
                 );
             """)
-            
+
             if use_session and session_loader:
                 await session_loader(self._context)
-            
+
             self._page = await self._context.new_page()
             logger.info("Navegador inicializado com sucesso!")
-            
+
         return self._page
 
     async def close(self):

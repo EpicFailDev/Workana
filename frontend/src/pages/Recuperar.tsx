@@ -16,11 +16,15 @@ export default function Recuperar() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
 
-  const { register, handleSubmit, formState: { errors } } = useForm<RecoveryInputs>({
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<RecoveryInputs>({
     resolver: zodResolver(recoverySchema),
     defaultValues: {
       email: '',
-    }
+    },
   });
 
   const handleRecovery = async (data: RecoveryInputs) => {
@@ -88,11 +92,7 @@ export default function Recuperar() {
               disabled={loading}
               className="w-full h-12 bg-gradient-to-r from-amber-500 to-orange-600 hover:brightness-110 text-white font-semibold rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-amber-950/20 active:scale-[0.99] border-none mt-2"
             >
-              {loading ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <>Enviar Código OTP</>
-              )}
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Enviar Código OTP</>}
             </Button>
           </form>
 
@@ -111,7 +111,8 @@ export default function Recuperar() {
           {/* Info notice */}
           <div className="mt-8 bg-white/5 border border-white/5 rounded-2xl p-4 text-xs text-slate-400 leading-relaxed">
             <p>
-              <strong>Aviso de Segurança:</strong> Não compartilhamos se um e-mail está cadastrado ou não para proteger a privacidade de nossos usuários corporativos.
+              <strong>Aviso de Segurança:</strong> Não compartilhamos se um e-mail está cadastrado
+              ou não para proteger a privacidade de nossos usuários corporativos.
             </p>
           </div>
         </div>

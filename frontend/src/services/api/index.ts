@@ -19,13 +19,13 @@ export * from './profile';
 export * from './dashboard';
 
 export const api = {
-    ...projectsApi,
-    ...templatesApi,
-    ...batchesApi,
-    ...automationApi,
-    ...filtersApi,
-    ...profileApi,
-    ...dashboardApi,
+  ...projectsApi,
+  ...templatesApi,
+  ...batchesApi,
+  ...automationApi,
+  ...filtersApi,
+  ...profileApi,
+  ...dashboardApi,
 };
 
 export default api;

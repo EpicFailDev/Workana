@@ -2,6 +2,7 @@
 Builder para prompts de proposta de alta conversão.
 Padrão Master MVP / Fechamento Comercial de Elite no Workana.
 """
+
 import re
 from datetime import datetime
 from typing import Optional, List, Dict, Any
@@ -18,26 +19,40 @@ class ProposalPromptBuilder:
         """
         if not client_name:
             return "Olá, tudo bem?"
-        
+
         raw = client_name.strip()
-        cleaned = re.sub(r'[\.\s\-_/]+', '', raw)
+        cleaned = re.sub(r"[\.\s\-_/]+", "", raw)
         if len(cleaned) <= 1:
             return "Olá, tudo bem?"
-            
+
         # Detectar se são apenas iniciais (tokens de 1 letra, como 'G. D. F. D.')
-        tokens = [t.strip('. ') for t in re.split(r'[\s\.]+', raw) if t.strip('. ')]
+        tokens = [t.strip(". ") for t in re.split(r"[\s\.]+", raw) if t.strip(". ")]
         if tokens and all(len(t) == 1 for t in tokens):
             return "Olá, tudo bem?"
-            
+
         first_token = tokens[0].lower() if tokens else ""
         blacklist = {
-            'cliente', 'desconhecido', 'none', 'null', 'user', 'usuario', 
-            'usuário', 'anônimo', 'anonimo', 'admin', 'profile', 'client',
-            'empresa', 'recrutador', 'vaga', 'projeto', 'g. d. f. d.'
+            "cliente",
+            "desconhecido",
+            "none",
+            "null",
+            "user",
+            "usuario",
+            "usuário",
+            "anônimo",
+            "anonimo",
+            "admin",
+            "profile",
+            "client",
+            "empresa",
+            "recrutador",
+            "vaga",
+            "projeto",
+            "g. d. f. d.",
         }
         if first_token in blacklist:
             return "Olá, tudo bem?"
-            
+
         # Extrair primeiro nome com inicial maiúscula
         first_name = tokens[0].capitalize()
         return f"Olá, {first_name}, tudo bem?"
@@ -50,20 +65,31 @@ class ProposalPromptBuilder:
         if not user_name:
             return "Guilherme"
         name = user_name.strip()
-        if not name or name in ['[Seu Nome]', 'Especialista', 'Desenvolvedor', 'Profissional', 'None', 'null']:
+        if not name or name in [
+            "[Seu Nome]",
+            "Especialista",
+            "Desenvolvedor",
+            "Profissional",
+            "None",
+            "null",
+        ]:
             return "Guilherme"
         return name
 
     @staticmethod
     def build(project: dict, user_name: str) -> str:
         clean_name = ProposalPromptBuilder.clean_user_name(user_name)
-        greeting = ProposalPromptBuilder.clean_client_greeting(project.get('client_name'))
+        greeting = ProposalPromptBuilder.clean_client_greeting(project.get("client_name"))
         signature = f"Atenciosamente,\n{clean_name}"
-        
-        skills_str = ', '.join(project.get('skills', [])) if isinstance(project.get('skills'), list) else str(project.get('skills') or '')
-        budget_str = str(project.get('budget') or 'A combinar')
-        title_str = str(project.get('title') or 'Projeto')
-        desc_str = str(project.get('description') or '')
+
+        skills_str = (
+            ", ".join(project.get("skills", []))
+            if isinstance(project.get("skills"), list)
+            else str(project.get("skills") or "")
+        )
+        budget_str = str(project.get("budget") or "A combinar")
+        title_str = str(project.get("title") or "Projeto")
+        desc_str = str(project.get("description") or "")
 
         return f"""
 Você é um Arquiteto de Software e Consultor Técnico Sênior de Elite no Workana.
@@ -194,70 +220,74 @@ Retorne EXATAMENTE no formato JSON:
         """
         if not blueprint:
             return ""
-        
+
         lines = []
         for block in blueprint:
             if not block.get("enabled", True):
                 continue
-            
+
             b_type = block.get("type", "instrucao_personalizada")
             b_mode = block.get("mode", "instruction")
             b_content = block.get("content") or ""
-            
+
             type_label = b_type.replace("_", " ").upper()
             mode_label = "Texto Exato" if b_mode == "literal" else "Instrução"
-            
+
             lines.append(f"=== {type_label} ({mode_label}) ===\n{b_content}")
-            
+
         return "\n\n".join(lines)
 
     @staticmethod
     def resolve_variables(text_content: str, project: dict, user_name: str) -> str:
         if not text_content:
             return text_content
-            
-        client_name_raw = project.get('client_name') or ''
+
+        client_name_raw = project.get("client_name") or ""
         client_greeting = ProposalPromptBuilder.clean_client_greeting(client_name_raw)
-        
+
         # Extrair nome simples do cliente para substituição se for válido
         if "Olá, " in client_greeting and client_greeting != "Olá, tudo bem?":
-            clean_client_name = client_greeting.replace("Olá, ", "").replace(", tudo bem?", "").strip()
+            clean_client_name = (
+                client_greeting.replace("Olá, ", "").replace(", tudo bem?", "").strip()
+            )
         else:
             clean_client_name = ""
 
-        project_title = project.get('title') or 'projeto'
-        budget = project.get('budget') or 'A combinar'
+        project_title = project.get("title") or "projeto"
+        budget = project.get("budget") or "A combinar"
         clean_user = ProposalPromptBuilder.clean_user_name(user_name)
-        
-        deadline = project.get('deadline') or project.get('deadline_days') or project.get('prazo')
+
+        deadline = project.get("deadline") or project.get("deadline_days") or project.get("prazo")
         if deadline:
             deadline_str = f"{deadline}"
             if deadline_str.isdigit() and "dia" not in deadline_str:
                 deadline_str = f"{deadline_str} dias"
         else:
             deadline_str = "A combinar"
-            
+
         resolved = text_content
-        
+
         def ireplace(pattern, replacement, string):
             return re.sub(re.escape(pattern), lambda m: replacement, string, flags=re.IGNORECASE)
-            
+
         if clean_client_name:
             resolved = ireplace("{nome_cliente}", clean_client_name, resolved)
         else:
             # Substituir saudações com {nome_cliente} por cumprimento natural
-            resolved = re.sub(r'Olá\s*\{nome_cliente\}[\,\!]?', 'Olá, tudo bem?', resolved, flags=re.IGNORECASE)
-            resolved = ireplace("{nome_cliente}", 'Cliente', resolved)
-            
+            resolved = re.sub(
+                r"Olá\s*\{nome_cliente\}[\,\!]?", "Olá, tudo bem?", resolved, flags=re.IGNORECASE
+            )
+            resolved = ireplace("{nome_cliente}", "Cliente", resolved)
+
         resolved = ireplace("{titulo_projeto}", project_title, resolved)
-        resolved = ireplace("{descricao_projeto}", project.get('description') or '', resolved)
+        resolved = ireplace("{descricao_projeto}", project.get("description") or "", resolved)
         resolved = ireplace("{valor}", str(budget), resolved)
         resolved = ireplace("{prazo}", str(deadline_str), resolved)
         resolved = ireplace("{nome_usuario}", clean_user, resolved)
         resolved = ireplace("{user_name}", clean_user, resolved)
         resolved = ireplace("{anos_experiencia}", "vários", resolved)
         resolved = ireplace("{data_atual}", datetime.now().strftime("%d/%m/%Y"), resolved)
-        
+
         return resolved
 
     @staticmethod
@@ -267,42 +297,46 @@ Retorne EXATAMENTE no formato JSON:
         com o Padrão Master MVP de Alta Conversão.
         """
         enabled_blocks = [b for b in blueprint if b.get("enabled", True)]
-        
+
         if not enabled_blocks:
             return ProposalPromptBuilder.build(project, user_name)
-            
+
         clean_name = ProposalPromptBuilder.clean_user_name(user_name)
-        greeting = ProposalPromptBuilder.clean_client_greeting(project.get('client_name'))
+        greeting = ProposalPromptBuilder.clean_client_greeting(project.get("client_name"))
         signature = f"Atenciosamente,\n{clean_name}"
-        
+
         pieces_instructions = []
-        
+
         for i, block in enumerate(enabled_blocks, 1):
             b_type = block.get("type", "instrucao_personalizada")
             b_mode = block.get("mode", "instruction")
             b_content = block.get("content") or ""
-            
-            b_content_resolved = ProposalPromptBuilder.resolve_variables(b_content, project, user_name)
+
+            b_content_resolved = ProposalPromptBuilder.resolve_variables(
+                b_content, project, user_name
+            )
             type_label = b_type.replace("_", " ").upper()
-            
+
             if b_mode == "literal":
                 pieces_instructions.append(
                     f"DIRETRIZ {i} [{type_label}] (MODO LITERAL - Inclua este trecho no local apropriado):\n"
-                    f"\"\"\"\n{b_content_resolved}\n\"\"\""
+                    f'"""\n{b_content_resolved}\n"""'
                 )
             else:
                 pieces_instructions.append(
                     f"DIRETRIZ {i} [{type_label}] (MODO ESTRATÉGICO - Siga esta diretriz):\n"
-                    f"\"\"\"\n{b_content_resolved}\n\"\"\""
+                    f'"""\n{b_content_resolved}\n"""'
                 )
-                
+
         pieces_str = "\n\n".join(pieces_instructions)
-        skills_str = ', '.join(project.get('skills', [])) if isinstance(project.get('skills'), list) else str(project.get('skills') or '')
-        budget_str = str(project.get('budget') or 'A combinar')
-        title_str = str(project.get('title') or 'Projeto')
-        desc_str = str(project.get('description') or '')
-
-
+        skills_str = (
+            ", ".join(project.get("skills", []))
+            if isinstance(project.get("skills"), list)
+            else str(project.get("skills") or "")
+        )
+        budget_str = str(project.get("budget") or "A combinar")
+        title_str = str(project.get("title") or "Projeto")
+        desc_str = str(project.get("description") or "")
 
         return f"""
 Você é um Arquiteto de Software e Consultor Técnico Sênior de Elite no Workana.
@@ -368,5 +402,3 @@ Retorne EXATAMENTE no formato JSON:
     "justification": "breve justificativa técnica do valor e prazo"
 }}
 """
-
-

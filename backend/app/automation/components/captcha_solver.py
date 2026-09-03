@@ -6,6 +6,7 @@ import httpx
 from loguru import logger
 from app.config import settings
 
+
 class CaptchaSolver:
     """
     Resolvedor de Captcha (2captcha / anti-captcha) para contornar bloqueios do Cloudflare/WAF.
@@ -30,16 +31,22 @@ class CaptchaSolver:
             return True
 
         if not self.is_configured:
-            logger.warning("Página bloqueada por WAF/Cloudflare, mas resolvedor de captcha não está configurado.")
+            logger.warning(
+                "Página bloqueada por WAF/Cloudflare, mas resolvedor de captcha não está configurado."
+            )
             return False
 
-        logger.info(f"Detectado bloqueio/WAF. Iniciando tentativa de solução via {self.provider}...")
+        logger.info(
+            f"Detectado bloqueio/WAF. Iniciando tentativa de solução via {self.provider}..."
+        )
 
         # 1. Tentar detectar o sitekey e tipo de captcha
         challenge_info = await self.get_challenge_info(page)
         if not challenge_info:
             # Se não encontrou sitekey, tenta o método de clique simples como último recurso se for Turnstile
-            logger.info("Não foi possível extrair sitekey. Tentando simular clique no Turnstile iframe...")
+            logger.info(
+                "Não foi possível extrair sitekey. Tentando simular clique no Turnstile iframe..."
+            )
             solved_by_click = await self.try_click_turnstile(page)
             return solved_by_click
 
@@ -66,7 +73,7 @@ class CaptchaSolver:
                 if not await self.is_blocked(page):
                     logger.success("Captcha resolvido com sucesso e página liberada!")
                     return True
-                
+
             logger.warning("Token injetado, mas a página ainda aparece como bloqueada.")
             return False
 
@@ -78,28 +85,32 @@ class CaptchaSolver:
         """Verifica se a página está bloqueada por tela de desafio / WAF / Cloudflare Interstitial."""
         try:
             title = await page.title()
-            
+
             cloudflare_indicators = [
                 "Just a moment...",
                 "Please turn on JS",
                 "Attention Required!",
                 "ddos guard",
-                "Checking your browser"
+                "Checking your browser",
             ]
-            
+
             # Verificar título explícito de bloqueio do CF
             if any(ind.lower() in title.lower() for ind in cloudflare_indicators):
                 return True
-                
+
             content = await page.content()
-            
+
             # Elementos específicos de bloqueio de página inteira (Interstitial Challenge)
-            if "#challenge-running" in content or "cf-challenge-running" in content or "id=\"challenge-stage\"" in content:
+            if (
+                "#challenge-running" in content
+                or "cf-challenge-running" in content
+                or 'id="challenge-stage"' in content
+            ):
                 # Se o app principal já montou, a página não está bloqueada
-                app_el = await page.query_selector('#app, .container, header.main-header')
+                app_el = await page.query_selector("#app, .container, header.main-header")
                 if not app_el:
                     return True
-                    
+
             return False
         except Exception:
             return False
@@ -174,7 +185,9 @@ class CaptchaSolver:
             return await self._solve_anticaptcha(page_url, sitekey, captcha_type)
         return None
 
-    async def _solve_2captcha(self, page_url: str, sitekey: str, captcha_type: str) -> Optional[str]:
+    async def _solve_2captcha(
+        self, page_url: str, sitekey: str, captcha_type: str
+    ) -> Optional[str]:
         method = "turnstile" if captcha_type == "turnstile" else "hcaptcha"
         async with httpx.AsyncClient(timeout=30.0) as client:
             # 1. Enviar tarefa
@@ -184,7 +197,7 @@ class CaptchaSolver:
                 "method": method,
                 "sitekey": sitekey,
                 "pageurl": page_url,
-                "json": 1
+                "json": 1,
             }
             logger.debug(f"2captcha: Enviando tarefa para {page_url}")
             res = await client.post(in_url, data=params)
@@ -194,20 +207,15 @@ class CaptchaSolver:
                 return None
 
             task_id = res_data.get("request")
-            
+
             # 2. Obter resultado (polling)
             res_url = "http://2captcha.com/res.php"
-            poll_params = {
-                "key": self.api_key,
-                "action": "get",
-                "id": task_id,
-                "json": 1
-            }
-            
+            poll_params = {"key": self.api_key, "action": "get", "id": task_id, "json": 1}
+
             # Espera inicial
             await asyncio.sleep(10.0)
-            
-            for _ in range(24): # Máximo 2 minutos (24 * 5s)
+
+            for _ in range(24):  # Máximo 2 minutos (24 * 5s)
                 logger.debug(f"2captcha: Verificando status da tarefa {task_id}...")
                 poll_res = await client.get(res_url, params=poll_params)
                 poll_data = poll_res.json()
@@ -217,22 +225,22 @@ class CaptchaSolver:
                     logger.error(f"2captcha polling error: {poll_data.get('request')}")
                     return None
                 await asyncio.sleep(5.0)
-                
+
             logger.warning("2captcha: Timeout aguardando solução.")
             return None
 
-    async def _solve_anticaptcha(self, page_url: str, sitekey: str, captcha_type: str) -> Optional[str]:
-        task_type = "TurnstileTaskProxyless" if captcha_type == "turnstile" else "HCaptchaTaskProxyless"
+    async def _solve_anticaptcha(
+        self, page_url: str, sitekey: str, captcha_type: str
+    ) -> Optional[str]:
+        task_type = (
+            "TurnstileTaskProxyless" if captcha_type == "turnstile" else "HCaptchaTaskProxyless"
+        )
         async with httpx.AsyncClient(timeout=30.0) as client:
             # 1. Criar tarefa
             create_url = "https://api.anti-captcha.com/createTask"
             payload = {
                 "clientKey": self.api_key,
-                "task": {
-                    "type": task_type,
-                    "websiteURL": page_url,
-                    "websiteKey": sitekey
-                }
+                "task": {"type": task_type, "websiteURL": page_url, "websiteKey": sitekey},
             }
             logger.debug(f"anti-captcha: Enviando tarefa tipo {task_type}")
             res = await client.post(create_url, json=payload)
@@ -242,33 +250,30 @@ class CaptchaSolver:
                 return None
 
             task_id = res_data.get("taskId")
-            
+
             # 2. Obter resultado (polling)
             result_url = "https://api.anti-captcha.com/getTaskResult"
-            result_payload = {
-                "clientKey": self.api_key,
-                "taskId": task_id
-            }
-            
+            result_payload = {"clientKey": self.api_key, "taskId": task_id}
+
             # Espera inicial
             await asyncio.sleep(10.0)
-            
-            for _ in range(24): # Máximo 2 minutos (24 * 5s)
+
+            for _ in range(24):  # Máximo 2 minutos (24 * 5s)
                 logger.debug(f"anti-captcha: Verificando status da tarefa {task_id}...")
                 res = await client.post(result_url, json=result_payload)
                 poll_data = res.json()
                 if poll_data.get("errorId", 0) != 0:
                     logger.error(f"anti-captcha polling error: {poll_data.get('errorDescription')}")
                     return None
-                
+
                 status = poll_data.get("status")
                 if status == "ready":
                     solution = poll_data.get("solution", {})
                     # anti-captcha retorna a solução de forma ligeiramente diferente dependendo do tipo
                     return solution.get("token") or solution.get("gRecaptchaResponse")
-                
+
                 await asyncio.sleep(5.0)
-                
+
             logger.warning("anti-captcha: Timeout aguardando solução.")
             return None
 
@@ -276,8 +281,9 @@ class CaptchaSolver:
         """Injeta o token resolvido no DOM e executa os callbacks correspondentes."""
         try:
             # Setar os inputs de resposta ocultos
-            await page.evaluate(f"""
-                (token) => {{
+            await page.evaluate(
+                """
+                (token) => {
                     // Turnstile
                     const tsRes = document.getElementsByName('cf-turnstile-response');
                     for (let el of tsRes) el.value = token;
@@ -290,12 +296,14 @@ class CaptchaSolver:
                     for (let el of hRes) el.value = token;
                     
                     // Disparar evento de mudança nos inputs
-                    const event = new Event('change', {{ bubbles: true }});
-                    for (let el of [...tsRes, ...gRes, ...hRes]) {{
+                    const event = new Event('change', { bubbles: true });
+                    for (let el of [...tsRes, ...gRes, ...hRes]) {
                         el.dispatchEvent(event);
-                    }}
-                }}
-            """, token)
+                    }
+                }
+            """,
+                token,
+            )
 
             # Submeter o formulário se houver um formulário de captcha ou Turnstile
             form_submitted = await page.evaluate("""
@@ -318,12 +326,12 @@ class CaptchaSolver:
                     return false;
                 }
             """)
-            
+
             if form_submitted:
                 logger.info("Formulário submetido ou callback executado via injeção.")
             else:
                 logger.info("Nenhum formulário ou callback explícito encontrado para submeter.")
-                
+
             return True
         except Exception as e:
             logger.error(f"Erro ao injetar token: {e}")

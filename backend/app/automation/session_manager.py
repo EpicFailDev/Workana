@@ -4,6 +4,7 @@ Gerenciador de sessão (storage_state do Playwright) do Workana.
 A sessão é a fonte de verdade no banco de dados (compartilhada entre API e Worker),
 com espelho em arquivo local para compatibilidade com fluxos anteriores.
 """
+
 import json
 import os
 from typing import Any, Dict, Optional
@@ -49,16 +50,18 @@ def normalize_storage_state(raw_input: Any) -> Optional[Dict[str, Any]]:
                     name = name.strip()
                     val = val.strip()
                     if name:
-                        cookies.append({
-                            "name": name,
-                            "value": val,
-                            "domain": ".workana.com",
-                            "path": "/",
-                            "expires": -1,
-                            "httpOnly": False,
-                            "secure": True,
-                            "sameSite": "Lax",
-                        })
+                        cookies.append(
+                            {
+                                "name": name,
+                                "value": val,
+                                "domain": ".workana.com",
+                                "path": "/",
+                                "expires": -1,
+                                "httpOnly": False,
+                                "secure": True,
+                                "sameSite": "Lax",
+                            }
+                        )
             if cookies:
                 return {"cookies": cookies, "origins": []}
             return None
@@ -116,16 +119,18 @@ def normalize_storage_state(raw_input: Any) -> Optional[Dict[str, Any]]:
                     exp = float(exp)
                 except Exception:
                     exp = -1
-                normalized_cookies.append({
-                    "name": str(c["name"]),
-                    "value": str(c["value"]),
-                    "domain": str(c.get("domain") or ".workana.com"),
-                    "path": str(c.get("path") or "/"),
-                    "expires": exp,
-                    "httpOnly": bool(c.get("httpOnly", False)),
-                    "secure": bool(c.get("secure", True)),
-                    "sameSite": same_site,
-                })
+                normalized_cookies.append(
+                    {
+                        "name": str(c["name"]),
+                        "value": str(c["value"]),
+                        "domain": str(c.get("domain") or ".workana.com"),
+                        "path": str(c.get("path") or "/"),
+                        "expires": exp,
+                        "httpOnly": bool(c.get("httpOnly", False)),
+                        "secure": bool(c.get("secure", True)),
+                        "sameSite": same_site,
+                    }
+                )
         if normalized_cookies:
             return {"cookies": normalized_cookies, "origins": []}
 
@@ -143,16 +148,18 @@ def normalize_storage_state(raw_input: Any) -> Optional[Dict[str, Any]]:
                     exp = float(exp)
                 except Exception:
                     exp = -1
-                normalized_cookies.append({
-                    "name": str(c["name"]),
-                    "value": str(c["value"]),
-                    "domain": str(c.get("domain") or ".workana.com"),
-                    "path": str(c.get("path") or "/"),
-                    "expires": exp,
-                    "httpOnly": bool(c.get("httpOnly", False)),
-                    "secure": bool(c.get("secure", True)),
-                    "sameSite": same_site,
-                })
+                normalized_cookies.append(
+                    {
+                        "name": str(c["name"]),
+                        "value": str(c["value"]),
+                        "domain": str(c.get("domain") or ".workana.com"),
+                        "path": str(c.get("path") or "/"),
+                        "expires": exp,
+                        "httpOnly": bool(c.get("httpOnly", False)),
+                        "secure": bool(c.get("secure", True)),
+                        "sameSite": same_site,
+                    }
+                )
         return {
             "cookies": normalized_cookies,
             "origins": data.get("origins", []),
@@ -197,7 +204,9 @@ async def load_storage_state(user_id: Any, as_path: bool = False) -> Optional[An
                     state = normalize_storage_state(content)
                 if state:
                     try:
-                        await crud.save_workana_session(user_id, json.dumps(state, ensure_ascii=False))
+                        await crud.save_workana_session(
+                            user_id, json.dumps(state, ensure_ascii=False)
+                        )
                     except Exception:
                         pass
                     return p if as_path else state
@@ -207,7 +216,9 @@ async def load_storage_state(user_id: Any, as_path: bool = False) -> Optional[An
     return None
 
 
-async def save_storage_state(user_id: Any, state: Dict[str, Any], account_email: Optional[str] = None) -> None:
+async def save_storage_state(
+    user_id: Any, state: Dict[str, Any], account_email: Optional[str] = None
+) -> None:
     """Persiste o storage_state do navegador no banco (e espelha em arquivo local)."""
     if not state:
         return
@@ -239,3 +250,127 @@ async def clear_storage_state(user_id: Any) -> None:
             os.remove(path)
     except Exception as exc:
         logger.warning(f"Não foi possível remover a sessão local para {user_id}: {exc}")
+
+
+async def get_session_cookies_dict(user_id: Any) -> Dict[str, str]:
+    """
+    Retorna um dicionário simples de cookies {name: value} para ser injetado em clientes HTTP (ex: HTTPX).
+    Filtra cookies relevantes para requisições no domínio workana.com.
+    """
+    state = await load_storage_state(user_id)
+    if not state or not isinstance(state, dict):
+        return {}
+
+    cookies = state.get("cookies", [])
+    cookies_dict = {}
+    for c in cookies:
+        if isinstance(c, dict) and "name" in c and "value" in c:
+            domain = str(c.get("domain") or "").lower()
+            if not domain or "workana.com" in domain or "wkncdn.com" in domain:
+                cookies_dict[c["name"]] = c["value"]
+    return cookies_dict
+
+
+async def check_session_health(user_id: Any) -> Dict[str, Any]:
+    """
+    Verifica o estado de saúde da sessão do Workana de um usuário.
+    Analisa a presença de cookies críticos e testa a validade contra o Workana.
+    """
+    import time
+    import httpx
+
+    state = await load_storage_state(user_id)
+    if not state or not isinstance(state, dict):
+        return {
+            "status": "disconnected",
+            "valid": False,
+            "message": "Nenhuma sessão do Workana encontrada. Conecte sua conta para habilitar o envio.",
+            "cookies_count": 0,
+            "has_cloudflare_clearance": False,
+        }
+
+    cookies_list = state.get("cookies", [])
+    if not cookies_list:
+        return {
+            "status": "empty",
+            "valid": False,
+            "message": "Sessão encontrada mas sem cookies registrados.",
+            "cookies_count": 0,
+            "has_cloudflare_clearance": False,
+        }
+
+    now = time.time()
+    expired_count = 0
+    has_cf = False
+    has_session_id = False
+    cookies_dict = {}
+
+    for c in cookies_list:
+        name = c.get("name", "")
+        val = c.get("value", "")
+        exp = c.get("expires", -1)
+        if exp and exp > 0 and exp < now:
+            expired_count += 1
+        if name in ("cf_clearance", "__cf_bm"):
+            has_cf = True
+        if name in ("PHPSESSID", "workana_session"):
+            has_session_id = True
+        cookies_dict[name] = val
+
+    # Testar conectividade real com endpoint autenticado leve
+    try:
+        async with httpx.AsyncClient(
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept": "application/json, text/plain, */*",
+                "X-Requested-With": "XMLHttpRequest",
+            },
+            cookies=cookies_dict,
+            timeout=8.0,
+            follow_redirects=False,
+        ) as client:
+            resp = await client.get("https://www.workana.com/dashboard/recommended_projects")
+            if resp.status_code == 200:
+                return {
+                    "status": "healthy",
+                    "valid": True,
+                    "message": "Sessão ativa e autenticada com sucesso no Workana.",
+                    "cookies_count": len(cookies_list),
+                    "has_cloudflare_clearance": has_cf,
+                    "http_status": 200,
+                }
+            elif resp.status_code in (301, 302, 303, 307, 308):
+                location = resp.headers.get("location", "")
+                if "login" in location.lower():
+                    return {
+                        "status": "expired",
+                        "valid": False,
+                        "message": "Cookies expirados no Workana. Renove seu login nas configurações.",
+                        "cookies_count": len(cookies_list),
+                        "has_cloudflare_clearance": has_cf,
+                        "http_status": resp.status_code,
+                    }
+            elif resp.status_code == 403:
+                return {
+                    "status": "blocked_waf",
+                    "valid": False,
+                    "message": "Cloudflare WAF bloqueou a requisição. Abra uma nova sessão pelo navegador.",
+                    "cookies_count": len(cookies_list),
+                    "has_cloudflare_clearance": False,
+                    "http_status": 403,
+                }
+    except Exception as e:
+        logger.debug(f"Teste online da sessão falhou: {e}")
+
+    # Fallback offline baseado nos dados salvos
+    is_valid = has_session_id and (len(cookies_list) - expired_count) > 0
+    return {
+        "status": "saved_offline" if is_valid else "potentially_expired",
+        "valid": is_valid,
+        "message": "Sessão salva disponível para automação."
+        if is_valid
+        else "A sessão pode estar expirada.",
+        "cookies_count": len(cookies_list),
+        "expired_cookies_count": expired_count,
+        "has_cloudflare_clearance": has_cf,
+    }

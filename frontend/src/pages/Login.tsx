@@ -15,19 +15,25 @@ export default function Login() {
   const [searchParams] = useSearchParams();
   const { signIn, signInWithGoogle } = useAuth();
   const { toast } = useToast();
-  
+
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const next = searchParams.get('next') || '/';
 
-  const { register, handleSubmit, formState: { errors }, setValue, watch } = useForm<LoginInputs>({
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    setValue,
+    watch,
+  } = useForm<LoginInputs>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
       email: '',
       password: '',
       rememberMe: false,
-    }
+    },
   });
 
   const rememberMeValue = watch('rememberMe');
@@ -64,14 +70,14 @@ export default function Login() {
   };
 
   return (
-    <div 
+    <div
       className="flex h-screen w-full items-center justify-center p-4 bg-cover bg-center overflow-hidden"
       style={{ backgroundImage: "url('/bglogin.png')" }}
     >
       <div className="w-full max-w-[440px] rounded-3xl border border-white/5 bg-[#0c0c14]/85 p-8 shadow-2xl backdrop-blur-xl relative overflow-hidden animate-slide-up">
         {/* Decorative Top Line */}
         <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
-        
+
         {/* Logo Section */}
         <div className="flex flex-col items-center mb-8 text-center">
           <div className="w-14 h-14 bg-indigo-500/10 border border-indigo-500/30 rounded-2xl flex items-center justify-center mb-4 shadow-[0_0_20px_rgba(99,102,241,0.2)]">
@@ -80,9 +86,7 @@ export default function Login() {
           <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
             Acesso Corporativo
           </h1>
-          <p className="text-sm text-slate-400 mt-2">
-            Insira suas credenciais para continuar
-          </p>
+          <p className="text-sm text-slate-400 mt-2">Insira suas credenciais para continuar</p>
         </div>
 
         {/* Login Form */}
@@ -122,7 +126,7 @@ export default function Login() {
                 onClick={() => setShowPassword(!showPassword)}
                 disabled={loading}
                 className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
-                aria-label={showPassword ? "Ocultar senha" : "Exibir senha"}
+                aria-label={showPassword ? 'Ocultar senha' : 'Exibir senha'}
               >
                 {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
@@ -142,7 +146,10 @@ export default function Login() {
                 disabled={loading}
                 className="border-slate-600 data-[state=checked]:bg-indigo-500 data-[state=checked]:border-indigo-500 rounded"
               />
-              <label htmlFor="rememberMe" className="text-xs text-slate-400 cursor-pointer select-none">
+              <label
+                htmlFor="rememberMe"
+                className="text-xs text-slate-400 cursor-pointer select-none"
+              >
                 Lembrar-me neste dispositivo
               </label>
             </div>
@@ -162,18 +169,16 @@ export default function Login() {
             disabled={loading}
             className="w-full h-12 bg-gradient-to-r from-indigo-500 to-purple-600 hover:brightness-110 text-white font-semibold rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-950/20 active:scale-[0.99] border-none mt-2"
           >
-            {loading ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              <>Entrar</>
-            )}
+            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Entrar</>}
           </Button>
         </form>
 
         {/* Divider */}
         <div className="flex items-center my-6">
           <div className="flex-1 h-[1px] bg-white/5" />
-          <span className="text-xs text-slate-500 uppercase tracking-widest px-3">Ou acesse com</span>
+          <span className="text-xs text-slate-500 uppercase tracking-widest px-3">
+            Ou acesse com
+          </span>
           <div className="flex-1 h-[1px] bg-white/5" />
         </div>
 

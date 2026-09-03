@@ -27,7 +27,7 @@ export const customAuthStorage = {
   removeItem(key: string): void {
     localStorage.removeItem(key);
     sessionStorage.removeItem(key);
-  }
+  },
 };
 
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
@@ -36,5 +36,5 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
-  }
+  },
 });

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 @dataclass
 class InvestmentStage:
     """Represents a single investment stage."""
+
     title: str
     description: str
     percentage: float  # Percentage of total (0-100)
@@ -20,13 +21,13 @@ class InvestmentStage:
 class InvestmentBreakdownCalculator:
     """
     Calculates dynamic investment breakdown across development stages.
-    
+
     Supports 3 price levels with different percentage distributions:
     - budget: Lower cost, lean development
     - standard: Balanced cost, standard development
     - premium: Higher cost, comprehensive development
     """
-    
+
     # Price level configurations
     PRICE_LEVEL_CONFIGS = {
         "budget": {
@@ -108,51 +109,51 @@ class InvestmentBreakdownCalculator:
             ],
         },
     }
-    
+
     # Default stage definitions (for backward compatibility)
     STAGE_DEFINITIONS = PRICE_LEVEL_CONFIGS["standard"]["stages"]
-    
+
     @classmethod
     def calculate_breakdown(
         cls,
         total_value: float,
         price_level: Literal["budget", "standard", "premium"] = "standard",
-        custom_percentages: Dict[str, float] = None
+        custom_percentages: Dict[str, float] = None,
     ) -> List[InvestmentStage]:
         """
         Calculate investment breakdown for each stage.
-        
+
         Args:
             total_value: Total project value in BRL (R$)
             price_level: Price level (budget, standard, premium)
             custom_percentages: Optional dict with custom percentages per stage title
-            
+
         Returns:
             List of InvestmentStage with calculated amounts
         """
         # Get stages for the selected price level
         config = cls.PRICE_LEVEL_CONFIGS.get(price_level, cls.PRICE_LEVEL_CONFIGS["standard"])
         stage_defs = config["stages"]
-        
+
         stages = []
-        
+
         for stage_def in stage_defs:
             # Use custom percentage if provided, otherwise use default
             percentage = stage_def["percentage"]
             if custom_percentages and stage_def["title"] in custom_percentages:
                 percentage = custom_percentages[stage_def["title"]]
-            
+
             # Calculate amount
             amount = total_value * (percentage / 100.0)
-            
+
             stage = InvestmentStage(
                 title=stage_def["title"],
                 description=stage_def["description"],
                 percentage=percentage,
-                amount=amount
+                amount=amount,
             )
             stages.append(stage)
-        
+
         # Normalize to ensure exact total (handle rounding)
         calculated_total = sum(s.amount for s in stages)
         if calculated_total != total_value and stages:
@@ -162,9 +163,9 @@ class InvestmentBreakdownCalculator:
                 if "Frontend" in stage.title or "Mobile" in stage.title:
                     stage.amount += diff
                     break
-        
+
         return stages
-    
+
     @classmethod
     def format_currency(cls, value: float) -> str:
         """Format value as Brazilian Real (R$ X.XXX,XX)."""
@@ -173,59 +174,59 @@ class InvestmentBreakdownCalculator:
         # Replace . with placeholder, , with ., then placeholder with ,
         formatted = formatted.replace(",", "X").replace(".", ",").replace("X", ".")
         return f"R$ {formatted}"
-    
+
     @classmethod
     def generate_breakdown_text(
         cls,
         total_value: float,
         price_level: Literal["budget", "standard", "premium"] = "standard",
-        custom_percentages: Dict[str, float] = None
+        custom_percentages: Dict[str, float] = None,
     ) -> str:
         """
         Generate formatted investment breakdown text.
-        
+
         Args:
             total_value: Total project value
             price_level: Price level (budget, standard, premium)
             custom_percentages: Optional custom percentages
-            
+
         Returns:
             Formatted text with investment breakdown
         """
         stages = cls.calculate_breakdown(total_value, price_level, custom_percentages)
         config = cls.PRICE_LEVEL_CONFIGS.get(price_level, cls.PRICE_LEVEL_CONFIGS["standard"])
-        
+
         lines = ["💰 Detalhamento do Investimento", ""]
-        
+
         for stage in stages:
             lines.append(f"{stage.title}")
             lines.append(f"{stage.description}")
             lines.append(f"Investimento: {cls.format_currency(stage.amount)}")
             lines.append("")  # Empty line between stages
-        
+
         # Add total
         lines.append("💵 Investimento Total do Projeto")
         lines.append("")
         lines.append(cls.format_currency(total_value))
-        
+
         return "\n".join(lines)
-    
+
     @classmethod
     def get_breakdown_as_dict(
         cls,
         total_value: float,
         price_level: Literal["budget", "standard", "premium"] = "standard",
-        custom_percentages: Dict[str, float] = None
+        custom_percentages: Dict[str, float] = None,
     ) -> Dict:
         """
         Get breakdown as dictionary for API responses.
-        
+
         Returns:
             Dict with stages list and formatted text
         """
         stages = cls.calculate_breakdown(total_value, price_level, custom_percentages)
         config = cls.PRICE_LEVEL_CONFIGS.get(price_level, cls.PRICE_LEVEL_CONFIGS["standard"])
-        
+
         return {
             "total_value": total_value,
             "total_formatted": cls.format_currency(total_value),
@@ -238,11 +239,13 @@ class InvestmentBreakdownCalculator:
                     "description": s.description,
                     "percentage": s.percentage,
                     "amount": s.amount,
-                    "amount_formatted": cls.format_currency(s.amount)
+                    "amount_formatted": cls.format_currency(s.amount),
                 }
                 for s in stages
             ],
-            "breakdown_text": cls.generate_breakdown_text(total_value, price_level, custom_percentages)
+            "breakdown_text": cls.generate_breakdown_text(
+                total_value, price_level, custom_percentages
+            ),
         }
 
 

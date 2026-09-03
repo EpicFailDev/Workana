@@ -9,6 +9,7 @@ recência, filtros e agregações temporais no catálogo.
 Referência de pattern: koiosoft/workana-bot (migration estimated_published_at),
 reimplementado para pt-BR (foco do projeto) e datas absolutas.
 """
+
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -18,9 +19,19 @@ from typing import Optional
 BRAZIL_TZ = timezone(timedelta(hours=-3))
 
 _NUMBER_WORDS = {
-    "um": 1, "uma": 1, "dois": 2, "duas": 2, "três": 3, "tres": 3,
-    "quatro": 4, "cinco": 5, "seis": 6, "sete": 7, "oito": 8,
-    "nove": 9, "dez": 10,
+    "um": 1,
+    "uma": 1,
+    "dois": 2,
+    "duas": 2,
+    "três": 3,
+    "tres": 3,
+    "quatro": 4,
+    "cinco": 5,
+    "seis": 6,
+    "sete": 7,
+    "oito": 8,
+    "nove": 9,
+    "dez": 10,
 }
 
 # (singular, plural) por unidade — cobertura pt-BR.
@@ -43,13 +54,35 @@ _UNIT_DELTAS = {
 }
 
 _MONTHS_PT = {
-    "janeiro": 1, "jan": 1, "fevereiro": 2, "fev": 2, "março": 3, "mar": 3,
-    "abril": 4, "abr": 4, "maio": 5, "mai": 5, "junho": 6, "jun": 6,
-    "julho": 7, "jul": 7, "agosto": 8, "ago": 8, "setembro": 9, "set": 9,
-    "outubro": 10, "out": 10, "novembro": 11, "nov": 11, "dezembro": 12, "dez": 12,
+    "janeiro": 1,
+    "jan": 1,
+    "fevereiro": 2,
+    "fev": 2,
+    "março": 3,
+    "mar": 3,
+    "abril": 4,
+    "abr": 4,
+    "maio": 5,
+    "mai": 5,
+    "junho": 6,
+    "jun": 6,
+    "julho": 7,
+    "jul": 7,
+    "agosto": 8,
+    "ago": 8,
+    "setembro": 9,
+    "set": 9,
+    "outubro": 10,
+    "out": 10,
+    "novembro": 11,
+    "nov": 11,
+    "dezembro": 12,
+    "dez": 12,
 }
 
-_TOKEN_DATE = re.compile(r"(?P<day>\d{1,2})\s+(?:de\s+)?(?P<month>[a-z.]+)\.?\s+(?:de\s+)?(?P<year>\d{4})", re.IGNORECASE)
+_TOKEN_DATE = re.compile(
+    r"(?P<day>\d{1,2})\s+(?:de\s+)?(?P<month>[a-z.]+)\.?\s+(?:de\s+)?(?P<year>\d{4})", re.IGNORECASE
+)
 
 
 def _strip_label(text: str) -> str:

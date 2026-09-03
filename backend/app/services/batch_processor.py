@@ -2,6 +2,7 @@
 Processador de lotes de proposta (Batch Dispatch Engine).
 Executa o envio sequencial em background respeitando anti-ban, limites diários e jitter humanizado.
 """
+
 import asyncio
 import random
 import re
@@ -23,6 +24,7 @@ class ProposalBatchProcessor:
     """
     Processa itens pendentes em lotes de proposta de forma assíncrona e resiliente.
     """
+
     _is_busy = False
 
     @classmethod
@@ -97,9 +99,11 @@ class ProposalBatchProcessor:
                         item_id=item["id"],
                         status="generating",
                     )
-                    
+
                     # Obter dados do catálogo
-                    catalog_projects = await crud.get_catalog_projects_by_ids(user_id_str, [item["workana_id"]])
+                    catalog_projects = await crud.get_catalog_projects_by_ids(
+                        user_id_str, [item["workana_id"]]
+                    )
                     if not catalog_projects:
                         await crud.update_batch_item_status(
                             item_id=item["id"],
@@ -115,7 +119,8 @@ class ProposalBatchProcessor:
                         "title": cat_proj.get("title", item.get("project_title", "")),
                         "description": cat_proj.get("description", ""),
                         "skills": cat_proj.get("skills", []),
-                        "budget": cat_proj.get("budget_type") or (
+                        "budget": cat_proj.get("budget_type")
+                        or (
                             f"R$ {cat_proj.get('budget_min', 0)} - {cat_proj.get('budget_max', 0)}"
                             if cat_proj.get("budget_min") or cat_proj.get("budget_max")
                             else "A combinar"
@@ -131,7 +136,9 @@ class ProposalBatchProcessor:
                     )
 
                     if not gen_result.get("success") or not gen_result.get("proposal"):
-                        error_msg = gen_result.get("error") or "Falha ao gerar texto da proposta com IA."
+                        error_msg = (
+                            gen_result.get("error") or "Falha ao gerar texto da proposta com IA."
+                        )
                         await crud.update_batch_item_status(
                             item_id=item["id"],
                             status="failed",
@@ -143,10 +150,10 @@ class ProposalBatchProcessor:
 
                     message_text = gen_result.get("proposal")
                     suggested_price_str = gen_result.get("suggested_price")
-                    
+
                     if not budget_val and suggested_price_str:
-                        price_clean = suggested_price_str.replace('.', '').replace(',', '.')
-                        match = re.search(r'[\d.]+', price_clean)
+                        price_clean = suggested_price_str.replace(".", "").replace(",", ".")
+                        match = re.search(r"[\d.]+", price_clean)
                         if match:
                             try:
                                 budget_val = float(match.group())
@@ -154,7 +161,9 @@ class ProposalBatchProcessor:
                                 pass
 
                     if not budget_val:
-                        budget_val = cat_proj.get("budget_min") or cat_proj.get("budget_max") or 150.0
+                        budget_val = (
+                            cat_proj.get("budget_min") or cat_proj.get("budget_max") or 150.0
+                        )
 
                     await crud.update_batch_item_status(
                         item_id=item["id"],
@@ -171,8 +180,11 @@ class ProposalBatchProcessor:
                         await crud.save_ai_proposal(
                             user_id=user_id_str,
                             project_id=item["workana_id"],
-                            project_title=cat_proj.get("title") or item.get("project_title") or f"Projeto {item['workana_id']}",
-                            project_url=cat_proj.get("url") or f"https://www.workana.com/job/{item['workana_id']}",
+                            project_title=cat_proj.get("title")
+                            or item.get("project_title")
+                            or f"Projeto {item['workana_id']}",
+                            project_url=cat_proj.get("url")
+                            or f"https://www.workana.com/job/{item['workana_id']}",
                             proposal_text=message_text,
                             suggested_price=suggested_price_str or "",
                             template_id=batch.get("template_ref"),

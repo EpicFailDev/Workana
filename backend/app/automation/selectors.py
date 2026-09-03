@@ -3,29 +3,34 @@ Seletores CSS para o scraper do Workana.
 Centraliza as strings de busca para facilitar manutenção.
 """
 
+
 class WorkanaSelectors:
     """Seletores CSS para elementos do Workana."""
-    
+
     # Listagem de projetos
     PROJECT_CARD = '.project-item, .job-item, [data-testid="project-card"]'
-    CARD_TITLE = 'a[href*="/job/"], h2.project-title a, h3.project-title a, .project-title a, h2 a, h3 a'
-    CARD_DESCRIPTION = '.project-body .html-desc, .html-desc, .project-details, .expander, [data-text-expand], .project-item-description, .project-description'
-    CARD_BUDGET = '.values, .budget, .price, span.budget, div.budget'
-    CARD_SKILLS = '.skills .skill, .skills .tag, .skills a, .tech-stack .tag, .skill, .tag'
-    CARD_PROPOSALS = '.proposals-count, .bids, span.bids'
-    CARD_DATE = '.date, time, .project-main-details .date, h5[title]'
-    PAGINATION_NEXT = '.pagination .next, a.next'
-    
+    CARD_TITLE = (
+        'a[href*="/job/"], h2.project-title a, h3.project-title a, .project-title a, h2 a, h3 a'
+    )
+    CARD_DESCRIPTION = ".project-body .html-desc, .html-desc, .project-details, .expander, [data-text-expand], .project-item-description, .project-description"
+    CARD_BUDGET = ".values, .budget, .price, span.budget, div.budget"
+    CARD_SKILLS = ".skills .skill, .skills .tag, .skills a, .tech-stack .tag, .skill, .tag"
+    CARD_PROPOSALS = ".proposals-count, .bids, span.bids"
+    CARD_DATE = ".date, time, .project-main-details .date, h5[title]"
+    PAGINATION_NEXT = ".pagination .next, a.next"
+
     # Detalhes do projeto (/job/{slug})
     DETAILS_TITLE = 'h1.title, h1.h3, h1, .project-title, [data-testid="project-title"]'
     DETAILS_DESCRIPTION = '.block-detail .specification .expander, .block-detail .expander, .expander, .project-details, .job-details, .job-description, div[data-testid="job-description"], .project-body, .description, .project-description, #project-details'
-    DETAILS_BUDGET = 'h4.budget, .values, .budget, .price, span.budget, div.budget'
-    DETAILS_SKILLS = '.skills .skill, .skills a, .skills .tag, .tech-stack .tag, ul.skills li, .skills span, .skill, .tag'
-    DETAILS_CLIENT_NAME = '.user-name span, .user-name, .wk-user-info .user-name, .client-name, .employer-name, .client-info h4, .project-author a, .profile-name'
-    DETAILS_CLIENT_COUNTRY = '.wk-user-info .country .flag, .client-country, .location, .country, .country-name'
-    DETAILS_RATING = '.profile-stars .stars-bg, .stars-container, .rating, .score, .rating-box'
-    DETAILS_SIDEBAR = 'aside, .project-details-sidebar, #sidebar, .employer-history, .wk-user-info'
-    DETAILS_STARS = '.fa-star'
+    DETAILS_BUDGET = "h4.budget, .values, .budget, .price, span.budget, div.budget"
+    DETAILS_SKILLS = ".skills .skill, .skills a, .skills .tag, .tech-stack .tag, ul.skills li, .skills span, .skill, .tag"
+    DETAILS_CLIENT_NAME = ".user-name span, .user-name, .wk-user-info .user-name, .client-name, .employer-name, .client-info h4, .project-author a, .profile-name"
+    DETAILS_CLIENT_COUNTRY = (
+        ".wk-user-info .country .flag, .client-country, .location, .country, .country-name"
+    )
+    DETAILS_RATING = ".profile-stars .stars-bg, .stars-container, .rating, .score, .rating-box"
+    DETAILS_SIDEBAR = "aside, .project-details-sidebar, #sidebar, .employer-history, .wk-user-info"
+    DETAILS_STARS = ".fa-star"
 
     # Formulário de Proposta / Bid Form (Mapeados diretamente via Engenharia Reversa do bundle.1398 e HAR real)
     BID_BUTTON = '.bid-button, a[href*="/messages/bid/"], a:has-text("Fazer uma proposta"), a:has-text("Make bid"), a:has-text("Enviar proposta")'
@@ -47,21 +52,19 @@ class WorkanaSelectors:
     CSRF_NAME_INPUT = 'input[name="csrf_name"]'
     DCST_INPUT = 'input[name="dcst-input"]'
     TURNSTILE_RESPONSE_INPUT = 'input[name="cf-turnstile-response"]'
-    TURNSTILE_WIDGET = '.cf-turnstile, div[data-sitekey]'
+    TURNSTILE_WIDGET = ".cf-turnstile, div[data-sitekey]"
 
     # Skills Checkboxes no formulário de proposta (HAR: skill-flutter=flutter, skill-api=api)
     BID_SKILL_CHECKBOXES = 'input[name^="skill-"], input[type="checkbox"][name^="skill"]'
 
     # Validação pós-submit — O redirect de sucesso contém estes parâmetros
     # Ex: /messages/index/{slug}/{user}?added=214932899&bid=1&isFromInbox=0
-    POST_SUBMIT_SUCCESS_PARAMS = ('added=', 'bid=1')
+    POST_SUBMIT_SUCCESS_PARAMS = ("added=", "bid=1")
 
     # ── APIs internas do Workana (descobertas via HAR) ──
-    RECOMMENDED_PROJECTS_ENDPOINT = '/dashboard/recommended_projects'
-    SAVED_SEARCHES_ENDPOINT = '/saved_searches/1'
-    CHAT_FRIENDS_ENDPOINT = '/chat/friends'
-    NOTIFICATIONS_ENDPOINT = '/notifications'
-    THREADS_ATTACHMENTS_ENDPOINT = '/threads/{thread_id}/attachments'
-    UPLOAD_ASSEMBLIES_ENDPOINT = 'https://upload.workana.com/upload/assemblies'
-
-
+    RECOMMENDED_PROJECTS_ENDPOINT = "/dashboard/recommended_projects"
+    SAVED_SEARCHES_ENDPOINT = "/saved_searches/1"
+    CHAT_FRIENDS_ENDPOINT = "/chat/friends"
+    NOTIFICATIONS_ENDPOINT = "/notifications"
+    THREADS_ATTACHMENTS_ENDPOINT = "/threads/{thread_id}/attachments"
+    UPLOAD_ASSEMBLIES_ENDPOINT = "https://upload.workana.com/upload/assemblies"

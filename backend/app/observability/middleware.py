@@ -9,6 +9,7 @@ StructuredAccessLogMiddleware:
 - Suprime probes bem-sucedidos de /health e /ready para manter sinal 100% limpo.
 - Categoriza status codes semânticos (INFO para 2xx/3xx, WARNING para 4xx, ERROR para 5xx).
 """
+
 from __future__ import annotations
 
 import time
@@ -42,7 +43,7 @@ class StructuredAccessLogMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         raw_rid = request.headers.get(_HEADER_REQUEST_ID)
         rid = context.normalize_request_id(raw_rid)
-        
+
         # Define contexto de correlação para todo o ciclo de vida desta corrotina
         token_rid = context.request_id_var.set(rid)
         token_user = None
@@ -83,7 +84,7 @@ class StructuredAccessLogMiddleware(BaseHTTPMiddleware):
             if not (is_probe and 200 <= status_code < 300 and duration_ms < 1000):
                 client_ip = _get_client_ip(request)
                 user_agent = request.headers.get("user-agent", "")[:150]
-                
+
                 log_data = {
                     "method": request.method,
                     "path": path,
@@ -110,4 +111,3 @@ class StructuredAccessLogMiddleware(BaseHTTPMiddleware):
 
 # Alias para retrocompatibilidade
 RequestIDMiddleware = StructuredAccessLogMiddleware
-

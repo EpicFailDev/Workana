@@ -41,7 +41,9 @@ from app.services.scorer import ProjectScorer
 def test_catalog_endpoint_is_db_only(client):
     payload = {"projects": [], "total": 0, "page": 1, "limit": 24}
     with (
-        patch("app.api.routers.projects.crud.search_catalog", AsyncMock(return_value=payload)) as search,
+        patch(
+            "app.api.routers.projects.crud.search_catalog", AsyncMock(return_value=payload)
+        ) as search,
         patch("app.api.routers.projects.automation.search_projects", AsyncMock()) as scrape,
     ):
         response = client.get("/api/projects?q=python&sort=created_at_desc")
@@ -64,13 +66,33 @@ async def test_search_catalog_returns_callers_overlay(monkeypatch):
     catalog = MagicMock()
     catalog.workana_id = "project-slug"
     for field in (
-        "title", "description", "url", "category", "subcategory", "budget_min",
-        "budget_max", "budget_type", "deadline", "skills", "client_name",
-        "client_country", "client_rating", "client_projects_posted",
-        "client_projects_paid", "client_member_since", "client_plan",
-        "proposals_count", "payment_verified", "posted_at", "published_at",
-        "last_client_activity", "is_urgent", "is_featured", "status",
-        "first_seen_at", "last_seen_at",
+        "title",
+        "description",
+        "url",
+        "category",
+        "subcategory",
+        "budget_min",
+        "budget_max",
+        "budget_type",
+        "deadline",
+        "skills",
+        "client_name",
+        "client_country",
+        "client_rating",
+        "client_projects_posted",
+        "client_projects_paid",
+        "client_member_since",
+        "client_plan",
+        "proposals_count",
+        "payment_verified",
+        "posted_at",
+        "published_at",
+        "last_client_activity",
+        "is_urgent",
+        "is_featured",
+        "status",
+        "first_seen_at",
+        "last_seen_at",
     ):
         setattr(catalog, field, None)
     catalog.details = {}
@@ -199,9 +221,7 @@ async def test_filtered_target_resolution_respects_exclude_and_cap(monkeypatch):
         {"workana_id": "two"},
         {"workana_id": "three"},
     ]
-    search = AsyncMock(
-        return_value={"projects": projects, "total": 3, "page": 1, "limit": 2}
-    )
+    search = AsyncMock(return_value={"projects": projects, "total": 3, "page": 1, "limit": 2})
     monkeypatch.setattr("app.database.crud.search_catalog", search)
 
     result = await crud.resolve_target_workana_ids(
@@ -249,28 +269,53 @@ def test_analyze_endpoint_persists_ranked_results(client):
         {"workana_id": "two"},
     ]
     with (
-        patch("app.api.routers.projects.crud.resolve_target_workana_ids", AsyncMock(return_value=["one", "two"])) as resolve,
-        patch("app.api.routers.projects.crud.get_catalog_projects_by_ids", AsyncMock(return_value=projects)) as get_projects,
+        patch(
+            "app.api.routers.projects.crud.resolve_target_workana_ids",
+            AsyncMock(return_value=["one", "two"]),
+        ) as resolve,
+        patch(
+            "app.api.routers.projects.crud.get_catalog_projects_by_ids",
+            AsyncMock(return_value=projects),
+        ) as get_projects,
         patch("app.api.routers.projects.crud.get_saved_filters", AsyncMock(return_value=[])),
-        patch("app.api.routers.projects.crud.get_automation_config", AsyncMock(return_value={"auto_apply": False, "max_proposals_per_day": 10})),
+        patch(
+            "app.api.routers.projects.crud.get_automation_config",
+            AsyncMock(return_value={"auto_apply": False, "max_proposals_per_day": 10}),
+        ),
         patch(
             "app.api.routers.projects.ProjectScorer.analyze_project",
             side_effect=[
                 {
                     "score": 92.0,
                     "recommendation": "send",
-                    "dimensions": {"profile_fit": 90, "budget": 95, "competition": 88, "client_reliability": 91, "recency": 94, "risk": 86},
+                    "dimensions": {
+                        "profile_fit": 90,
+                        "budget": 95,
+                        "competition": 88,
+                        "client_reliability": 91,
+                        "recency": 94,
+                        "risk": 86,
+                    },
                     "justification": "forte",
                 },
                 {
                     "score": 41.0,
                     "recommendation": "review",
-                    "dimensions": {"profile_fit": 40, "budget": 50, "competition": 42, "client_reliability": 38, "recency": 44, "risk": 43},
+                    "dimensions": {
+                        "profile_fit": 40,
+                        "budget": 50,
+                        "competition": 42,
+                        "client_reliability": 38,
+                        "recency": 44,
+                        "risk": 43,
+                    },
                     "justification": "médio",
                 },
             ],
         ) as analyze,
-        patch("app.api.routers.projects.crud.save_project_analysis", AsyncMock(return_value=2)) as persist,
+        patch(
+            "app.api.routers.projects.crud.save_project_analysis", AsyncMock(return_value=2)
+        ) as persist,
     ):
         response = client.post("/api/projects/analyze", json={"project_ids": ["one", "two"]})
 
@@ -342,7 +387,9 @@ async def test_catalog_cycle_uses_anonymous_fallback_and_restores_context(monkey
     lifecycle = AsyncMock(return_value={"gone": 0, "closed": 0})
 
     monkeypatch.setattr("app.services.scheduler.async_session", SessionContext)
-    monkeypatch.setattr("app.services.scheduler.crud.get_distinct_saved_filter_queries", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "app.services.scheduler.crud.get_distinct_saved_filter_queries", AsyncMock(return_value=[])
+    )
     monkeypatch.setattr("app.services.scheduler.crud.upsert_catalog_rows_batch", upsert)
     monkeypatch.setattr("app.services.scheduler.crud.mark_gone_catalog_projects", lifecycle)
     monkeypatch.setattr("app.services.scheduler.automation.search_projects", scrape)
@@ -407,6 +454,7 @@ async def test_mark_gone_catalog_projects_safety_threshold(monkeypatch):
     class SessionContext:
         async def __aenter__(self):
             return session
+
         async def __aexit__(self, exc_type, exc, traceback):
             return False
 
@@ -428,6 +476,7 @@ async def test_restore_gone_catalog_projects(monkeypatch):
     class SessionContext:
         async def __aenter__(self):
             return session
+
         async def __aexit__(self, exc_type, exc, traceback):
             return False
 
@@ -439,11 +488,12 @@ async def test_restore_gone_catalog_projects(monkeypatch):
 
 def test_restore_gone_endpoint(client):
     """Testa o endpoint /api/automation/catalog/restore-gone."""
-    with patch("app.api.routers.automation.crud.restore_gone_catalog_projects", AsyncMock(return_value=348)) as restore_mock:
+    with patch(
+        "app.api.routers.automation.crud.restore_gone_catalog_projects", AsyncMock(return_value=348)
+    ) as restore_mock:
         response = client.post("/api/automation/catalog/restore-gone")
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
         assert data["restored"] == 348
         restore_mock.assert_awaited_once()
-

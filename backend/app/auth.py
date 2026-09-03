@@ -37,20 +37,19 @@ def get_current_user(authorization: Optional[str] = Header(default=None)) -> Use
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not token:
         raise _unauthorized("Cabeçalho de autorização inválido.")
-    
+
     # Se estivermos em modo debug, executando testes automatizados e sem Supabase configurado, podemos usar um mock para testes
     import sys
     import os
+
     is_testing = "pytest" in sys.modules or os.getenv("TESTING") == "true"
     if settings.debug and is_testing and not settings.supabase_jwks_url:
         if token == "mock-token":
             from app.database.models import current_user_id
+
             user_uuid = UUID("00000000-0000-0000-0000-000000000000")
             current_user_id.set(user_uuid)
-            return {
-                "user_id": user_uuid,
-                "email": "mock@example.com"
-            }
+            return {"user_id": user_uuid, "email": "mock@example.com"}
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Supabase Auth não está configurado.",
@@ -65,7 +64,7 @@ def get_current_user(authorization: Optional[str] = Header(default=None)) -> Use
     try:
         # Recupera a chave pública apropriada para assinar esse JWT específico
         signing_key = jwks_client.get_signing_key_from_jwt(token)
-        
+
         header = jwt.get_unverified_header(token)
         algorithm = header.get("alg")
         if not algorithm or algorithm not in ALLOWED_JWT_ALGORITHMS:
@@ -81,7 +80,7 @@ def get_current_user(authorization: Optional[str] = Header(default=None)) -> Use
             issuer=f"{settings.supabase_url.rstrip('/')}/auth/v1",
             leeway=120,
         )
-        
+
         user_id = payload.get("sub")
         if not user_id:
             raise _unauthorized("Token inválido: subject ausente.")
@@ -90,28 +89,29 @@ def get_current_user(authorization: Optional[str] = Header(default=None)) -> Use
             user_uuid = UUID(user_id)
         except (TypeError, ValueError):
             raise _unauthorized("Token inválido: subject não é um UUID.")
-            
+
         from app.database.models import current_user_id
         from app.observability import context as obs_ctx
+
         current_user_id.set(user_uuid)
         obs_ctx.set_user_id(str(user_uuid))
-            
-        return {
-            "user_id": user_uuid,
-            "email": payload.get("email")
-        }
-        
+
+        return {"user_id": user_uuid, "email": payload.get("email")}
+
     except jwt.ExpiredSignatureError as e:
         from loguru import logger
+
         logger.warning(f"JWT expirado: {e}")
         raise _unauthorized("Token expirado.")
     except HTTPException:
         raise
     except jwt.InvalidTokenError as e:
         from loguru import logger
+
         logger.warning(f"JWT inválido: {e}")
         raise _unauthorized("Token inválido.")
     except Exception as e:
         from loguru import logger
+
         logger.exception(f"Erro inesperado na validação do JWT: {e}")
         raise _unauthorized("Não foi possível validar o token.")

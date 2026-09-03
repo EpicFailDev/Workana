@@ -1,6 +1,7 @@
 """
 Aplicação principal FastAPI para automação do Workana.
 """
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -10,11 +11,20 @@ import sys
 import asyncio
 
 from app.config import settings
+
 # Logging central DEVE ser configurado antes das demais importações de app,
 # de forma que Uvicorn/SQLAlchemy já emitam pelo pipeline estruturado.
 from app.observability.logging_config import configure_logging
 from app.observability.middleware import RequestIDMiddleware
-from app.api.routers import projects, automation, dashboard, profile, export, investment, workana_api
+from app.api.routers import (
+    projects,
+    automation,
+    dashboard,
+    profile,
+    export,
+    investment,
+    workana_api,
+)
 from app.database.models import init_db
 
 
@@ -30,10 +40,13 @@ async def lifespan(app: FastAPI):
     # Testar conexão com o banco de dados PostgreSQL
     from app.database.models import async_session
     from sqlalchemy import text
+
     try:
         async with async_session() as session:
             await session.execute(text("SELECT 1"))
-        logger.bind(event="api.db.connected").info("Conexão com o banco de dados estabelecida com sucesso")
+        logger.bind(event="api.db.connected").info(
+            "Conexão com o banco de dados estabelecida com sucesso"
+        )
     except Exception as e:
         logger.bind(event="api.db.connection_failed").critical(
             f"Falha crítica ao conectar no banco de dados Supabase: {e}"
@@ -53,7 +66,7 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/docs" if settings.debug else None,
     redoc_url="/redoc" if settings.debug else None,
-    openapi_url="/openapi.json" if settings.debug else None
+    openapi_url="/openapi.json" if settings.debug else None,
 )
 
 # Configurar CORS para permitir requisições do frontend
@@ -82,11 +95,7 @@ app.include_router(workana_api.router, prefix="/api", tags=["Workana API"])
 @app.get("/")
 async def root():
     """Endpoint raiz."""
-    return {
-        "message": "Workana Automation API",
-        "version": "1.0.0",
-        "docs": "/docs"
-    }
+    return {"message": "Workana Automation API", "version": "1.0.0", "docs": "/docs"}
 
 
 @app.get("/health")
@@ -100,6 +109,7 @@ async def readiness_check():
     """Readiness: aplicação E dependências críticas (banco) estão disponíveis."""
     from app.database.models import async_session
     from sqlalchemy import text
+
     try:
         async with async_session() as session:
             await session.execute(text("SELECT 1"))
@@ -116,11 +126,11 @@ async def readiness_check():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(
         "app.main:app",
         host=settings.api_host,
         port=settings.api_port,
         reload=settings.debug,
-        loop="asyncio"
+        loop="asyncio",
     )
-

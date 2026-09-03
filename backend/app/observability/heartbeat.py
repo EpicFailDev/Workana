@@ -10,6 +10,7 @@ existe.
 
 O timestamp é gravado em UTC (horário canônico dos logs).
 """
+
 from __future__ import annotations
 
 import asyncio

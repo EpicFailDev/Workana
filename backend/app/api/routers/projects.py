@@ -3,14 +3,32 @@ from loguru import logger
 from typing import List, Optional, Any
 
 from app.api.schemas import (
-    SearchFilters, SavedFilter, Project, ProjectList, ProposalGenerationResult,
-    ProposalSubmit, ProposalResult, ProposalGenerateRequest, ProposalSaveRequest,
+    SearchFilters,
+    SavedFilter,
+    Project,
+    ProjectList,
+    ProposalGenerationResult,
+    ProposalSubmit,
+    ProposalResult,
+    ProposalGenerateRequest,
+    ProposalSaveRequest,
     BatchItemUpdateRequest,
-    CatalogProjectList, SortOption, BulkStateRequest, BulkStateResult,
-    ProjectStateRequest, ProjectNotesUpdate, AnalyzeRequest, AnalysisResult,
-    BulkGenerateRequest, BulkGenerateResponse, ProposalBatchCreate,
-    ProposalBatchResponse, ProposalBatchItemResponse, ProposalBatchListResponse,
-    BidsHistoryResponse, BidsHistoryPoint,
+    CatalogProjectList,
+    SortOption,
+    BulkStateRequest,
+    BulkStateResult,
+    ProjectStateRequest,
+    ProjectNotesUpdate,
+    AnalyzeRequest,
+    AnalysisResult,
+    BulkGenerateRequest,
+    BulkGenerateResponse,
+    ProposalBatchCreate,
+    ProposalBatchResponse,
+    ProposalBatchItemResponse,
+    ProposalBatchListResponse,
+    BidsHistoryResponse,
+    BidsHistoryPoint,
 )
 from app.auth import get_current_user
 from app.database import crud
@@ -24,6 +42,7 @@ from app.automation.browser import (
 
 # ==================== Busca de Projetos ====================
 
+
 @router.get("/projects", response_model=CatalogProjectList)
 async def list_catalog(
     page: int = Query(default=1, ge=1),
@@ -36,7 +55,7 @@ async def list_catalog(
     sort: SortOption = SortOption.NEWEST,
     favorites_only: bool = False,
     hidden_only: bool = False,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(get_current_user),
 ):
     """Busca paginada no catálogo de projetos (banco de dados, sem scraping)."""
     result = await crud.search_catalog(
@@ -69,7 +88,9 @@ async def list_batches(
 
 @router.get("/projects/all-proposals")
 async def get_all_proposals(
-    status: Optional[str] = Query(None, description="Filtrar por status: draft, sent, failed, etc."),
+    status: Optional[str] = Query(
+        None, description="Filtrar por status: draft, sent, failed, etc."
+    ),
     q: Optional[str] = Query(None, description="Termo de busca por título ou texto"),
     limit: int = Query(default=100, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -241,29 +262,30 @@ async def search_projects(filters: SearchFilters, user: dict = Depends(get_curre
     """Busca projetos no Workana com os filtros especificados."""
     try:
         projects = await automation.search_projects(filters, user_id=user["user_id"])
-        
+
         # Calcular o match_score do backend para cada projeto
         from app.services.scorer import ProjectScorer
+
         for proj in projects:
             proj.match_score = ProjectScorer.calculate_score(proj, filters)
-        
+
         # Logar atividade de busca e quantidade encontrada
         await crud.log_activity(
             user_id=user["user_id"],
             action_type="search",
             description=f"Busca realizada: {filters.keywords or 'Sem palavras-chave'}",
-            details={"filters": filters.model_dump(), "count": len(projects)}
+            details={"filters": filters.model_dump(), "count": len(projects)},
         )
-        
+
         # Se encontrou projetos, registrar também essa estatística
         if projects:
             await crud.log_activity(
                 user_id=user["user_id"],
                 action_type="project_found",
                 description=f"Encontrados {len(projects)} projetos na busca",
-                details={"count": len(projects)}
+                details={"count": len(projects)},
             )
-            
+
         return ProjectList(projects=projects, total=len(projects))
     except SearchUnavailableError as e:
         status_code = 429 if e.restricted else 502
@@ -273,8 +295,8 @@ async def search_projects(filters: SearchFilters, user: dict = Depends(get_curre
     except Exception as e:
         logger.error(f"Erro na busca: {e}")
         raise HTTPException(status_code=500, detail=str(e))
- 
- 
+
+
 @router.get("/projects/{project_id}", response_model=Project)
 async def get_project_details(project_id: str, user: dict = Depends(get_current_user)):
     """Obtém detalhes de um projeto específico (live search)."""
@@ -288,8 +310,8 @@ async def get_project_details(project_id: str, user: dict = Depends(get_current_
     except Exception as e:
         logger.error(f"Erro ao obter projeto: {e}")
         raise HTTPException(status_code=500, detail=str(e))
- 
- 
+
+
 @router.get("/projects/{project_id}/proposal")
 async def get_project_proposal(project_id: str, user: dict = Depends(get_current_user)):
     """Obtém a proposta existente (gerada, rascunho ou enviada) e o histórico de versões para o projeto."""
@@ -320,7 +342,11 @@ async def delete_project_proposal(
     if not deleted:
         raise HTTPException(status_code=404, detail="Versão de proposta não encontrada.")
     versions = await crud.get_project_proposal_versions(user["user_id"], project_id)
-    return {"success": True, "message": "Versão da proposta removida com sucesso.", "versions": versions}
+    return {
+        "success": True,
+        "message": "Versão da proposta removida com sucesso.",
+        "versions": versions,
+    }
 
 
 @router.post("/projects/{project_id}/save-proposal")
@@ -383,11 +409,11 @@ async def generate_proposal(
     project_id: str,
     payload: Optional[ProposalGenerateRequest] = None,
     template_id: Optional[Any] = None,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(get_current_user),
 ):
     """Gera uma proposta personalizada usando IA ou recupera proposta salva se já gerada."""
     from app.services.proposal_agent import proposal_agent_instance
-    
+
     try:
         force_regenerate = payload.force_regenerate if payload else False
         actual_template_id = template_id
@@ -402,7 +428,9 @@ async def generate_proposal(
                 return ProposalGenerationResult(
                     success=True,
                     proposal=existing.get("proposal"),
-                    suggested_price=f"R$ {existing.get('budget', 0):.2f}" if existing.get('budget') else None,
+                    suggested_price=f"R$ {existing.get('budget', 0):.2f}"
+                    if existing.get("budget")
+                    else None,
                     suggested_deadline_days=existing.get("deadline_days", 7),
                     justification="Proposta carregada do histórico salvo.",
                     template_id_used=existing.get("template_id") or existing.get("template_slug"),
@@ -413,8 +441,10 @@ async def generate_proposal(
         # Primeiro busca os detalhes do projeto para alimentar a IA
         project = await automation.get_project_details(project_id, user_id=user["user_id"])
         if not project:
-            raise HTTPException(status_code=404, detail="Projeto não encontrado para gerar proposta")
-        
+            raise HTTPException(
+                status_code=404, detail="Projeto não encontrado para gerar proposta"
+            )
+
         # Converte para dict para alimentar a IA
         project_dict = {
             "title": project.title,
@@ -422,18 +452,18 @@ async def generate_proposal(
             "skills": project.skills,
             "budget": project.budget,
             "client_name": project.client_name,
-            "deadline": project.deadline
+            "deadline": project.deadline,
         }
-            
+
         # Chama a IA com o nível de preço selecionado
         price_level = payload.price_level if payload and payload.price_level else "standard"
         result = await proposal_agent_instance.generate_proposal(
             user["user_id"], project_dict, template_id=actual_template_id, price_level=price_level
         )
-        
+
         if not result.get("success") and result.get("error_code") == 404:
             raise HTTPException(status_code=404, detail=result.get("error"))
-        
+
         proposal_id_created = None
         # Salvar proposta gerada no histórico e no lote de rascunhos
         if result.get("success"):
@@ -458,17 +488,21 @@ async def generate_proposal(
                     project_id=project_id,
                     proposal_text=result.get("proposal", ""),
                     deadline_days=result.get("suggested_deadline_days") or 7,
-                    template_ref=str(result.get("template_id_used")) if result.get("template_id_used") else None,
+                    template_ref=str(result.get("template_id_used"))
+                    if result.get("template_id_used")
+                    else None,
                 )
-                logger.info(f"Proposta salva no histórico e lotes para o usuário {user['user_id']}, projeto: {project_id}")
+                logger.info(
+                    f"Proposta salva no histórico e lotes para o usuário {user['user_id']}, projeto: {project_id}"
+                )
             except Exception as e:
                 logger.warning(f"Erro ao salvar proposta no histórico: {e}")
-        
+
         versions = await crud.get_project_proposal_versions(user["user_id"], project_id)
         result["proposal_id"] = proposal_id_created
         result["versions"] = versions
         return result
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -478,6 +512,7 @@ async def generate_proposal(
 
 # ==================== Projetos Salvos ====================
 
+
 @router.get("/saved-projects")
 async def list_saved_projects(
     limit: int = 50,
@@ -485,7 +520,7 @@ async def list_saved_projects(
     favorites_only: bool = False,
     not_applied_only: bool = False,
     category: str = None,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(get_current_user),
 ):
     """Lista projetos salvos no banco de dados do usuário."""
     projects = await crud.get_projects(
@@ -494,7 +529,7 @@ async def list_saved_projects(
         offset=offset,
         only_favorites=favorites_only,
         only_not_applied=not_applied_only,
-        category=category
+        category=category,
     )
     return {"projects": projects, "total": len(projects)}
 
@@ -516,7 +551,7 @@ async def save_project(project_data: dict, user: dict = Depends(get_current_user
         await crud.log_activity(
             user_id=user["user_id"],
             action_type="project_saved",
-            description=f"Projeto salvo: {project_data.get('title', 'Sem título')}"
+            description=f"Projeto salvo: {project_data.get('title', 'Sem título')}",
         )
         return {"success": True, "project_id": project_id, "message": "Projeto salvo!"}
     except Exception as e:
@@ -555,6 +590,7 @@ async def update_notes(project_id: int, notes_data: dict, user: dict = Depends(g
 
 # ==================== Filtros Salvos ====================
 
+
 @router.get("/filters", response_model=List[SavedFilter])
 async def list_saved_filters(user: dict = Depends(get_current_user)):
     """Lista todos os filtros salvos do usuário."""
@@ -576,13 +612,16 @@ async def delete_filter(filter_id: int, user: dict = Depends(get_current_user)):
 
 # ==================== Envio de Propostas ====================
 
+
 @router.post("/projects/{project_id}/submit-proposal", response_model=ProposalResult)
-async def submit_proposal(project_id: str, proposal: ProposalSubmit, user: dict = Depends(get_current_user)):
+async def submit_proposal(
+    project_id: str, proposal: ProposalSubmit, user: dict = Depends(get_current_user)
+):
     """Envia uma proposta de fato para o projeto no Workana."""
     try:
         if proposal.project_id != project_id:
             proposal.project_id = project_id
-            
+
         result = await automation.submit_proposal(user["user_id"], proposal)
         return result
     except Exception as e:
@@ -591,6 +630,7 @@ async def submit_proposal(project_id: str, proposal: ProposalSubmit, user: dict 
 
 
 # ==================== Geração e Disparo em Lote (Bulk & Batches) ====================
+
 
 @router.post("/projects/batch", response_model=ProposalBatchResponse)
 async def create_batch_singular(
@@ -602,9 +642,13 @@ async def create_batch_singular(
     from app.services.batch_processor import ProposalBatchProcessor
 
     if not payload.project_ids and not payload.filters and not payload.custom_proposals:
-        raise HTTPException(status_code=422, detail="Informe project_ids, filters ou custom_proposals.")
+        raise HTTPException(
+            status_code=422, detail="Informe project_ids, filters ou custom_proposals."
+        )
 
-    custom_proposals_dicts = [p.model_dump() for p in payload.custom_proposals] if payload.custom_proposals else None
+    custom_proposals_dicts = (
+        [p.model_dump() for p in payload.custom_proposals] if payload.custom_proposals else None
+    )
     filters_dict = payload.filters.model_dump() if payload.filters else None
 
     result = await crud.create_proposal_batch(
@@ -618,7 +662,9 @@ async def create_batch_singular(
     )
 
     if not result.get("success"):
-        raise HTTPException(status_code=400, detail=result.get("error", "Erro ao criar lote de propostas."))
+        raise HTTPException(
+            status_code=400, detail=result.get("error", "Erro ao criar lote de propostas.")
+        )
 
     batch = await crud.get_proposal_batch(user["user_id"], result["batch_id"])
     if batch:
@@ -654,7 +700,10 @@ async def start_batch(
         raise HTTPException(status_code=404, detail="Lote de propostas não encontrado.")
 
     if batch["status"] not in ["queued", "failed"]:
-        raise HTTPException(status_code=400, detail=f"Não é possível iniciar um lote com status '{batch['status']}'.")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Não é possível iniciar um lote com status '{batch['status']}'.",
+        )
 
     # Dispara o processamento
     processed = await ProposalBatchProcessor.process_one()
@@ -664,7 +713,7 @@ async def start_batch(
         "batch_id": batch_id,
         "status": batch["status"],
         "processed": processed,
-        "message": "Processamento do lote iniciado."
+        "message": "Processamento do lote iniciado.",
     }
 
 
@@ -678,9 +727,13 @@ async def create_batch(
     from app.services.batch_processor import ProposalBatchProcessor
 
     if not payload.project_ids and not payload.filters and not payload.custom_proposals:
-        raise HTTPException(status_code=422, detail="Informe project_ids, filters ou custom_proposals.")
+        raise HTTPException(
+            status_code=422, detail="Informe project_ids, filters ou custom_proposals."
+        )
 
-    custom_proposals_dicts = [p.model_dump() for p in payload.custom_proposals] if payload.custom_proposals else None
+    custom_proposals_dicts = (
+        [p.model_dump() for p in payload.custom_proposals] if payload.custom_proposals else None
+    )
     filters_dict = payload.filters.model_dump() if payload.filters else None
 
     result = await crud.create_proposal_batch(
@@ -694,7 +747,9 @@ async def create_batch(
     )
 
     if not result.get("success"):
-        raise HTTPException(status_code=400, detail=result.get("error", "Erro ao criar lote de propostas."))
+        raise HTTPException(
+            status_code=400, detail=result.get("error", "Erro ao criar lote de propostas.")
+        )
 
     # Aciona o worker para iniciar o processamento imediatamente
     asyncio.create_task(ProposalBatchProcessor.process_one())
@@ -749,6 +804,7 @@ async def trigger_batch_processing(
 ):
     """Aciona manualmente o processamento de um item da fila de lotes."""
     from app.services.batch_processor import ProposalBatchProcessor
+
     processed = await ProposalBatchProcessor.process_one()
     return {"success": True, "processed": processed}
 
@@ -766,7 +822,9 @@ async def update_batch_item(
         data=payload.model_dump(exclude_unset=True),
     )
     if not updated:
-        raise HTTPException(status_code=404, detail="Item do lote não encontrado ou não pertence a você.")
+        raise HTTPException(
+            status_code=404, detail="Item do lote não encontrado ou não pertence a você."
+        )
     return {"success": True, "item": updated}
 
 
@@ -802,7 +860,10 @@ async def send_batch_item_now(
             raise HTTPException(status_code=404, detail="Item não encontrado.")
 
         if not item.generated_message:
-            raise HTTPException(status_code=400, detail="Este item não possui mensagem de proposta gerada para envio.")
+            raise HTTPException(
+                status_code=400,
+                detail="Este item não possui mensagem de proposta gerada para envio.",
+            )
 
         proposal = ProposalSubmit(
             project_id=item.workana_id,
@@ -833,5 +894,3 @@ async def delete_proposal(
     if not deleted:
         raise HTTPException(status_code=404, detail="Proposta não encontrada.")
     return {"success": True, "message": "Proposta removida com sucesso."}
-
-

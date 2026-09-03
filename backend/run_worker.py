@@ -7,6 +7,7 @@ lido pelo healthcheck do Docker — assim um event loop travado é detectado de
 forma confiável (ao contrário de `ps aux | grep`, que apenas confirma que o
 processo existe).
 """
+
 import asyncio
 import sys
 import signal
@@ -22,6 +23,7 @@ if sys.platform == "win32":
 
 # Pipeline de logs estruturado: DEVE ser configurado antes das demais importações.
 from app.observability.logging_config import configure_logging
+
 configure_logging()
 
 from app.config import settings

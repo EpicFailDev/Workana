@@ -2,6 +2,7 @@
 Fachada central para operações de banco de dados (CRUD).
 Reúne e expõe repositórios especializados seguindo o Princípio da Responsabilidade Única (SRP).
 """
+
 from app.database.models import async_session
 
 # Credenciais e Criptografia

@@ -3,9 +3,12 @@ from typing import List, Optional
 from loguru import logger
 
 from app.api.schemas import (
-    AutomationStatus, AutomationConfig,
-    ProposalTemplate, ProposalTemplateCreate,
-    BlueprintTestRequest, SearchFilters
+    AutomationStatus,
+    AutomationConfig,
+    ProposalTemplate,
+    ProposalTemplateCreate,
+    BlueprintTestRequest,
+    SearchFilters,
 )
 from app.auth import get_current_user
 from app.automation.browser import WorkanaAutomation
@@ -16,6 +19,7 @@ router = APIRouter()
 from app.automation.browser import automation_instance as automation
 
 # ==================== Automação ====================
+
 
 @router.get("/automation/status", response_model=AutomationStatus)
 async def get_automation_status(user: dict = Depends(get_current_user)):
@@ -30,7 +34,9 @@ async def get_automation_config(user: dict = Depends(get_current_user)):
 
 
 @router.put("/automation/config")
-async def update_automation_config(config: AutomationConfig, user: dict = Depends(get_current_user)):
+async def update_automation_config(
+    config: AutomationConfig, user: dict = Depends(get_current_user)
+):
     """Atualiza configurações de automação do usuário."""
     await crud.save_automation_config(user["user_id"], config.model_dump())
     return {"success": True, "message": "Configurações atualizadas!"}
@@ -72,8 +78,18 @@ async def get_credentials_status(user: dict = Depends(get_current_user)):
         "email": masked,
         "login_method": login_method,
         "session_ready": session_ready,
-        "session_updated_at": session_row.get("updated_at").isoformat() if session_row and session_row.get("updated_at") else None,
+        "session_updated_at": session_row.get("updated_at").isoformat()
+        if session_row and session_row.get("updated_at")
+        else None,
     }
+
+
+@router.get("/automation/session/health")
+async def get_session_health(user: dict = Depends(get_current_user)):
+    """Verifica a saúde e validade dos cookies de sessão do Workana."""
+    from app.automation import session_manager
+
+    return await session_manager.check_session_health(user["user_id"])
 
 
 @router.post("/automation/credentials")
@@ -88,6 +104,7 @@ async def update_credentials(creds: dict, user: dict = Depends(get_current_user)
 
 
 # ==================== Login via Google / Sessão ====================
+
 
 @router.post("/automation/workana/google-login")
 async def workana_google_login(user: dict = Depends(get_current_user)):
@@ -112,20 +129,25 @@ async def workana_session_import(payload: dict, user: dict = Depends(get_current
     session_json = payload.get("session_json") or ""
     account_email = payload.get("account_email")
     if not str(session_json).strip():
-        return {"success": False, "message": "Cole o JSON, arquivo HAR ou cookies da sessão para importar."}
+        return {
+            "success": False,
+            "message": "Cole o JSON, arquivo HAR ou cookies da sessão para importar.",
+        }
 
     state = _session_manager.normalize_storage_state(session_json)
     if not state or not state.get("cookies"):
         return {
             "success": False,
-            "message": "Formato de sessão inválido. Cole o JSON do Playwright, lista de cookies ou arquivo HAR contendo cookies válidos do Workana."
+            "message": "Formato de sessão inválido. Cole o JSON do Playwright, lista de cookies ou arquivo HAR contendo cookies válidos do Workana.",
         }
 
     await _session_manager.save_storage_state(user["user_id"], state, account_email=account_email)
-    logger.info(f"Sessão importada com sucesso para o usuário {user['user_id']} ({len(state['cookies'])} cookies)")
+    logger.info(
+        f"Sessão importada com sucesso para o usuário {user['user_id']} ({len(state['cookies'])} cookies)"
+    )
     return {
         "success": True,
-        "message": f"Sessão importada com sucesso ({len(state['cookies'])} cookies salvos)! As propostas poderão ser enviadas pelo Workana."
+        "message": f"Sessão importada com sucesso ({len(state['cookies'])} cookies salvos)! As propostas poderão ser enviadas pelo Workana.",
     }
 
 
@@ -134,17 +156,19 @@ async def workana_disconnect(user: dict = Depends(get_current_user)):
     """Remove credenciais e sessão do Workana do usuário."""
     await crud.delete_credentials(user["user_id"])
     from app.automation import session_manager as _session_manager
+
     await _session_manager.clear_storage_state(user["user_id"])
     return {"success": True, "message": "Conexão com o Workana removida."}
 
 
 # ==================== Templates de Proposta ====================
 
+
 @router.get("/templates", response_model=List[ProposalTemplate])
 async def list_templates(user: dict = Depends(get_current_user)):
     """Lista todos os templates de proposta do usuário, combinados com o template global ativo."""
     personal_templates = await crud.get_templates(user["user_id"])
-    
+
     # Adicionar metadados nos templates pessoais
     for t in personal_templates:
         t.template_ref = f"personal:{t.id}"
@@ -152,25 +176,28 @@ async def list_templates(user: dict = Depends(get_current_user)):
         t.can_edit = True
         t.can_delete = True
         t.version = t.schema_version
-        
+
     has_personal_default = any(t.is_default for t in personal_templates)
-    
+
     # Buscar o template de sistema ativo
     sys_template = await crud.get_active_system_template("workana-consultivo")
     if sys_template:
         # Converter o blueprint JSON em objetos TemplateBlock
         from app.api.schemas import TemplateBlock
+
         blueprint_blocks = []
         for b in sys_template.blueprint:
-            blueprint_blocks.append(TemplateBlock(
-                id=b.get("id"),
-                type=b.get("type"),
-                mode=b.get("mode"),
-                enabled=b.get("enabled", True),
-                content=b.get("content"),
-                config=b.get("config")
-            ))
-            
+            blueprint_blocks.append(
+                TemplateBlock(
+                    id=b.get("id"),
+                    type=b.get("type"),
+                    mode=b.get("mode"),
+                    enabled=b.get("enabled", True),
+                    content=b.get("content"),
+                    config=b.get("config"),
+                )
+            )
+
         sys_t = ProposalTemplate(
             id=None,
             name=sys_template.name,
@@ -186,13 +213,13 @@ async def list_templates(user: dict = Depends(get_current_user)):
             is_system=True,
             can_edit=False,
             can_delete=False,
-            version=sys_template.version
+            version=sys_template.version,
         )
         if sys_t.is_default:
             return [sys_t] + personal_templates
         else:
             return personal_templates + [sys_t]
-            
+
     return personal_templates
 
 
@@ -202,39 +229,41 @@ async def duplicate_system_template(slug: str, user: dict = Depends(get_current_
     sys_template = await crud.get_active_system_template(slug)
     if not sys_template:
         raise HTTPException(status_code=404, detail="Template de sistema não encontrado")
-    
+
     from app.api.schemas import ProposalTemplateCreate, TemplateBlock
-    
+
     blueprint_blocks = []
     for b in sys_template.blueprint:
-        blueprint_blocks.append(TemplateBlock(
-            id=b.get("id"),
-            type=b.get("type"),
-            mode=b.get("mode"),
-            enabled=b.get("enabled", True),
-            content=b.get("content"),
-            config=b.get("config")
-        ))
-        
+        blueprint_blocks.append(
+            TemplateBlock(
+                id=b.get("id"),
+                type=b.get("type"),
+                mode=b.get("mode"),
+                enabled=b.get("enabled", True),
+                content=b.get("content"),
+                config=b.get("config"),
+            )
+        )
+
     template_create = ProposalTemplateCreate(
         name=f"{sys_template.name} (Cópia)",
         blueprint=blueprint_blocks,
         schema_version=1,
         default_budget=None,
         default_deadline_days=None,
-        is_default=False
+        is_default=False,
     )
-    
+
     # Cria o template pessoal a partir do blueprint do sistema
     created_personal = await crud.create_template(user["user_id"], template_create)
-    
+
     # Preencher metadados para resposta do endpoint
     created_personal.template_ref = f"personal:{created_personal.id}"
     created_personal.is_system = False
     created_personal.can_edit = True
     created_personal.can_delete = True
     created_personal.version = created_personal.schema_version
-    
+
     return created_personal
 
 
@@ -251,7 +280,9 @@ async def create_template(template: ProposalTemplateCreate, user: dict = Depends
 
 
 @router.put("/templates/{template_id}", response_model=ProposalTemplate)
-async def update_template(template_id: int, template: ProposalTemplateCreate, user: dict = Depends(get_current_user)):
+async def update_template(
+    template_id: int, template: ProposalTemplateCreate, user: dict = Depends(get_current_user)
+):
     """Atualiza um template existente do usuário."""
     result = await crud.update_template(user["user_id"], template_id, template)
     if not result:
@@ -281,7 +312,7 @@ async def test_blueprint(payload: BlueprintTestRequest, user: dict = Depends(get
     """
     from app.services.prompt_builder import ProposalPromptBuilder
     from app.services.proposal_agent import proposal_agent_instance
-    
+
     # 1. Obter dados do projeto fictício (ou usar dados padrão de teste)
     project_data = payload.project
     if not project_data:
@@ -290,45 +321,40 @@ async def test_blueprint(payload: BlueprintTestRequest, user: dict = Depends(get
             "description": "Preciso de um desenvolvedor para criar um aplicativo de delivery completo com painel administrativo e app para motoboys em React Native.",
             "skills": ["React Native", "Node.js", "PostgreSQL", "Firebase"],
             "budget": "R$ 5.000 - 10.000",
-            "client_name": "Cliente de Exemplo"
+            "client_name": "Cliente de Exemplo",
         }
-    
+
     # 2. Compilar o blueprint para a representação em prompt
-    blueprint_dicts = [b.model_dump() if hasattr(b, "model_dump") else b.dict() for b in payload.blueprint]
+    blueprint_dicts = [
+        b.model_dump() if hasattr(b, "model_dump") else b.dict() for b in payload.blueprint
+    ]
     user_name = "Desenvolvedor"
-    
+
     try:
         config = await crud.get_automation_config(user["user_id"])
         if config.get("user_full_name"):
             user_name = config.get("user_full_name")
     except Exception:
         pass
-        
+
     compiled_prompt = ProposalPromptBuilder.build_with_blueprint(
-        project=project_data,
-        user_name=user_name,
-        blueprint=blueprint_dicts
+        project=project_data, user_name=user_name, blueprint=blueprint_dicts
     )
-    
-    response_data = {
-        "success": True,
-        "compiled_prompt": compiled_prompt,
-        "ai_result": None
-    }
-    
+
+    response_data = {"success": True, "compiled_prompt": compiled_prompt, "ai_result": None}
+
     # 3. Executar o teste com IA se solicitado
     if payload.run_ai:
         gen_res = await proposal_agent_instance.generate_proposal(
-            user_id=user["user_id"],
-            project_details=project_data,
-            blueprint=blueprint_dicts
+            user_id=user["user_id"], project_details=project_data, blueprint=blueprint_dicts
         )
         response_data["ai_result"] = gen_res
-        
+
     return response_data
 
 
 # ==================== Sistema Anti-Ban ====================
+
 
 @router.get("/antiban/status")
 async def get_antiban_status(user: dict = Depends(get_current_user)):
@@ -350,9 +376,13 @@ async def update_antiban_config(config: dict, user: dict = Depends(get_current_u
         user_id=user["user_id"],
         action_type="antiban_config",
         description="Configuração anti-ban atualizada",
-        details=config
+        details=config,
     )
-    return {"success": True, "message": "Configuração anti-ban atualizada!", "config": antiban.get_config_dict()}
+    return {
+        "success": True,
+        "message": "Configuração anti-ban atualizada!",
+        "config": antiban.get_config_dict(),
+    }
 
 
 @router.get("/antiban/can-search")
@@ -364,16 +394,16 @@ async def can_search(user: dict = Depends(get_current_user)):
         "can_search": can_do,
         "message": message,
         "searches_this_hour": status["searches_this_hour"],
-        "max_per_hour": antiban.config.max_searches_per_hour
+        "max_per_hour": antiban.config.max_searches_per_hour,
     }
 
 
 # ==================== Catálogo do Sistema ====================
 
+
 @router.post("/automation/catalog/refresh")
 async def refresh_catalog(
-    custom_filters: Optional[SearchFilters] = None,
-    user: dict = Depends(get_current_user)
+    custom_filters: Optional[SearchFilters] = None, user: dict = Depends(get_current_user)
 ):
     """Aciona manualmente uma coleta do catálogo (lock-aware, retorna 409 se já em execução)."""
     from app.services.scheduler import scheduler_instance
@@ -385,21 +415,22 @@ async def refresh_catalog(
         return result
     except RuntimeError as e:
         if "already running" in str(e).lower() or "lock" in str(e).lower():
-            raise HTTPException(status_code=409, detail="Uma coleta do catálogo já está em execução.")
+            raise HTTPException(
+                status_code=409, detail="Uma coleta do catálogo já está em execução."
+            )
         raise
 
 
 @router.post("/automation/catalog/restore-gone")
 async def restore_gone_catalog(
-    category: Optional[str] = None,
-    user: dict = Depends(get_current_user)
+    category: Optional[str] = None, user: dict = Depends(get_current_user)
 ):
     """Restaura projetos do catálogo marcados incorretamente como 'gone' de volta para 'active'."""
     restored = await crud.restore_gone_catalog_projects(category=category)
     return {
         "success": True,
         "restored": restored,
-        "message": f"{restored} projetos restaurados para o status ativo com sucesso!"
+        "message": f"{restored} projetos restaurados para o status ativo com sucesso!",
     }
 
 
@@ -407,9 +438,9 @@ async def restore_gone_catalog(
 async def get_realtime_status(user: dict = Depends(get_current_user)):
     """Retorna o status do listener WebSocket em tempo real (Pusher) do Workana."""
     from app.services.realtime_pusher import pusher_realtime_instance
+
     return {
         "is_active": pusher_realtime_instance.is_running,
         "channels": ["projects-pt", "projects-en"],
         "gateway": "ws-mt1.pusher.com",
     }
-

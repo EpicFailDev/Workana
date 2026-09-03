@@ -30,13 +30,23 @@ jobs:
           cd backend
           pip install -r requirements.txt
 
+      - name: Check Code Formatting (Ruff)
+        run: |
+          cd backend
+          python -m ruff format --check .
+
+      - name: Lint Code (Ruff)
+        run: |
+          cd backend
+          python -m ruff check .
+
       - name: Run Pytest
         run: |
           cd backend
           python -m pytest
 
   ci-frontend:
-    name: Frontend CI (Types & Build)
+    name: Frontend CI (Quality Gates, Tests & Build)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -53,6 +63,21 @@ jobs:
         run: |
           cd frontend
           npm ci
+
+      - name: Check Code Formatting (Prettier)
+        run: |
+          cd frontend
+          npm run format:check
+
+      - name: Lint Code (ESLint)
+        run: |
+          cd frontend
+          npm run lint
+
+      - name: Run Unit Tests (Vitest)
+        run: |
+          cd frontend
+          npm run test
 
       - name: Validate TypeScript & Build
         run: |

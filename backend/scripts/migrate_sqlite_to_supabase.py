@@ -2,6 +2,7 @@
 Script opcional para migrar dados do SQLite (workana.db) para o Supabase Postgres.
 Associa todas as entradas ao primeiro usuário encontrado em auth.users no Supabase.
 """
+
 import asyncio
 import os
 import sys
@@ -28,18 +29,22 @@ TABLES = [
     "daily_statistics",
     "blacklisted_clients",
     "profile_metrics",
-    "profile_config"
+    "profile_config",
 ]
+
 
 async def get_supabase_user_id(conn) -> UUID:
     """Busca o primeiro user_id de auth.users no Postgres."""
     row = await conn.fetchrow("SELECT id, email FROM auth.users LIMIT 1;")
     if not row:
         print("⚠️ ERRO: Nenhum usuário encontrado em auth.users no Supabase.")
-        print("Crie um usuário no frontend ou dashboard do Supabase primeiro antes de rodar a migração.")
+        print(
+            "Crie um usuário no frontend ou dashboard do Supabase primeiro antes de rodar a migração."
+        )
         sys.exit(1)
     print(f"✅ Associando registros ao usuário do Supabase: {row['email']} ({row['id']})")
-    return row['id']
+    return row["id"]
+
 
 def adapt_json(value):
     """Adapta dados JSON do SQLite para o Postgres JSONB."""
@@ -53,6 +58,7 @@ def adapt_json(value):
     except Exception:
         return value
 
+
 async def migrate():
     if not os.path.exists(SQLITE_DB):
         print(f"❌ Banco de dados SQLite não encontrado em {SQLITE_DB}")
@@ -60,14 +66,18 @@ async def migrate():
 
     # Extrai a connection string do asyncpg
     # Se a connection string começar com postgresql+asyncpg://, substitui por postgresql:// para o asyncpg nativo
-    pg_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://").replace("postgres+asyncpg://", "postgresql://")
+    pg_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://").replace(
+        "postgres+asyncpg://", "postgresql://"
+    )
     if pg_url.startswith("sqlite"):
-        print("❌ DATABASE_URL no .env aponta para SQLite. Mude para a connection string do Supabase para migrar.")
+        print(
+            "❌ DATABASE_URL no .env aponta para SQLite. Mude para a connection string do Supabase para migrar."
+        )
         return
 
     print("🔌 Conectando ao Supabase Postgres...")
     pg_conn = await asyncpg.connect(pg_url)
-    
+
     # Obter o user_id do primeiro usuário do Supabase
     user_id = await get_supabase_user_id(pg_conn)
 
@@ -79,7 +89,7 @@ async def migrate():
     try:
         for table in TABLES:
             print(f"📦 Migrando tabela: {table}...")
-            
+
             # Verificar se a tabela existe no SQLite
             cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}';")
             if not cursor.fetchone():
@@ -102,7 +112,7 @@ async def migrate():
             inserted_count = 0
             for row in rows:
                 row_dict = dict(row)
-                
+
                 # Remover chave primária antiga para deixar o Postgres auto-incrementar
                 if "id" in row_dict:
                     del row_dict["id"]
@@ -116,7 +126,13 @@ async def migrate():
                     if col in ["filters_json", "skills", "details"]:
                         row_dict[col] = adapt_json(val)
                     # Converter strings de data do SQLite para datetime
-                    elif isinstance(val, str) and ("_at" in col or col == "date" or col == "sent_at" or col == "found_at" or col == "scraped_at"):
+                    elif isinstance(val, str) and (
+                        "_at" in col
+                        or col == "date"
+                        or col == "sent_at"
+                        or col == "found_at"
+                        or col == "scraped_at"
+                    ):
                         try:
                             # Tenta parsear formato padrão datetime do SQLite
                             row_dict[col] = datetime.strptime(val, "%Y-%m-%d %H:%M:%S.%f")
@@ -128,18 +144,23 @@ async def migrate():
 
                 # Se a tabela for credentials, automation_config ou profile_config, elas são UNIQUE(user_id)
                 # Garantimos que apenas o último registro seja mantido se houver múltiplos no SQLite
-                if table in ["credentials", "automation_config", "profile_config"] and inserted_count >= 1:
-                    print(f"  ⚠️ Ignorando duplicata para tabela singleton {table} (mantendo apenas o primeiro registro)")
+                if (
+                    table in ["credentials", "automation_config", "profile_config"]
+                    and inserted_count >= 1
+                ):
+                    print(
+                        f"  ⚠️ Ignorando duplicata para tabela singleton {table} (mantendo apenas o primeiro registro)"
+                    )
                     continue
 
                 # Preparar query de inserção
                 columns = list(row_dict.keys())
-                placeholders = [f"${i+1}" for i in range(len(columns))]
+                placeholders = [f"${i + 1}" for i in range(len(columns))]
                 query = (
                     f"INSERT INTO public.{table} ({', '.join(columns)}) "
                     f"VALUES ({', '.join(placeholders)}) ON CONFLICT DO NOTHING;"
                 )
-                
+
                 try:
                     result = await pg_conn.execute(query, *row_dict.values())
                     if result.endswith(" 1"):
@@ -150,10 +171,11 @@ async def migrate():
             print(f"  🚀 Inseridas {inserted_count} de {len(rows)} linhas na tabela {table}.")
 
         print("🎉 Migração concluída com sucesso!")
-        
+
     finally:
         sqlite_conn.close()
         await pg_conn.close()
+
 
 if __name__ == "__main__":
     asyncio.run(migrate())

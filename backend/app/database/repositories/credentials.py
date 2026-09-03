@@ -1,6 +1,7 @@
 """
 Repository para gerenciamento de credenciais criptografadas de usuários.
 """
+
 from typing import Optional, Dict, Any
 import base64
 import hashlib
@@ -53,7 +54,7 @@ async def get_credentials(user_id: Any) -> Optional[Dict[str, str]]:
             select(Credentials).where(Credentials.user_id == user_id).limit(1)
         )
         creds = result.scalar_one_or_none()
-        
+
         if creds:
             try:
                 password = decrypt_text(creds.encrypted_password)
@@ -66,13 +67,13 @@ async def get_credentials(user_id: Any) -> Optional[Dict[str, str]]:
 async def delete_credentials(user_id: Any) -> None:
     """Remove as credenciais de senha de um usuário específico."""
     async with crud.async_session() as session:
-        await session.execute(
-            delete(Credentials).where(Credentials.user_id == user_id)
-        )
+        await session.execute(delete(Credentials).where(Credentials.user_id == user_id))
         await session.commit()
 
 
-async def save_workana_session(user_id: Any, session_json: str, account_email: Optional[str] = None) -> None:
+async def save_workana_session(
+    user_id: Any, session_json: str, account_email: Optional[str] = None
+) -> None:
     """Salva (upsert) o storage_state do Playwright criptografado para um usuário."""
     encrypted = encrypt_text(session_json)
     async with crud.async_session() as session:
@@ -84,11 +85,13 @@ async def save_workana_session(user_id: Any, session_json: str, account_email: O
             row.session_json = encrypted
             row.account_email = account_email if account_email else row.account_email
         else:
-            session.add(WorkanaSession(
-                user_id=user_id,
-                session_json=encrypted,
-                account_email=account_email,
-            ))
+            session.add(
+                WorkanaSession(
+                    user_id=user_id,
+                    session_json=encrypted,
+                    account_email=account_email,
+                )
+            )
         await session.commit()
 
 
@@ -115,7 +118,5 @@ async def get_workana_session(user_id: Any) -> Optional[Dict[str, Any]]:
 async def delete_workana_session(user_id: Any) -> None:
     """Remove a sessão salva de um usuário específico."""
     async with crud.async_session() as session:
-        await session.execute(
-            delete(WorkanaSession).where(WorkanaSession.user_id == user_id)
-        )
+        await session.execute(delete(WorkanaSession).where(WorkanaSession.user_id == user_id))
         await session.commit()

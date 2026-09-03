@@ -1,6 +1,7 @@
 """
 Repository para gerenciamento de histórico e status de propostas de usuários.
 """
+
 from typing import Optional, List, Dict, Any
 import re
 from datetime import datetime, timezone
@@ -16,16 +17,20 @@ from app.database.models import (
 from app.api.schemas import ProposalSubmit, ProposalResult, ProposalHistory
 
 
-async def save_proposal_history(user_id: Any, proposal: ProposalSubmit, result: ProposalResult) -> None:
+async def save_proposal_history(
+    user_id: Any, proposal: ProposalSubmit, result: ProposalResult
+) -> None:
     """Salva uma tentativa de envio de proposta no histórico."""
     async with crud.async_session() as session:
         project_title = getattr(proposal, "project_title", None)
         project_url = getattr(proposal, "project_url", None)
-        
+
         if not project_title or not project_url:
             # Buscar no catálogo
             cat_res = await session.execute(
-                select(ProjectCatalogModel).where(ProjectCatalogModel.workana_id == proposal.project_id)
+                select(ProjectCatalogModel).where(
+                    ProjectCatalogModel.workana_id == proposal.project_id
+                )
             )
             cat = cat_res.scalar_one_or_none()
             if cat:
@@ -33,7 +38,12 @@ async def save_proposal_history(user_id: Any, proposal: ProposalSubmit, result: 
                 project_url = project_url or cat.url
             else:
                 proj_result = await session.execute(
-                    select(ProjectModel).where(and_(ProjectModel.user_id == user_id, ProjectModel.workana_id == proposal.project_id))
+                    select(ProjectModel).where(
+                        and_(
+                            ProjectModel.user_id == user_id,
+                            ProjectModel.workana_id == proposal.project_id,
+                        )
+                    )
                 )
                 db_project = proj_result.scalar_one_or_none()
                 if db_project:
@@ -41,28 +51,39 @@ async def save_proposal_history(user_id: Any, proposal: ProposalSubmit, result: 
                     project_url = project_url or db_project.url
                 else:
                     project_title = project_title or f"Projeto {proposal.project_id}"
-                    project_url = project_url or f"https://www.workana.com/job/{proposal.project_id}"
+                    project_url = (
+                        project_url or f"https://www.workana.com/job/{proposal.project_id}"
+                    )
 
         now = datetime.now(timezone.utc)
-        
+
         # Verificar se já existia registro gerado para este projeto e atualizar
         existing_res = await session.execute(
-            select(ProposalHistoryModel).where(
-                and_(ProposalHistoryModel.user_id == user_id, ProposalHistoryModel.project_id == proposal.project_id)
-            ).order_by(ProposalHistoryModel.sent_at.desc())
+            select(ProposalHistoryModel)
+            .where(
+                and_(
+                    ProposalHistoryModel.user_id == user_id,
+                    ProposalHistoryModel.project_id == proposal.project_id,
+                )
+            )
+            .order_by(ProposalHistoryModel.sent_at.desc())
         )
         existing = existing_res.scalar_one_or_none()
-        
+
         if existing:
             existing.project_title = project_title
             existing.project_url = project_url
             existing.budget = proposal.budget
             existing.deadline_days = proposal.deadline_days
-            existing.message = proposal.custom_message or getattr(proposal, "message", None) or existing.message
+            existing.message = (
+                proposal.custom_message or getattr(proposal, "message", None) or existing.message
+            )
             existing.status = "sent" if result.success else "failed"
             existing.sent_at = now
             if proposal.template_id:
-                existing.template_id = proposal.template_id if isinstance(proposal.template_id, int) else None
+                existing.template_id = (
+                    proposal.template_id if isinstance(proposal.template_id, int) else None
+                )
         else:
             history = ProposalHistoryModel(
                 user_id=user_id,
@@ -77,7 +98,7 @@ async def save_proposal_history(user_id: Any, proposal: ProposalSubmit, result: 
                 sent_at=now,
             )
             session.add(history)
-            
+
         await session.commit()
 
 
@@ -87,29 +108,34 @@ async def get_project_proposal_versions(user_id: Any, project_id: str) -> List[D
         result = await session.execute(
             select(ProposalHistoryModel)
             .where(
-                and_(ProposalHistoryModel.user_id == user_id, ProposalHistoryModel.project_id == project_id)
+                and_(
+                    ProposalHistoryModel.user_id == user_id,
+                    ProposalHistoryModel.project_id == project_id,
+                )
             )
             .order_by(ProposalHistoryModel.sent_at.desc())
         )
         histories = result.scalars().all()
         versions = []
         for h in histories:
-            versions.append({
-                "id": h.id,
-                "project_id": h.project_id,
-                "project_title": h.project_title,
-                "project_url": h.project_url,
-                "proposal": h.message,
-                "budget": h.budget,
-                "deadline_days": h.deadline_days,
-                "status": h.status,
-                "sent_at": h.sent_at.isoformat() if h.sent_at else None,
-                "template_id": h.template_id,
-                "template_slug": h.template_slug,
-                "template_version": h.template_version,
-                "template_type": h.template_type,
-                "source": "history",
-            })
+            versions.append(
+                {
+                    "id": h.id,
+                    "project_id": h.project_id,
+                    "project_title": h.project_title,
+                    "project_url": h.project_url,
+                    "proposal": h.message,
+                    "budget": h.budget,
+                    "deadline_days": h.deadline_days,
+                    "status": h.status,
+                    "sent_at": h.sent_at.isoformat() if h.sent_at else None,
+                    "template_id": h.template_id,
+                    "template_slug": h.template_slug,
+                    "template_version": h.template_version,
+                    "template_type": h.template_type,
+                    "source": "history",
+                }
+            )
         return versions
 
 
@@ -130,7 +156,10 @@ async def get_latest_project_proposal(user_id: Any, project_id: str) -> Optional
         item_res = await session.execute(
             select(ProposalBatchItemModel)
             .where(
-                and_(ProposalBatchItemModel.user_id == user_id, ProposalBatchItemModel.workana_id == project_id)
+                and_(
+                    ProposalBatchItemModel.user_id == user_id,
+                    ProposalBatchItemModel.workana_id == project_id,
+                )
             )
             .order_by(ProposalBatchItemModel.updated_at.desc())
             .limit(1)
@@ -178,8 +207,8 @@ async def save_ai_proposal(
     """Salva ou atualiza uma proposta no histórico do usuário com suporte a versionamento."""
     async with crud.async_session() as session:
         if budget is None:
-            price_clean = str(suggested_price).replace('.', '').replace(',', '.')
-            price_match = re.search(r'[\d.]+', price_clean)
+            price_clean = str(suggested_price).replace(".", "").replace(",", ".")
+            price_match = re.search(r"[\d.]+", price_clean)
             budget = float(price_match.group()) if price_match else 0.0
 
         numeric_template_id = template_id if isinstance(template_id, int) else None
@@ -208,7 +237,10 @@ async def save_ai_proposal(
         if proposal_id and not force_new_version:
             res = await session.execute(
                 select(ProposalHistoryModel).where(
-                    and_(ProposalHistoryModel.id == proposal_id, ProposalHistoryModel.user_id == user_id)
+                    and_(
+                        ProposalHistoryModel.id == proposal_id,
+                        ProposalHistoryModel.user_id == user_id,
+                    )
                 )
             )
             existing = res.scalar_one_or_none()
@@ -233,13 +265,15 @@ async def save_ai_proposal(
         # Se não forçar nova versão e não especificou proposal_id, atualiza rascunho mais recente não enviado
         if not force_new_version:
             existing_res = await session.execute(
-                select(ProposalHistoryModel).where(
+                select(ProposalHistoryModel)
+                .where(
                     and_(
                         ProposalHistoryModel.user_id == user_id,
                         ProposalHistoryModel.project_id == project_id,
-                        ProposalHistoryModel.status.in_(["generated", "draft", "ready"])
+                        ProposalHistoryModel.status.in_(["generated", "draft", "ready"]),
                     )
-                ).order_by(ProposalHistoryModel.sent_at.desc())
+                )
+                .order_by(ProposalHistoryModel.sent_at.desc())
             )
             existing = existing_res.scalar_one_or_none()
             if existing:
@@ -288,7 +322,7 @@ async def delete_project_proposal_version(user_id: Any, project_id: str, proposa
                 and_(
                     ProposalHistoryModel.id == proposal_id,
                     ProposalHistoryModel.project_id == project_id,
-                    ProposalHistoryModel.user_id == user_id
+                    ProposalHistoryModel.user_id == user_id,
                 )
             )
         )
@@ -306,7 +340,7 @@ async def get_proposal_history(user_id: Any, limit: int = 50) -> List[ProposalHi
             .limit(limit)
         )
         history = result.scalars().all()
-        
+
         return [
             ProposalHistory(
                 id=h.id,
@@ -317,7 +351,7 @@ async def get_proposal_history(user_id: Any, limit: int = 50) -> List[ProposalHi
                 deadline_days=h.deadline_days,
                 status=h.status,
                 sent_at=h.sent_at,
-                template_id=h.template_id
+                template_id=h.template_id,
             )
             for h in history
         ]
@@ -328,15 +362,17 @@ async def get_all_unified_proposals(
     status: Optional[str] = None,
     q: Optional[str] = None,
     limit: int = 100,
-    offset: int = 0
+    offset: int = 0,
 ) -> Dict[str, Any]:
     """Lista todas as propostas salvas, geradas e enviadas do usuário com filtro e busca."""
     async with crud.async_session() as session:
         query = select(ProposalHistoryModel).where(ProposalHistoryModel.user_id == user_id)
-        
+
         if status:
             if status == "draft" or status == "generated":
-                query = query.where(ProposalHistoryModel.status.in_(["generated", "draft", "ready"]))
+                query = query.where(
+                    ProposalHistoryModel.status.in_(["generated", "draft", "ready"])
+                )
             elif status == "sent":
                 query = query.where(ProposalHistoryModel.status == "sent")
             elif status == "failed":
@@ -364,20 +400,22 @@ async def get_all_unified_proposals(
 
         items = []
         for r in rows:
-            items.append({
-                "id": r.id,
-                "project_id": r.project_id,
-                "project_title": r.project_title,
-                "project_url": r.project_url,
-                "message": r.message,
-                "budget": r.budget,
-                "deadline_days": r.deadline_days,
-                "status": r.status,
-                "sent_at": r.sent_at.isoformat() if r.sent_at else None,
-                "template_id": r.template_id,
-                "template_slug": r.template_slug,
-                "template_type": r.template_type,
-            })
+            items.append(
+                {
+                    "id": r.id,
+                    "project_id": r.project_id,
+                    "project_title": r.project_title,
+                    "project_url": r.project_url,
+                    "message": r.message,
+                    "budget": r.budget,
+                    "deadline_days": r.deadline_days,
+                    "status": r.status,
+                    "sent_at": r.sent_at.isoformat() if r.sent_at else None,
+                    "template_id": r.template_id,
+                    "template_slug": r.template_slug,
+                    "template_type": r.template_type,
+                }
+            )
 
         return {
             "proposals": items,
@@ -391,11 +429,14 @@ async def update_proposal_status(user_id: Any, proposal_id: int, status: str) ->
     """Atualiza o status de uma proposta do usuário."""
     async with crud.async_session() as session:
         result = await session.execute(
-            select(ProposalHistoryModel)
-            .where(and_(ProposalHistoryModel.id == proposal_id, ProposalHistoryModel.user_id == user_id))
+            select(ProposalHistoryModel).where(
+                and_(
+                    ProposalHistoryModel.id == proposal_id, ProposalHistoryModel.user_id == user_id
+                )
+            )
         )
         proposal = result.scalar_one_or_none()
-        
+
         if proposal:
             proposal.status = status
             await session.commit()
@@ -408,9 +449,10 @@ async def delete_proposal_history(user_id: Any, proposal_id: int) -> bool:
     async with crud.async_session() as session:
         result = await session.execute(
             delete(ProposalHistoryModel).where(
-                and_(ProposalHistoryModel.id == proposal_id, ProposalHistoryModel.user_id == user_id)
+                and_(
+                    ProposalHistoryModel.id == proposal_id, ProposalHistoryModel.user_id == user_id
+                )
             )
         )
         await session.commit()
         return result.rowcount > 0
-

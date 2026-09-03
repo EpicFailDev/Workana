@@ -6,6 +6,7 @@ evasão anti-bot para você concluir o login com o Google sem bloqueios.
 Ao final, ele salva `workana_storage_state.json` e COPIA automaticamente o JSON
 para a sua Área de Transferência (Ctrl+V).
 """
+
 import asyncio
 import json
 import os
@@ -19,10 +20,7 @@ from playwright.async_api import async_playwright
 LOGIN_URL = "https://www.workana.com/login/Google"
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 ROOT_DIR = BACKEND_DIR.parent
-OUTPUT_FILES = [
-    BACKEND_DIR / "workana_storage_state.json",
-    ROOT_DIR / "workana_storage_state.json"
-]
+OUTPUT_FILES = [BACKEND_DIR / "workana_storage_state.json", ROOT_DIR / "workana_storage_state.json"]
 
 
 def copy_to_clipboard(text: str) -> bool:
@@ -37,7 +35,7 @@ def copy_to_clipboard(text: str) -> bool:
             ["powershell", "-NoProfile", "-Command", "$input | Set-Clipboard"],
             stdin=subprocess.PIPE,
             text=True,
-            encoding="utf-8"
+            encoding="utf-8",
         )
         proc.communicate(input=text)
         return proc.returncode == 0
@@ -59,7 +57,13 @@ def is_logged_in(url: str) -> bool:
 async def detect_email(page) -> str:
     """Tenta detectar o email da conta na interface do Workana."""
     try:
-        selectors = [".navbar-user-email", ".account-email", "[data-user-email]", ".user-email", "span.user-name"]
+        selectors = [
+            ".navbar-user-email",
+            ".account-email",
+            "[data-user-email]",
+            ".user-email",
+            "span.user-name",
+        ]
         for s in selectors:
             el = await page.query_selector(s)
             if el:
@@ -86,7 +90,7 @@ async def main() -> None:
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
             ],
-            "ignore_default_args": ["--enable-automation"]
+            "ignore_default_args": ["--enable-automation"],
         }
 
         # Tentar usar o Google Chrome nativo se disponível (evita bloqueios do Google OAuth)
@@ -103,11 +107,11 @@ async def main() -> None:
 
         context = await browser.new_context(
             no_viewport=True,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
         )
         page = await context.new_page()
 
-        print(f"\n[2/3] Abrindo Workana...")
+        print("\n[2/3] Abrindo Workana...")
         print("  -> Complete o login com sua conta do Google (ou email/senha).")
         print("  -> O script detectará automaticamente quando o login for concluído.\n")
 
@@ -158,9 +162,11 @@ async def main() -> None:
                 if not user_ids:
                     res_creds = await session.execute(select(Credentials.user_id))
                     user_ids = list(set([r[0] for r in res_creds.all()]))
-                
+
                 for uid in user_ids:
-                    await crud.save_workana_session(uid, json_content, account_email=detected_email or None)
+                    await crud.save_workana_session(
+                        uid, json_content, account_email=detected_email or None
+                    )
                     saved_to_db = True
         except Exception:
             saved_to_db = False
@@ -175,7 +181,7 @@ async def main() -> None:
             print(f"  Conta Workana: {detected_email}")
         print(f"  Cookies salvos: {len(state.get('cookies', []))} cookies")
         print(f"  Arquivo salvo em: {OUTPUT_FILES[0]}")
-        
+
         if saved_to_db:
             print("\n  >> SESSÃO SALVA DIRETAMENTE NO BANCO DE DADOS COM SUCESSO! <<")
             print("  Sua conta já está conectada no sistema. Basta atualizar o painel!")

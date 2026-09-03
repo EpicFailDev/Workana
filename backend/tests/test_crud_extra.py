@@ -5,10 +5,11 @@ from datetime import datetime, timezone
 from app.database import crud
 from app.database.models import Project as ProjectModel
 
+
 @pytest.mark.asyncio
 async def test_crud_save_and_retrieve_project_extra_fields(monkeypatch):
     user_id = uuid4()
-    
+
     storage = {}
     next_id = [1]
 
@@ -40,11 +41,12 @@ async def test_crud_save_and_retrieve_project_extra_fields(monkeypatch):
     class FakeSessionCtx:
         async def __aenter__(self):
             return FakeSession()
+
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             pass
 
     monkeypatch.setattr("app.database.crud.async_session", FakeSessionCtx)
-    
+
     # Mock de projeto contendo os novos campos de mercado
     project_data = {
         "workana_id": "test_extra_fields_proj",
@@ -58,20 +60,20 @@ async def test_crud_save_and_retrieve_project_extra_fields(monkeypatch):
         "client_rating": 4.8,
         "proposals_count": 7,
         "payment_verified": True,
-        "posted_at": "há 3 dias"
+        "posted_at": "há 3 dias",
     }
-    
+
     # 1. Salvar no banco
     proj_id = await crud.save_project(user_id, project_data)
     assert proj_id is not None
-    
+
     # 2. Buscar individualmente
     retrieved = await crud.get_project(user_id, proj_id)
     assert retrieved is not None
     assert retrieved["client_country"] == "Portugal"
     assert retrieved["payment_verified"] is True
     assert retrieved["posted_at"] == "há 3 dias"
-    
+
     # 3. Buscar na listagem
     project_list = await crud.get_projects(user_id, limit=10)
     assert len(project_list) > 0

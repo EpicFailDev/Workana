@@ -2,7 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { registerSchema, RegisterInputs, translateAuthError, calculatePasswordStrength } from '../services/authService';
+import {
+  registerSchema,
+  RegisterInputs,
+  translateAuthError,
+  calculatePasswordStrength,
+} from '../services/authService';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { Eye, EyeOff, Loader2, UserPlus, Info } from 'lucide-react';
@@ -20,19 +25,25 @@ export default function Cadastro() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [successInfo, setSuccessInfo] = useState<string | null>(null);
 
-  const { register, handleSubmit, formState: { errors }, watch, setValue } = useForm<RegisterInputs>({
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    watch,
+    setValue,
+  } = useForm<RegisterInputs>({
     resolver: zodResolver(registerSchema),
     defaultValues: {
       email: '',
       password: '',
       confirmPassword: '',
       acceptTerms: false,
-    }
+    },
   });
 
   const passwordValue = watch('password') || '';
   const acceptTermsValue = watch('acceptTerms');
-  
+
   // Calculate password strength
   const strength = calculatePasswordStrength(passwordValue);
 
@@ -63,7 +74,7 @@ export default function Cadastro() {
   };
 
   return (
-    <div 
+    <div
       className="flex h-screen w-full items-center justify-center p-4 bg-cover bg-center overflow-hidden"
       style={{ backgroundImage: "url('/bglogin.png')" }}
     >
@@ -133,31 +144,42 @@ export default function Cadastro() {
                   onClick={() => setShowPassword(!showPassword)}
                   disabled={loading}
                   className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
-                  aria-label={showPassword ? "Ocultar senha" : "Exibir senha"}
+                  aria-label={showPassword ? 'Ocultar senha' : 'Exibir senha'}
                 >
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
-              
+
               {/* Password Strength Meter */}
               {passwordValue.length > 0 && (
                 <div className="pt-2 px-1">
                   <div className="flex justify-between text-2xs font-semibold mb-1">
                     <span className="text-slate-400">Força da Senha:</span>
-                    <span className={`font-bold ${
-                      strength.score === 1 ? 'text-red-400' :
-                      strength.score === 2 ? 'text-yellow-400' :
-                      strength.score === 3 ? 'text-blue-400' :
-                      'text-green-400'
-                    }`}>{strength.label}</span>
+                    <span
+                      className={`font-bold ${
+                        strength.score === 1
+                          ? 'text-red-400'
+                          : strength.score === 2
+                            ? 'text-yellow-400'
+                            : strength.score === 3
+                              ? 'text-blue-400'
+                              : 'text-green-400'
+                      }`}
+                    >
+                      {strength.label}
+                    </span>
                   </div>
                   <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden flex gap-1">
-                    <div className={`h-full rounded-full transition-all duration-300 ${
-                      strength.score >= 1 ? (strength.score === 1 ? 'bg-red-500 w-[25%]' : '') ||
-                      (strength.score === 2 ? 'bg-yellow-500 w-[50%]' : '') ||
-                      (strength.score === 3 ? 'bg-blue-500 w-[75%]' : '') ||
-                      (strength.score === 4 ? 'bg-green-500 w-[100%]' : '') : 'w-0'
-                    }`} />
+                    <div
+                      className={`h-full rounded-full transition-all duration-300 ${
+                        strength.score >= 1
+                          ? (strength.score === 1 ? 'bg-red-500 w-[25%]' : '') ||
+                            (strength.score === 2 ? 'bg-yellow-500 w-[50%]' : '') ||
+                            (strength.score === 3 ? 'bg-blue-500 w-[75%]' : '') ||
+                            (strength.score === 4 ? 'bg-green-500 w-[100%]' : '')
+                          : 'w-0'
+                      }`}
+                    />
                   </div>
                 </div>
               )}
@@ -183,9 +205,13 @@ export default function Cadastro() {
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                   disabled={loading}
                   className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
-                  aria-label={showConfirmPassword ? "Ocultar senha" : "Exibir senha"}
+                  aria-label={showConfirmPassword ? 'Ocultar senha' : 'Exibir senha'}
                 >
-                  {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  {showConfirmPassword ? (
+                    <EyeOff className="w-5 h-5" />
+                  ) : (
+                    <Eye className="w-5 h-5" />
+                  )}
                 </button>
               </div>
               {errors.confirmPassword && (
@@ -204,7 +230,10 @@ export default function Cadastro() {
                   className="border-slate-500 mt-0.5 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500 rounded"
                 />
                 <div className="leading-tight">
-                  <label htmlFor="acceptTerms" className="text-xs text-slate-300 cursor-pointer select-none">
+                  <label
+                    htmlFor="acceptTerms"
+                    className="text-xs text-slate-300 cursor-pointer select-none"
+                  >
                     Eu li e concordo com os{' '}
                     <button
                       type="button"
@@ -220,7 +249,8 @@ export default function Cadastro() {
                       className="text-emerald-400 hover:underline inline-block font-semibold"
                     >
                       Política de Privacidade
-                    </button>.
+                    </button>
+                    .
                   </label>
                 </div>
               </div>
@@ -235,11 +265,7 @@ export default function Cadastro() {
               disabled={loading}
               className="w-full h-12 bg-gradient-to-r from-emerald-500 to-teal-600 hover:brightness-110 text-white font-semibold rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/20 active:scale-[0.99] border-none mt-2"
             >
-              {loading ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <>Criar minha Conta</>
-              )}
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Criar minha Conta</>}
             </Button>
           </form>
         )}

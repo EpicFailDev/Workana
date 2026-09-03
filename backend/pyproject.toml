@@ -1,0 +1,22 @@
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = [
+    "E501",  # Line length handled by formatter
+    "F401",  # Unused imports (re-exported in modules/tests)
+    "E402",  # Module level import not at top of file
+    "W291",  # Trailing whitespace
+    "W293",  # Blank line whitespace
+    "F841",  # Local variable assigned but unused
+    "E722",  # Bare except
+    "E711",  # Comparison to None (SQLAlchemy expressions use == None / .is_(None))
+    "E712",  # Comparison to True/False (SQLAlchemy query expressions use == True/False)
+]

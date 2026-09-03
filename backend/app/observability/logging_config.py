@@ -10,6 +10,7 @@ Padrão de Observabilidade (Big Tech & Senior Engineering):
 - Rastreamento contextual automático (service, request_id, operation_id, user_id, event).
 - Safety-net de privacidade: sanitização defensiva de tokens, senhas, chaves de API e URLs de banco.
 """
+
 from __future__ import annotations
 
 import json
@@ -53,7 +54,10 @@ _SAFETY_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     # Telegram bot tokens na URL: bot<digits>:<alnum>
     (re.compile(r"bot\d{6,}:[A-Za-z0-9_\-]{20,}"), "***"),
     # password=..., api_key=..., secret=..., token=...
-    (re.compile(r"(?i)(password|passwd|secret|api_?key|token|authorization)\s*[=:]\s*\S+"), r"\1=***"),
+    (
+        re.compile(r"(?i)(password|passwd|secret|api_?key|token|authorization)\s*[=:]\s*\S+"),
+        r"\1=***",
+    ),
     # Chaves longas (JWT/base64/hex com 32+ chars) provavelmente sensíveis.
     (re.compile(r"\b[A-Za-z0-9+/=_\-]{32,}\b"), "***"),
     # postgres://user:pass@host
@@ -76,17 +80,17 @@ def _apply_safety_net(text: str) -> str:
 # ---------------------------------------------------------------------------- #
 
 # Descarta GET /health e /ready com status 2xx emitidos por qualquer logger/framework
-_HEALTH_NOISE_RE = re.compile(r'GET\s+/(health|ready)\b.*?20[0-9]\b')
+_HEALTH_NOISE_RE = re.compile(r"GET\s+/(health|ready)\b.*?20[0-9]\b")
 
 
 def _log_filter(record: "logger.Record") -> bool:
     """Filtra ruído desnecessário e aplica safety-net de privacidade."""
     msg = record["message"]
-    
+
     # 1. Suprimir health checks bem-sucedidos para manter o sinal limpo
     if _HEALTH_NOISE_RE.search(msg):
         return False
-    
+
     # 2. Se for evento explícito de health check 2xx sem lentidão
     if record["extra"].get("event") == "http.healthcheck.ok":
         return False
@@ -105,14 +109,15 @@ def _record_payload(record: "logger.Record") -> dict[str, Any]:
     """Constrói o payload JSON estruturado a partir de um record Loguru."""
     extra = record["extra"]
     payload: dict[str, Any] = {
-        "timestamp": record["time"].strftime("%Y-%m-%dT%H:%M:%S.") + f"{record['time'].microsecond:06d}Z",
+        "timestamp": record["time"].strftime("%Y-%m-%dT%H:%M:%S.")
+        + f"{record['time'].microsecond:06d}Z",
         "level": record["level"].name,
         "service": extra.get("service") or "workana-app",
         "environment": extra.get("environment") or settings.environment,
         "logger": extra.get("logger") or record["name"],
         "message": record["message"],
     }
-    
+
     if extra.get("event"):
         payload["event"] = extra["event"]
     if extra.get("request_id"):
@@ -123,7 +128,15 @@ def _record_payload(record: "logger.Record") -> dict[str, Any]:
         payload["user_id"] = extra["user_id"]
 
     # Extrair contexto adicional estruturado customizado (excluindo chaves canônicas)
-    reserved = {"service", "environment", "logger", "event", "request_id", "operation_id", "user_id"}
+    reserved = {
+        "service",
+        "environment",
+        "logger",
+        "event",
+        "request_id",
+        "operation_id",
+        "user_id",
+    }
     custom_context = {k: v for k, v in extra.items() if k not in reserved and v is not None}
     if custom_context:
         payload["context"] = custom_context
@@ -213,9 +226,7 @@ class InterceptHandler(logging.Handler):
             frame = frame.f_back
             depth += 1
 
-        logger.opt(depth=depth, exception=record.exc_info).log(
-            level, record.getMessage()
-        )
+        logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
 
 
 _LOGGERS_TO_INTERCEPT = (

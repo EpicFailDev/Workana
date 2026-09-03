@@ -10,6 +10,7 @@ from typing import List, Dict, Any
 BACKEND_DIR = Path("C:/Users/Yumi/Documents/GitHub/Workana/backend")
 TEST_RESULTS: List[Dict[str, Any]] = []
 
+
 def log_result(name: str, passed: bool, details: str = ""):
     status = "✅ PASS" if passed else "❌ FAIL"
     TEST_RESULTS.append({"name": name, "passed": passed, "details": details})
@@ -17,12 +18,14 @@ def log_result(name: str, passed: bool, details: str = ""):
     if details:
         print(f"         {details}")
 
+
 def read_file(rel_path: str) -> str:
     """Lê arquivo relativo ao backend dir"""
     full = BACKEND_DIR / rel_path
     if full.exists():
         return full.read_text(encoding="utf-8")
     return ""
+
 
 def main():
     print("=" * 70)
@@ -37,7 +40,9 @@ def main():
     if "class ProposalBatchCreate" in schemas:
         log_result("ProposalBatchCreate schema existe", True)
     else:
-        log_result("ProposalBatchCreate schema existe", False, "Classe nao encontrada em schemas.py")
+        log_result(
+            "ProposalBatchCreate schema existe", False, "Classe nao encontrada em schemas.py"
+        )
 
     # Testar se ProposalBatchResponse existe
     if "class ProposalBatchResponse" in schemas:
@@ -98,10 +103,17 @@ def main():
     routers_profile = read_file("app/api/routers/profile.py")
 
     # Verificar se os response_model usam schemas definidos
-    response_models = re.findall(r'response_model=(\w+)', routers_projects)
-    valid_schemas = ["CatalogProjectList", "BulkStateResult", "List[AnalysisResult]",
-                     "ProposalResult", "List[dict]", "dict", "MessageResponse"]
-    
+    response_models = re.findall(r"response_model=(\w+)", routers_projects)
+    valid_schemas = [
+        "CatalogProjectList",
+        "BulkStateResult",
+        "List[AnalysisResult]",
+        "ProposalResult",
+        "List[dict]",
+        "dict",
+        "MessageResponse",
+    ]
+
     for rm in response_models:
         if rm not in valid_schemas and not rm.startswith("List["):
             log_result(f"response_model={rm} valido", False, f"Schema desconhecido: {rm}")
@@ -112,13 +124,19 @@ def main():
     if "response_model=List[AnalysisResult]" in routers_projects:
         log_result("analyze_projects usa List[AnalysisResult]", True)
     else:
-        log_result("analyze_projects usa List[AnalysisResult]", False,
-                   "Verificar se response_model esta correto")
+        log_result(
+            "analyze_projects usa List[AnalysisResult]",
+            False,
+            "Verificar se response_model esta correto",
+        )
 
     # Verificar se create_batch não tem response_model (usando dict)
     if "response_model=dict" in routers_projects:
-        log_result("create_batch usa response_model=dict", True, 
-                   "Pode melhorar com ProposalBatchCreateResponse")
+        log_result(
+            "create_batch usa response_model=dict",
+            True,
+            "Pode melhorar com ProposalBatchCreateResponse",
+        )
     else:
         log_result("create_batch usa response_model=dict", False)
 
@@ -154,19 +172,19 @@ def main():
 
     # ========== TESTE 5: Arvore de imports (dependencias) ==========
     print("\n🔗 5. ANALISE DE DEPENDENCIAS")
-    
+
     # Verificar se routers importam corretamente
-    if 'from app.database import crud' in routers_projects:
+    if "from app.database import crud" in routers_projects:
         log_result("Projects router importa crud corretamente", True)
     else:
         log_result("Projects router importa crud corretamente", False)
 
-    if 'from app.services.scorer import ProjectScorer' in routers_projects:
+    if "from app.services.scorer import ProjectScorer" in routers_projects:
         log_result("Projects router importa ProjectScorer corretamente", True)
     else:
         log_result("Projects router importa ProjectScorer corretamente", False)
 
-    if 'from app.auth import get_current_user' in routers_projects:
+    if "from app.auth import get_current_user" in routers_projects:
         log_result("Projects router importa get_current_user corretamente", True)
     else:
         log_result("Projects router importa get_current_user corretamente", False)
@@ -190,23 +208,29 @@ def main():
     if 'docs_url="/docs" if settings.debug else None' in main:
         log_result("Swagger desabilitado em producao (debug=False)", True)
     else:
-        log_result("Swagger desabilitado em producao (debug=False)", False,
-                   "Verificar se docs_url e condicional")
+        log_result(
+            "Swagger desabilitado em producao (debug=False)",
+            False,
+            "Verificar se docs_url e condicional",
+        )
 
     # ========== TESTE 7: Lógica de negócio nos routers ==========
     print("\n🏗️ 7. ARQUITETURA - Lógica nos routers")
-    
+
     # Verificar _build_analysis_profile no router
     if "async def _build_analysis_profile" in routers_projects:
         # Esta funcao e privada e serve como helper - aceitável
-        log_result("_build_analysis_profile e funcao helper privada no router", True,
-                   "Funcao interna, nao exposta, aceitavel")
+        log_result(
+            "_build_analysis_profile e funcao helper privada no router",
+            True,
+            "Funcao interna, nao exposta, aceitavel",
+        )
     else:
         log_result("_build_analysis_profile existe", False)
 
     # ========== TESTE 8: Batch processing - completude ==========
     print("\n📦 8. BATCH PROCESSING - COMPLUDEZA")
-    
+
     # Verificar se existem funcões para ciclo completo de batch
     batch_lifecycle = [
         ("criar lote", "create_proposal_batch"),
@@ -231,7 +255,7 @@ def main():
     pool_config = {
         "pool_pre_ping": "pool_pre_ping",
         "pool_size": "pool_size",
-        "max_overflow": "max_overflow", 
+        "max_overflow": "max_overflow",
         "pool_recycle": "pool_recycle",
         "pool_timeout": "pool_timeout",
     }
@@ -245,8 +269,11 @@ def main():
     migrations_dir = BACKEND_DIR / "supabase" / "migrations"
     if migrations_dir.exists():
         migration_files = list(migrations_dir.glob("*.sql"))
-        log_result(f"Arquivos de migracao encontrados: {len(migration_files)}", True,
-                   f"Arquivos: {[f.name for f in migration_files[:5]]}")
+        log_result(
+            f"Arquivos de migracao encontrados: {len(migration_files)}",
+            True,
+            f"Arquivos: {[f.name for f in migration_files[:5]]}",
+        )
     else:
         log_result("Diretório de migracoes existe", False)
 
@@ -262,7 +289,7 @@ def main():
     print(f"\nTotal: {total} testes")
     print(f"✅ Passados: {passed}")
     print(f"❌ Falhados: {failed}")
-    print(f"Taxa de sucesso: {passed/total*100:.0f}%")
+    print(f"Taxa de sucesso: {passed / total * 100:.0f}%")
 
     if failed > 0:
         print("\n🔴 Testes falhados:")

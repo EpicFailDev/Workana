@@ -26,7 +26,8 @@ export default function Termos() {
           <AlertTriangle className="w-5 h-5 shrink-0" />
           <div className="text-xs leading-normal">
             <span className="font-bold uppercase block">Documento sob Revisão</span>
-            Esta página pública e seus termos estão sob revisão jurídica obrigatória antes do lançamento de produção.
+            Esta página pública e seus termos estão sob revisão jurídica obrigatória antes do
+            lançamento de produção.
           </div>
         </div>
 
@@ -35,7 +36,9 @@ export default function Termos() {
           <Scale className="w-8 h-8 text-slate-400" />
           <div>
             <h1 className="text-2xl font-extrabold text-white">Termos de Serviço</h1>
-            <p className="text-xs text-slate-400">Última atualização: Junho de 2026 (Versão Preliminar)</p>
+            <p className="text-xs text-slate-400">
+              Última atualização: Junho de 2026 (Versão Preliminar)
+            </p>
           </div>
         </div>
 
@@ -44,25 +47,34 @@ export default function Termos() {
           <section className="space-y-2">
             <h2 className="text-base font-bold text-white">1. Aceitação dos Termos</h2>
             <p className="leading-relaxed">
-              Ao criar uma conta ou utilizar os serviços desta plataforma, você declara e garante que leu, compreendeu e concorda em estar vinculado a estes termos de serviço. Se você não concordar com qualquer disposição aqui estabelecida, não está autorizado a acessar ou utilizar nossa plataforma.
+              Ao criar uma conta ou utilizar os serviços desta plataforma, você declara e garante
+              que leu, compreendeu e concorda em estar vinculado a estes termos de serviço. Se você
+              não concordar com qualquer disposição aqui estabelecida, não está autorizado a acessar
+              ou utilizar nossa plataforma.
             </p>
           </section>
 
           <section className="space-y-2">
             <h2 className="text-base font-bold text-white">2. Elegibilidade e Cadastro de Conta</h2>
             <p className="leading-relaxed">
-              O acesso a esta plataforma é exclusivo para fins corporativos e comerciais. Ao cadastrar uma conta, você se compromete a fornecer informações verdadeiras, atualizadas e completas, mantendo a confidencialidade absoluta das suas credenciais de acesso, incluindo senha e códigos OTP recebidos.
+              O acesso a esta plataforma é exclusivo para fins corporativos e comerciais. Ao
+              cadastrar uma conta, você se compromete a fornecer informações verdadeiras,
+              atualizadas e completas, mantendo a confidencialidade absoluta das suas credenciais de
+              acesso, incluindo senha e códigos OTP recebidos.
             </p>
           </section>
 
           <section className="space-y-2">
             <h2 className="text-base font-bold text-white">3. Uso Autorizado e Restrições</h2>
             <p className="leading-relaxed">
-              Você concorda em utilizar a plataforma estritamente de acordo com as leis vigentes e regulamentações do seu país. É expressamente vedado:
+              Você concorda em utilizar a plataforma estritamente de acordo com as leis vigentes e
+              regulamentações do seu país. É expressamente vedado:
             </p>
             <ul className="list-disc pl-5 space-y-1 text-slate-400">
               <li>Utilizar robôs de extração de dados não autorizados na plataforma.</li>
-              <li>Tentar violar os sistemas de autenticação ou obter acesso a contas de terceiros.</li>
+              <li>
+                Tentar violar os sistemas de autenticação ou obter acesso a contas de terceiros.
+              </li>
               <li>Compartilhar credenciais corporativas com indivíduos não autorizados.</li>
             </ul>
           </section>
@@ -70,14 +82,19 @@ export default function Termos() {
           <section className="space-y-2">
             <h2 className="text-base font-bold text-white">4. Propriedade Intelectual</h2>
             <p className="leading-relaxed">
-              Todos os direitos de propriedade intelectual sobre o software, design de interfaces, marcas e conteúdo gerado pela plataforma pertencem exclusivamente à nossa corporação. Nenhum direito de propriedade intelectual é transferido a você sob estes termos.
+              Todos os direitos de propriedade intelectual sobre o software, design de interfaces,
+              marcas e conteúdo gerado pela plataforma pertencem exclusivamente à nossa corporação.
+              Nenhum direito de propriedade intelectual é transferido a você sob estes termos.
             </p>
           </section>
 
           <section className="space-y-2">
             <h2 className="text-base font-bold text-white">5. Limitação de Responsabilidade</h2>
             <p className="leading-relaxed">
-              Na extensão máxima permitida pela lei aplicável, a plataforma é fornecida "como está" e "conforme disponível". Não garantimos que a plataforma estará isenta de interrupções ou erros, tampouco nos responsabilizamos por quaisquer perdas financeiras decorrentes da utilização da nossa ferramenta.
+              Na extensão máxima permitida pela lei aplicável, a plataforma é fornecida "como está"
+              e "conforme disponível". Não garantimos que a plataforma estará isenta de interrupções
+              ou erros, tampouco nos responsabilizamos por quaisquer perdas financeiras decorrentes
+              da utilização da nossa ferramenta.
             </p>
           </section>
         </div>

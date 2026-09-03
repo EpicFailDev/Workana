@@ -2,7 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { updatePasswordSchema, UpdatePasswordInputs, translateAuthError, calculatePasswordStrength } from '../services/authService';
+import {
+  updatePasswordSchema,
+  UpdatePasswordInputs,
+  translateAuthError,
+  calculatePasswordStrength,
+} from '../services/authService';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { Eye, EyeOff, Loader2, ShieldAlert, CheckCircle } from 'lucide-react';
@@ -26,17 +31,25 @@ export default function NovaSenha() {
       setIsAuthorized(true);
     } else {
       setIsAuthorized(false);
-      toast.error('Acesso não autorizado. Por favor, valide o código OTP enviado ao seu e-mail.', 'Sessão Ausente');
+      toast.error(
+        'Acesso não autorizado. Por favor, valide o código OTP enviado ao seu e-mail.',
+        'Sessão Ausente'
+      );
       navigate('/auth/recuperar');
     }
   }, [session, navigate, toast]);
 
-  const { register, handleSubmit, formState: { errors }, watch } = useForm<UpdatePasswordInputs>({
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    watch,
+  } = useForm<UpdatePasswordInputs>({
     resolver: zodResolver(updatePasswordSchema),
     defaultValues: {
       password: '',
       confirmPassword: '',
-    }
+    },
   });
 
   const passwordValue = watch('password') || '';
@@ -104,31 +117,42 @@ export default function NovaSenha() {
                   onClick={() => setShowPassword(!showPassword)}
                   disabled={loading}
                   className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
-                  aria-label={showPassword ? "Ocultar senha" : "Exibir senha"}
+                  aria-label={showPassword ? 'Ocultar senha' : 'Exibir senha'}
                 >
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
-              
+
               {/* Password Strength Meter */}
               {passwordValue.length > 0 && (
                 <div className="pt-2 px-1">
                   <div className="flex justify-between text-2xs font-semibold mb-1">
                     <span className="text-slate-400">Força da Senha:</span>
-                    <span className={`font-bold ${
-                      strength.score === 1 ? 'text-red-400' :
-                      strength.score === 2 ? 'text-yellow-400' :
-                      strength.score === 3 ? 'text-blue-400' :
-                      'text-green-400'
-                    }`}>{strength.label}</span>
+                    <span
+                      className={`font-bold ${
+                        strength.score === 1
+                          ? 'text-red-400'
+                          : strength.score === 2
+                            ? 'text-yellow-400'
+                            : strength.score === 3
+                              ? 'text-blue-400'
+                              : 'text-green-400'
+                      }`}
+                    >
+                      {strength.label}
+                    </span>
                   </div>
                   <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden flex gap-1">
-                    <div className={`h-full rounded-full transition-all duration-300 ${
-                      strength.score >= 1 ? (strength.score === 1 ? 'bg-red-500 w-[25%]' : '') ||
-                      (strength.score === 2 ? 'bg-yellow-500 w-[50%]' : '') ||
-                      (strength.score === 3 ? 'bg-blue-500 w-[75%]' : '') ||
-                      (strength.score === 4 ? 'bg-green-500 w-[100%]' : '') : 'w-0'
-                    }`} />
+                    <div
+                      className={`h-full rounded-full transition-all duration-300 ${
+                        strength.score >= 1
+                          ? (strength.score === 1 ? 'bg-red-500 w-[25%]' : '') ||
+                            (strength.score === 2 ? 'bg-yellow-500 w-[50%]' : '') ||
+                            (strength.score === 3 ? 'bg-blue-500 w-[75%]' : '') ||
+                            (strength.score === 4 ? 'bg-green-500 w-[100%]' : '')
+                          : 'w-0'
+                      }`}
+                    />
                   </div>
                 </div>
               )}
@@ -154,9 +178,13 @@ export default function NovaSenha() {
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                   disabled={loading}
                   className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
-                  aria-label={showConfirmPassword ? "Ocultar senha" : "Exibir senha"}
+                  aria-label={showConfirmPassword ? 'Ocultar senha' : 'Exibir senha'}
                 >
-                  {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  {showConfirmPassword ? (
+                    <EyeOff className="w-5 h-5" />
+                  ) : (
+                    <Eye className="w-5 h-5" />
+                  )}
                 </button>
               </div>
               {errors.confirmPassword && (
@@ -168,7 +196,8 @@ export default function NovaSenha() {
             <div className="flex items-start gap-2.5 p-3 bg-red-500/5 border border-red-500/10 rounded-xl mt-2">
               <ShieldAlert className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
               <p className="text-2xs text-slate-400 leading-normal">
-                Ao salvar, sua sessão temporária será encerrada e você precisará fazer login novamente com a nova senha corporativa.
+                Ao salvar, sua sessão temporária será encerrada e você precisará fazer login
+                novamente com a nova senha corporativa.
               </p>
             </div>
 
@@ -178,11 +207,7 @@ export default function NovaSenha() {
               disabled={loading}
               className="w-full h-12 bg-gradient-to-r from-violet-500 to-indigo-600 hover:brightness-110 text-white font-semibold rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-950/20 active:scale-[0.99] border-none mt-2"
             >
-              {loading ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <>Salvar Nova Senha</>
-              )}
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Salvar Nova Senha</>}
             </Button>
           </form>
         </div>

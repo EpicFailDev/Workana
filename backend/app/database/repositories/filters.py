@@ -1,6 +1,7 @@
 """
 Repository para gerenciamento de filtros salvos de projetos.
 """
+
 from typing import List, Dict, Any, Tuple
 import json
 from sqlalchemy import select, delete, and_
@@ -19,14 +20,9 @@ async def get_saved_filters(user_id: Any) -> List[SavedFilter]:
             .order_by(SavedFilterModel.created_at.desc())
         )
         filters = result.scalars().all()
-        
+
         return [
-            SavedFilter(
-                id=f.id,
-                name=f.name,
-                filters=f.filters_json,
-                created_at=f.created_at
-            )
+            SavedFilter(id=f.id, name=f.name, filters=f.filters_json, created_at=f.created_at)
             for f in filters
         ]
 
@@ -37,17 +33,19 @@ async def create_filter(user_id: Any, filter_data: SavedFilter) -> SavedFilter:
         db_filter = SavedFilterModel(
             user_id=user_id,
             name=filter_data.name,
-            filters_json=filter_data.filters.model_dump() if hasattr(filter_data.filters, "model_dump") else filter_data.filters
+            filters_json=filter_data.filters.model_dump()
+            if hasattr(filter_data.filters, "model_dump")
+            else filter_data.filters,
         )
         session.add(db_filter)
         await session.commit()
         await session.refresh(db_filter)
-        
+
         return SavedFilter(
             id=db_filter.id,
             name=db_filter.name,
             filters=filter_data.filters,
-            created_at=db_filter.created_at
+            created_at=db_filter.created_at,
         )
 
 
@@ -55,8 +53,9 @@ async def delete_filter(user_id: Any, filter_id: int) -> None:
     """Remove um filtro de um usuário específico."""
     async with crud.async_session() as session:
         await session.execute(
-            delete(SavedFilterModel)
-            .where(and_(SavedFilterModel.id == filter_id, SavedFilterModel.user_id == user_id))
+            delete(SavedFilterModel).where(
+                and_(SavedFilterModel.id == filter_id, SavedFilterModel.user_id == user_id)
+            )
         )
         await session.commit()
 

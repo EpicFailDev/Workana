@@ -1,6 +1,7 @@
 """
 Repository para gerenciamento de projetos do catálogo e projetos legados.
 """
+
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, func, and_, or_, cast, Float, String, update
@@ -17,16 +18,20 @@ from app.database.models import (
 
 # ==================== Projetos (Legado / Pessoais) ====================
 
+
 async def save_project(user_id: Any, project_data: Dict[str, Any]) -> int:
     """Salva ou atualiza um projeto encontrado para um usuário específico."""
     async with crud.async_session() as session:
         result = await session.execute(
             select(ProjectModel).where(
-                and_(ProjectModel.workana_id == project_data.get("workana_id"), ProjectModel.user_id == user_id)
+                and_(
+                    ProjectModel.workana_id == project_data.get("workana_id"),
+                    ProjectModel.user_id == user_id,
+                )
             )
         )
         existing = result.scalar_one_or_none()
-        
+
         if existing:
             for key, value in project_data.items():
                 if hasattr(existing, key) and key not in ("id", "user_id"):
@@ -49,26 +54,26 @@ async def get_projects(
     offset: int = 0,
     only_favorites: bool = False,
     only_not_applied: bool = False,
-    category: Optional[str] = None
+    category: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Lista projetos salvos de um usuário com filtros."""
     async with crud.async_session() as session:
         query = select(ProjectModel).where(ProjectModel.user_id == user_id)
-        
+
         if only_favorites:
             query = query.where(ProjectModel.is_favorite == True)
         if only_not_applied:
             query = query.where(ProjectModel.is_applied == False)
         if category:
             query = query.where(ProjectModel.category == category)
-        
+
         query = query.where(ProjectModel.is_ignored == False)
         query = query.order_by(ProjectModel.found_at.desc())
         query = query.offset(offset).limit(limit)
-        
+
         result = await session.execute(query)
         projects = result.scalars().all()
-        
+
         return [
             {
                 "id": p.id,
@@ -91,7 +96,7 @@ async def get_projects(
                 "is_favorite": p.is_favorite,
                 "is_applied": p.is_applied,
                 "notes": p.notes,
-                "found_at": p.found_at.isoformat() if p.found_at else None
+                "found_at": p.found_at.isoformat() if p.found_at else None,
             }
             for p in projects
         ]
@@ -101,10 +106,12 @@ async def get_project(user_id: Any, project_id: int) -> Optional[Dict[str, Any]]
     """Obtém um projeto específico de um usuário."""
     async with crud.async_session() as session:
         result = await session.execute(
-            select(ProjectModel).where(and_(ProjectModel.id == project_id, ProjectModel.user_id == user_id))
+            select(ProjectModel).where(
+                and_(ProjectModel.id == project_id, ProjectModel.user_id == user_id)
+            )
         )
         p = result.scalar_one_or_none()
-        
+
         if p:
             return {
                 "id": p.id,
@@ -131,23 +138,30 @@ async def get_project(user_id: Any, project_id: int) -> Optional[Dict[str, Any]]
                 "is_ignored": p.is_ignored,
                 "notes": p.notes,
                 "found_at": p.found_at.isoformat() if p.found_at else None,
-                "updated_at": p.updated_at.isoformat() if p.updated_at else None
+                "updated_at": p.updated_at.isoformat() if p.updated_at else None,
             }
         return None
 
 
 async def get_project_by_workana_id(user_id: Any, workana_id: str) -> Optional[Dict[str, Any]]:
     """Obtém um projeto pelo seu workana_id buscando no catálogo global e nos projetos salvos."""
-    clean_id = str(workana_id).replace("https://www.workana.com/job/", "").replace("https://www.workana.com/messages/bid/", "").strip("/")
+    clean_id = (
+        str(workana_id)
+        .replace("https://www.workana.com/job/", "")
+        .replace("https://www.workana.com/messages/bid/", "")
+        .strip("/")
+    )
     async with crud.async_session() as session:
         # 1. Buscar no catálogo global
         result_cat = await session.execute(
-            select(ProjectCatalogModel).where(
+            select(ProjectCatalogModel)
+            .where(
                 or_(
                     ProjectCatalogModel.workana_id == str(workana_id),
-                    ProjectCatalogModel.workana_id == clean_id
+                    ProjectCatalogModel.workana_id == clean_id,
                 )
-            ).limit(1)
+            )
+            .limit(1)
         )
         cat_p = result_cat.scalar_one_or_none()
         if cat_p:
@@ -173,12 +187,11 @@ async def get_project_by_workana_id(user_id: Any, workana_id: str) -> Optional[D
 
         # 2. Fallback para tabela de projetos
         result_proj = await session.execute(
-            select(ProjectModel).where(
-                or_(
-                    ProjectModel.workana_id == str(workana_id),
-                    ProjectModel.workana_id == clean_id
-                )
-            ).limit(1)
+            select(ProjectModel)
+            .where(
+                or_(ProjectModel.workana_id == str(workana_id), ProjectModel.workana_id == clean_id)
+            )
+            .limit(1)
         )
         p = result_proj.scalar_one_or_none()
         if p:
@@ -209,10 +222,12 @@ async def toggle_project_favorite(user_id: Any, project_id: int) -> bool:
     """Alterna o status de favorito de um projeto de um usuário específico."""
     async with crud.async_session() as session:
         result = await session.execute(
-            select(ProjectModel).where(and_(ProjectModel.id == project_id, ProjectModel.user_id == user_id))
+            select(ProjectModel).where(
+                and_(ProjectModel.id == project_id, ProjectModel.user_id == user_id)
+            )
         )
         project = result.scalar_one_or_none()
-        
+
         if project:
             project.is_favorite = not project.is_favorite
             await session.commit()
@@ -224,7 +239,9 @@ async def mark_project_applied(user_id: Any, project_id: int) -> None:
     """Marca um projeto de um usuário como aplicado."""
     async with crud.async_session() as session:
         result = await session.execute(
-            select(ProjectModel).where(and_(ProjectModel.id == project_id, ProjectModel.user_id == user_id))
+            select(ProjectModel).where(
+                and_(ProjectModel.id == project_id, ProjectModel.user_id == user_id)
+            )
         )
         project = result.scalar_one_or_none()
         if project:
@@ -237,7 +254,9 @@ async def ignore_project(user_id: Any, project_id: int) -> None:
     """Ignora um projeto de um usuário específico."""
     async with crud.async_session() as session:
         result = await session.execute(
-            select(ProjectModel).where(and_(ProjectModel.id == project_id, ProjectModel.user_id == user_id))
+            select(ProjectModel).where(
+                and_(ProjectModel.id == project_id, ProjectModel.user_id == user_id)
+            )
         )
         project = result.scalar_one_or_none()
         if project:
@@ -249,7 +268,9 @@ async def update_project_notes(user_id: Any, project_id: int, notes: str) -> Non
     """Atualiza notas de um projeto do usuário."""
     async with crud.async_session() as session:
         result = await session.execute(
-            select(ProjectModel).where(and_(ProjectModel.id == project_id, ProjectModel.user_id == user_id))
+            select(ProjectModel).where(
+                and_(ProjectModel.id == project_id, ProjectModel.user_id == user_id)
+            )
         )
         project = result.scalar_one_or_none()
         if project:
@@ -260,7 +281,10 @@ async def update_project_notes(user_id: Any, project_id: int, notes: str) -> Non
 
 # ==================== Catálogo de Projetos ====================
 
-def _serialize_catalog_row(cat: ProjectCatalogModel, state: Optional[UserProjectStateModel]) -> Dict[str, Any]:
+
+def _serialize_catalog_row(
+    cat: ProjectCatalogModel, state: Optional[UserProjectStateModel]
+) -> Dict[str, Any]:
     return {
         "workana_id": cat.workana_id,
         "title": cat.title,
@@ -288,7 +312,9 @@ def _serialize_catalog_row(cat: ProjectCatalogModel, state: Optional[UserProject
         "last_client_activity": cat.last_client_activity,
         "is_urgent": cat.is_urgent,
         "is_featured": cat.is_featured,
-        "estimated_published_at": cat.estimated_published_at.isoformat() if cat.estimated_published_at else None,
+        "estimated_published_at": cat.estimated_published_at.isoformat()
+        if cat.estimated_published_at
+        else None,
         "proposals_delta": cat.proposals_delta,
         "contract_type": cat.contract_type,
         "status": cat.status,
@@ -304,43 +330,297 @@ def _serialize_catalog_row(cat: ProjectCatalogModel, state: Optional[UserProject
 
 CATEGORY_ALIASES: Dict[str, List[str]] = {
     # TI & Programação
-    "ti-programacao": ["ti-programacao", "ti e programação", "ti & programação", "it & programming", "it-programming", "it y programación", "programação", "ti", "it"],
-    "it-programming": ["ti-programacao", "ti e programação", "ti & programação", "it & programming", "it-programming", "it y programação", "programação", "ti", "it"],
-    "ti e programação": ["ti-programacao", "ti e programação", "ti & programação", "it & programming", "it-programming", "it y programação", "programação", "ti", "it"],
-    "ti & programação": ["ti-programacao", "ti e programação", "ti & programação", "it & programming", "it-programming", "it y programação", "programação", "ti", "it"],
-    
+    "ti-programacao": [
+        "ti-programacao",
+        "ti e programação",
+        "ti & programação",
+        "it & programming",
+        "it-programming",
+        "it y programación",
+        "programação",
+        "ti",
+        "it",
+    ],
+    "it-programming": [
+        "ti-programacao",
+        "ti e programação",
+        "ti & programação",
+        "it & programming",
+        "it-programming",
+        "it y programação",
+        "programação",
+        "ti",
+        "it",
+    ],
+    "ti e programação": [
+        "ti-programacao",
+        "ti e programação",
+        "ti & programação",
+        "it & programming",
+        "it-programming",
+        "it y programação",
+        "programação",
+        "ti",
+        "it",
+    ],
+    "ti & programação": [
+        "ti-programacao",
+        "ti e programação",
+        "ti & programação",
+        "it & programming",
+        "it-programming",
+        "it y programação",
+        "programação",
+        "ti",
+        "it",
+    ],
     # Design & Multimídia
-    "design-multimidia": ["design-multimidia", "design-multimedia", "design e multimídia", "design & multimídia", "design & multimedia", "design e multimedia", "design y multimedia", "design", "multimídia", "multimedia"],
-    "design-multimedia": ["design-multimidia", "design-multimedia", "design e multimídia", "design & multimídia", "design & multimedia", "design e multimedia", "design y multimedia", "design", "multimídia", "multimedia"],
-    "design e multimídia": ["design-multimidia", "design-multimedia", "design e multimídia", "design & multimídia", "design & multimedia", "design e multimedia", "design y multimedia", "design", "multimídia", "multimedia"],
-    "design e multimedia": ["design-multimidia", "design-multimedia", "design e multimídia", "design & multimídia", "design & multimedia", "design e multimedia", "design y multimedia", "design", "multimídia", "multimedia"],
-    
+    "design-multimidia": [
+        "design-multimidia",
+        "design-multimedia",
+        "design e multimídia",
+        "design & multimídia",
+        "design & multimedia",
+        "design e multimedia",
+        "design y multimedia",
+        "design",
+        "multimídia",
+        "multimedia",
+    ],
+    "design-multimedia": [
+        "design-multimidia",
+        "design-multimedia",
+        "design e multimídia",
+        "design & multimídia",
+        "design & multimedia",
+        "design e multimedia",
+        "design y multimedia",
+        "design",
+        "multimídia",
+        "multimedia",
+    ],
+    "design e multimídia": [
+        "design-multimidia",
+        "design-multimedia",
+        "design e multimídia",
+        "design & multimídia",
+        "design & multimedia",
+        "design e multimedia",
+        "design y multimedia",
+        "design",
+        "multimídia",
+        "multimedia",
+    ],
+    "design e multimedia": [
+        "design-multimidia",
+        "design-multimedia",
+        "design e multimídia",
+        "design & multimídia",
+        "design & multimedia",
+        "design e multimedia",
+        "design y multimedia",
+        "design",
+        "multimídia",
+        "multimedia",
+    ],
     # Tradução e Conteúdos / Escrita
-    "traducao-conteudos": ["traducao-conteudos", "writing-translation", "tradução e conteúdos", "tradução & conteúdos", "tradução e conteudos", "escrita e tradução", "escrita & tradução", "writing & translation", "redacción y traducción", "tradução", "redação", "conteúdos"],
-    "writing-translation": ["traducao-conteudos", "writing-translation", "tradução e conteúdos", "tradução & conteúdos", "tradução e conteudos", "escrita e tradução", "escrita & tradução", "writing & translation", "redacción y traducción", "tradução", "redação", "conteúdos"],
-    "tradução e conteúdos": ["traducao-conteudos", "writing-translation", "tradução e conteúdos", "tradução & conteúdos", "tradução e conteudos", "escrita e tradução", "escrita & tradução", "writing & translation", "redacción y traducción", "tradução", "redação", "conteúdos"],
-    
+    "traducao-conteudos": [
+        "traducao-conteudos",
+        "writing-translation",
+        "tradução e conteúdos",
+        "tradução & conteúdos",
+        "tradução e conteudos",
+        "escrita e tradução",
+        "escrita & tradução",
+        "writing & translation",
+        "redacción y traducción",
+        "tradução",
+        "redação",
+        "conteúdos",
+    ],
+    "writing-translation": [
+        "traducao-conteudos",
+        "writing-translation",
+        "tradução e conteúdos",
+        "tradução & conteúdos",
+        "tradução e conteudos",
+        "escrita e tradução",
+        "escrita & tradução",
+        "writing & translation",
+        "redacción y traducción",
+        "tradução",
+        "redação",
+        "conteúdos",
+    ],
+    "tradução e conteúdos": [
+        "traducao-conteudos",
+        "writing-translation",
+        "tradução e conteúdos",
+        "tradução & conteúdos",
+        "tradução e conteudos",
+        "escrita e tradução",
+        "escrita & tradução",
+        "writing & translation",
+        "redacción y traducción",
+        "tradução",
+        "redação",
+        "conteúdos",
+    ],
     # Vendas e Marketing
-    "marketing-vendas": ["marketing-vendas", "marketing-sales", "vendas e marketing", "vendas & marketing", "marketing e vendas", "sales & marketing", "marketing y ventas", "marketing", "vendas"],
-    "marketing-sales": ["marketing-vendas", "marketing-sales", "vendas e marketing", "vendas & marketing", "marketing e vendas", "sales & marketing", "marketing y ventas", "marketing", "vendas"],
-    "marketing e vendas": ["marketing-vendas", "marketing-sales", "vendas e marketing", "vendas & marketing", "marketing e vendas", "sales & marketing", "marketing y ventas", "marketing", "vendas"],
-    "vendas e marketing": ["marketing-vendas", "marketing-sales", "vendas e marketing", "vendas & marketing", "marketing e vendas", "sales & marketing", "marketing y ventas", "marketing", "vendas"],
-    
+    "marketing-vendas": [
+        "marketing-vendas",
+        "marketing-sales",
+        "vendas e marketing",
+        "vendas & marketing",
+        "marketing e vendas",
+        "sales & marketing",
+        "marketing y ventas",
+        "marketing",
+        "vendas",
+    ],
+    "marketing-sales": [
+        "marketing-vendas",
+        "marketing-sales",
+        "vendas e marketing",
+        "vendas & marketing",
+        "marketing e vendas",
+        "sales & marketing",
+        "marketing y ventas",
+        "marketing",
+        "vendas",
+    ],
+    "marketing e vendas": [
+        "marketing-vendas",
+        "marketing-sales",
+        "vendas e marketing",
+        "vendas & marketing",
+        "marketing e vendas",
+        "sales & marketing",
+        "marketing y ventas",
+        "marketing",
+        "vendas",
+    ],
+    "vendas e marketing": [
+        "marketing-vendas",
+        "marketing-sales",
+        "vendas e marketing",
+        "vendas & marketing",
+        "marketing e vendas",
+        "sales & marketing",
+        "marketing y ventas",
+        "marketing",
+        "vendas",
+    ],
     # Suporte Administrativo
-    "suporte-administrativo": ["suporte-administrativo", "admin-support", "suporte administrativo", "administrativo e suporte", "administrativo & suporte", "admin support", "soporte administrativo", "suporte", "administrativo"],
-    "admin-support": ["suporte-administrativo", "admin-support", "suporte administrativo", "administrativo e suporte", "administrativo & suporte", "admin support", "soporte administrativo", "suporte", "administrativo"],
-    "suporte administrativo": ["suporte-administrativo", "admin-support", "suporte administrativo", "administrativo e suporte", "administrativo & suporte", "admin support", "soporte administrativo", "suporte", "administrativo"],
-    
+    "suporte-administrativo": [
+        "suporte-administrativo",
+        "admin-support",
+        "suporte administrativo",
+        "administrativo e suporte",
+        "administrativo & suporte",
+        "admin support",
+        "soporte administrativo",
+        "suporte",
+        "administrativo",
+    ],
+    "admin-support": [
+        "suporte-administrativo",
+        "admin-support",
+        "suporte administrativo",
+        "administrativo e suporte",
+        "administrativo & suporte",
+        "admin support",
+        "soporte administrativo",
+        "suporte",
+        "administrativo",
+    ],
+    "suporte administrativo": [
+        "suporte-administrativo",
+        "admin-support",
+        "suporte administrativo",
+        "administrativo e suporte",
+        "administrativo & suporte",
+        "admin support",
+        "soporte administrativo",
+        "suporte",
+        "administrativo",
+    ],
     # Finanças e Jurídico
-    "financas-administracao": ["financas-administracao", "finance-legal", "finanças e administração", "finanças & jurídico", "jurídico", "finance & legal", "finanzas y administración", "legal", "finanças"],
-    "finance-legal": ["financas-administracao", "finance-legal", "finanças e administração", "finanças & jurídico", "jurídico", "finance & legal", "finanzas y administración", "legal", "finanças"],
-    "finanças e administração": ["financas-administracao", "finance-legal", "finanças e administração", "finanças & jurídico", "jurídico", "finance & legal", "finanzas y administration", "legal", "finanças"],
-    "jurídico": ["financas-administracao", "finance-legal", "finanças e administração", "finanças & jurídico", "jurídico", "finance & legal", "finanzas y administración", "legal", "finanças"],
-    
+    "financas-administracao": [
+        "financas-administracao",
+        "finance-legal",
+        "finanças e administração",
+        "finanças & jurídico",
+        "jurídico",
+        "finance & legal",
+        "finanzas y administración",
+        "legal",
+        "finanças",
+    ],
+    "finance-legal": [
+        "financas-administracao",
+        "finance-legal",
+        "finanças e administração",
+        "finanças & jurídico",
+        "jurídico",
+        "finance & legal",
+        "finanzas y administración",
+        "legal",
+        "finanças",
+    ],
+    "finanças e administração": [
+        "financas-administracao",
+        "finance-legal",
+        "finanças e administração",
+        "finanças & jurídico",
+        "jurídico",
+        "finance & legal",
+        "finanzas y administration",
+        "legal",
+        "finanças",
+    ],
+    "jurídico": [
+        "financas-administracao",
+        "finance-legal",
+        "finanças e administração",
+        "finanças & jurídico",
+        "jurídico",
+        "finance & legal",
+        "finanzas y administración",
+        "legal",
+        "finanças",
+    ],
     # Engenharia e Manufatura
-    "engenharia-manufatura": ["engenharia-manufatura", "engineering", "engenharia e manufatura", "engenharia & arquitetura", "engineering & manufacturing", "ingeniería y manufactura", "engenharia", "arquitetura"],
-    "engineering": ["engenharia-manufatura", "engineering", "engenharia e manufatura", "engenharia & arquitetura", "engineering & manufacturing", "ingeniería y manufactura", "engenharia", "arquitetura"],
-    "engenharia e manufatura": ["engenharia-manufatura", "engineering", "engenharia e manufatura", "engenharia & arquitetura", "engineering & manufacturing", "ingeniería y manufactura", "engenharia", "arquitetura"],
+    "engenharia-manufatura": [
+        "engenharia-manufatura",
+        "engineering",
+        "engenharia e manufatura",
+        "engenharia & arquitetura",
+        "engineering & manufacturing",
+        "ingeniería y manufactura",
+        "engenharia",
+        "arquitetura",
+    ],
+    "engineering": [
+        "engenharia-manufatura",
+        "engineering",
+        "engenharia e manufatura",
+        "engenharia & arquitetura",
+        "engineering & manufacturing",
+        "ingeniería y manufactura",
+        "engenharia",
+        "arquitetura",
+    ],
+    "engenharia e manufatura": [
+        "engenharia-manufatura",
+        "engineering",
+        "engenharia e manufatura",
+        "engenharia & arquitetura",
+        "engineering & manufacturing",
+        "ingeniería y manufactura",
+        "engenharia",
+        "arquitetura",
+    ],
 }
 
 
@@ -418,7 +698,7 @@ async def search_catalog(
             and_(
                 UserProjectStateModel.workana_id == ProjectCatalogModel.workana_id,
                 UserProjectStateModel.user_id == user_id,
-            )
+            ),
         )
 
         if favorites_only:
@@ -491,10 +771,7 @@ async def get_catalog_projects_by_ids(user_id: Any, workana_ids: List[str]) -> L
         )
         rows = result.unique().all()
 
-    by_id = {
-        cat.workana_id: _serialize_catalog_row(cat, state)
-        for cat, state in rows
-    }
+    by_id = {cat.workana_id: _serialize_catalog_row(cat, state) for cat, state in rows}
     return [by_id[item] for item in ordered_ids if item in by_id]
 
 
@@ -761,12 +1038,33 @@ async def upsert_catalog_row(project_data: dict) -> None:
         values = {
             key: project_data.get(key)
             for key in (
-                "workana_id", "title", "description", "url", "category", "subcategory",
-                "budget_min", "budget_max", "budget_type", "deadline", "skills", "details",
-                "client_name", "client_country", "client_rating", "client_projects_posted",
-                "client_projects_paid", "client_member_since", "client_plan", "proposals_count",
-                "payment_verified", "posted_at", "published_at", "last_client_activity",
-                "is_urgent", "is_featured", "estimated_published_at",
+                "workana_id",
+                "title",
+                "description",
+                "url",
+                "category",
+                "subcategory",
+                "budget_min",
+                "budget_max",
+                "budget_type",
+                "deadline",
+                "skills",
+                "details",
+                "client_name",
+                "client_country",
+                "client_rating",
+                "client_projects_posted",
+                "client_projects_paid",
+                "client_member_since",
+                "client_plan",
+                "proposals_count",
+                "payment_verified",
+                "posted_at",
+                "published_at",
+                "last_client_activity",
+                "is_urgent",
+                "is_featured",
+                "estimated_published_at",
             )
         }
         values["contract_type"] = project_data.get("contract_type") or "project_fixed"
@@ -782,9 +1080,15 @@ async def upsert_catalog_row(project_data: dict) -> None:
         update_fields = {
             column: getattr(excluded, column)
             for column in values
-            if column not in {
-                "workana_id", "first_seen_at", "last_seen_at", "updated_at", "status",
-                "previous_proposals_count", "proposals_delta",
+            if column
+            not in {
+                "workana_id",
+                "first_seen_at",
+                "last_seen_at",
+                "updated_at",
+                "status",
+                "previous_proposals_count",
+                "proposals_delta",
             }
         }
         update_fields.update(
@@ -793,9 +1097,7 @@ async def upsert_catalog_row(project_data: dict) -> None:
             status="active",
             closed_at=None,
             previous_proposals_count=ProjectCatalogModel.proposals_count,
-            proposals_delta=(
-                excluded.proposals_count - ProjectCatalogModel.proposals_count
-            ),
+            proposals_delta=(excluded.proposals_count - ProjectCatalogModel.proposals_count),
         )
         result = await session.execute(
             statement.on_conflict_do_update(
@@ -811,8 +1113,10 @@ async def upsert_catalog_row(project_data: dict) -> None:
         row = result.first()
         await session.commit()
 
-        if row is not None and row.proposals_count is not None and (
-            row.previous_proposals_count is None or row.proposals_delta != 0
+        if (
+            row is not None
+            and row.proposals_count is not None
+            and (row.previous_proposals_count is None or row.proposals_delta != 0)
         ):
             await session.execute(
                 pg_insert(ProjectBidsHistoryModel).values(
@@ -839,12 +1143,33 @@ async def upsert_catalog_rows_batch(projects_data: List[dict]) -> int:
         values = {
             key: project_data.get(key)
             for key in (
-                "workana_id", "title", "description", "url", "category", "subcategory",
-                "budget_min", "budget_max", "budget_type", "deadline", "skills", "details",
-                "client_name", "client_country", "client_rating", "client_projects_posted",
-                "client_projects_paid", "client_member_since", "client_plan", "proposals_count",
-                "payment_verified", "posted_at", "published_at", "last_client_activity",
-                "is_urgent", "is_featured", "estimated_published_at",
+                "workana_id",
+                "title",
+                "description",
+                "url",
+                "category",
+                "subcategory",
+                "budget_min",
+                "budget_max",
+                "budget_type",
+                "deadline",
+                "skills",
+                "details",
+                "client_name",
+                "client_country",
+                "client_rating",
+                "client_projects_posted",
+                "client_projects_paid",
+                "client_member_since",
+                "client_plan",
+                "proposals_count",
+                "payment_verified",
+                "posted_at",
+                "published_at",
+                "last_client_activity",
+                "is_urgent",
+                "is_featured",
+                "estimated_published_at",
             )
         }
         values["contract_type"] = project_data.get("contract_type") or "project_fixed"
@@ -868,9 +1193,15 @@ async def upsert_catalog_rows_batch(projects_data: List[dict]) -> int:
             update_fields = {
                 column: getattr(excluded, column)
                 for column in values
-                if column not in {
-                    "workana_id", "first_seen_at", "last_seen_at", "updated_at", "status",
-                    "previous_proposals_count", "proposals_delta",
+                if column
+                not in {
+                    "workana_id",
+                    "first_seen_at",
+                    "last_seen_at",
+                    "updated_at",
+                    "status",
+                    "previous_proposals_count",
+                    "proposals_delta",
                 }
             }
             update_fields.update(
@@ -879,9 +1210,7 @@ async def upsert_catalog_rows_batch(projects_data: List[dict]) -> int:
                 status="active",
                 closed_at=None,
                 previous_proposals_count=ProjectCatalogModel.proposals_count,
-                proposals_delta=(
-                    excluded.proposals_count - ProjectCatalogModel.proposals_count
-                ),
+                proposals_delta=(excluded.proposals_count - ProjectCatalogModel.proposals_count),
             )
             result = await session.execute(
                 statement.on_conflict_do_update(
@@ -897,8 +1226,10 @@ async def upsert_catalog_rows_batch(projects_data: List[dict]) -> int:
             row = result.first()
             upserted_count += 1
 
-            if row is not None and row.proposals_count is not None and (
-                row.previous_proposals_count is None or row.proposals_delta != 0
+            if (
+                row is not None
+                and row.proposals_count is not None
+                and (row.previous_proposals_count is None or row.proposals_delta != 0)
             ):
                 await session.execute(
                     pg_insert(ProjectBidsHistoryModel).values(
@@ -939,7 +1270,7 @@ async def mark_gone_catalog_projects(
         )
         if category:
             count_query = count_query.where(ProjectCatalogModel.category.ilike(f"%{category}%"))
-        
+
         active_count_res = await session.execute(count_query)
         active_count = active_count_res.scalar() or 0
 
@@ -947,6 +1278,7 @@ async def mark_gone_catalog_projects(
         # indica que o scraper foi interrompido antes do fim ou retornou poucas páginas.
         if active_count >= 30 and len(seen_ids) < int(active_count * 0.25):
             from loguru import logger
+
             logger.warning(
                 f"🛡️ Proteção de Catálogo ativada: {len(seen_ids)} projetos vistos vs {active_count} ativos. "
                 "Abortando marcação de 'gone' para proteger o catálogo."

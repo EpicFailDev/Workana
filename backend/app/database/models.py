@@ -1,9 +1,27 @@
 """
 Modelos SQLAlchemy para o banco de dados.
 """
+
 import contextvars
 import time
-from sqlalchemy import BigInteger, Column, Integer, String, Float, Boolean, DateTime, Text, JSON, UniqueConstraint, Uuid, event, ForeignKeyConstraint, ForeignKey, Index, PrimaryKeyConstraint
+from sqlalchemy import (
+    BigInteger,
+    Column,
+    Integer,
+    String,
+    Float,
+    Boolean,
+    DateTime,
+    Text,
+    JSON,
+    UniqueConstraint,
+    Uuid,
+    event,
+    ForeignKeyConstraint,
+    ForeignKey,
+    Index,
+    PrimaryKeyConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.engine import make_url
@@ -29,7 +47,7 @@ engine_options = {
     "pool_size": 15,
     "max_overflow": 10,
     "pool_recycle": 1800,  # 30 minutos
-    "pool_timeout": 30     # 30 segundos
+    "pool_timeout": 30,  # 30 segundos
 }
 
 # Supavisor transaction mode (porta 6543) não suporta prepared statements.
@@ -69,8 +87,12 @@ def _after_cursor_execute(conn, cursor, statement, parameters, context, executem
             f"Query lenta: {duration_ms:.1f}ms (limite={threshold:.0f}ms) stmt={stmt!r}"
         )
 
+
 # ContextVar global para armazenar o ID do usuário autenticado no escopo da transação/tarefa async
-current_user_id: contextvars.ContextVar[Optional[UUID]] = contextvars.ContextVar("current_user_id", default=None)
+current_user_id: contextvars.ContextVar[Optional[UUID]] = contextvars.ContextVar(
+    "current_user_id", default=None
+)
+
 
 # Subclasse de AsyncSession que propaga automaticamente o usuário logado para o contexto de transação do PostgreSQL
 class TenantAsyncSession(AsyncSession):
@@ -80,9 +102,10 @@ class TenantAsyncSession(AsyncSession):
         if uid:
             await self.execute(
                 text("SELECT set_config('request.jwt.claim.sub', :user_id, true)"),
-                {"user_id": str(uid)}
+                {"user_id": str(uid)},
             )
         return self
+
 
 # Session factory configurada com a classe customizada TenantAsyncSession
 async_session = sessionmaker(engine, class_=TenantAsyncSession, expire_on_commit=False)
@@ -109,8 +132,9 @@ async def get_session() -> AsyncSession:
 
 class Credentials(Base):
     """Credenciais do Workana (criptografadas)."""
+
     __tablename__ = "credentials"
-    
+
     id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
     user_id = Column(Uuid(as_uuid=True), nullable=False, unique=True, index=True)
     email = Column(String(255), nullable=False)
@@ -121,6 +145,7 @@ class Credentials(Base):
 
 class WorkanaSession(Base):
     """Sessão (storage_state do Playwright) do Workana para contas com login Google OAuth."""
+
     __tablename__ = "workana_sessions"
 
     id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
@@ -133,8 +158,9 @@ class WorkanaSession(Base):
 
 class SavedFilter(Base):
     """Filtros de busca salvos."""
+
     __tablename__ = "saved_filters"
-    
+
     id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
     user_id = Column(Uuid(as_uuid=True), nullable=False, index=True)
     name = Column(String(100), nullable=False)
@@ -144,8 +170,9 @@ class SavedFilter(Base):
 
 class ProposalTemplate(Base):
     """Templates de proposta."""
+
     __tablename__ = "proposal_templates"
-    
+
     id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
     user_id = Column(Uuid(as_uuid=True), nullable=False, index=True)
     name = Column(String(100), nullable=False)
@@ -161,6 +188,7 @@ class ProposalTemplate(Base):
 
 class SystemProposalTemplate(Base):
     """Templates globais do sistema."""
+
     __tablename__ = "system_proposal_templates"
     __table_args__ = {"schema": "private"}
 
@@ -177,8 +205,9 @@ class SystemProposalTemplate(Base):
 
 class ProposalHistory(Base):
     """Histórico de propostas enviadas."""
+
     __tablename__ = "proposal_history"
-    
+
     id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
     user_id = Column(Uuid(as_uuid=True), nullable=False, index=True)
     project_id = Column(String(255), nullable=False)
@@ -198,17 +227,17 @@ class ProposalHistory(Base):
         ForeignKeyConstraint(
             ["user_id", "template_id"],
             ["proposal_templates.user_id", "proposal_templates.id"],
-            ondelete="SET NULL"
+            ondelete="SET NULL",
         ),
-        Index("idx_proposal_history_template_id", "template_id")
+        Index("idx_proposal_history_template_id", "template_id"),
     )
-
 
 
 class AutomationConfig(Base):
     """Configurações de automação."""
+
     __tablename__ = "automation_config"
-    
+
     id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
     user_id = Column(Uuid(as_uuid=True), nullable=False, unique=True, index=True)
     headless = Column(Boolean, default=True)
@@ -218,7 +247,7 @@ class AutomationConfig(Base):
     preferred_template_id = Column(BigInteger, nullable=True)
     gemini_api_key = Column(Text, nullable=True)  # Chave criptografada
     user_full_name = Column(Text, nullable=True)
-    
+
     # Notificações
     telegram_enabled = Column(Boolean, default=False)
     telegram_bot_token = Column(Text, nullable=True)  # Chave criptografada
@@ -227,14 +256,15 @@ class AutomationConfig(Base):
     webhook_url = Column(Text, nullable=True)
     email_enabled = Column(Boolean, default=False)
     email_to = Column(String(255), nullable=True)
-    
+
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 class Project(Base):
     """Projetos encontrados no Workana."""
+
     __tablename__ = "projects"
-    
+
     id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
     user_id = Column(Uuid(as_uuid=True), nullable=False, index=True)
     workana_id = Column(String(255), nullable=False)  # ID do projeto no Workana (único por usuário)
@@ -262,15 +292,14 @@ class Project(Base):
     found_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
-    __table_args__ = (
-        UniqueConstraint("user_id", "workana_id", name="uix_user_id_workana_id"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "workana_id", name="uix_user_id_workana_id"),)
 
 
 class ActivityLog(Base):
     """Log de atividades do sistema."""
+
     __tablename__ = "activity_logs"
-    
+
     id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
     user_id = Column(Uuid(as_uuid=True), nullable=False, index=True)
     action_type = Column(String(50), nullable=False)  # login, search, apply, error, etc
@@ -287,8 +316,9 @@ class ActivityLog(Base):
 
 class DailyStatistics(Base):
     """Estatísticas diárias do sistema."""
+
     __tablename__ = "daily_statistics"
-    
+
     id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
     user_id = Column(Uuid(as_uuid=True), nullable=False, index=True)
     date = Column(DateTime(timezone=True), nullable=False)
@@ -308,15 +338,14 @@ class DailyStatistics(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
-    __table_args__ = (
-        UniqueConstraint("user_id", "date", name="uix_user_id_date"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "date", name="uix_user_id_date"),)
 
 
 class AntibanStats(Base):
     """Estatísticas do anti-ban salvas por usuário com lock otimista."""
+
     __tablename__ = "antiban_stats"
-    
+
     id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
     user_id = Column(Uuid(as_uuid=True), nullable=False, unique=True, index=True)
     proposals_sent_today = Column(Integer, default=0)
@@ -333,17 +362,15 @@ class AntibanStats(Base):
     last_hourly_reset = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     last_daily_reset = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     version = Column(Integer, default=1, nullable=False)
-    
-    __mapper_args__ = {
-        "version_id_col": version
-    }
 
+    __mapper_args__ = {"version_id_col": version}
 
 
 class BlacklistedClient(Base):
     """Clientes para ignorar."""
+
     __tablename__ = "blacklisted_clients"
-    
+
     id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
     user_id = Column(Uuid(as_uuid=True), nullable=False, index=True)
     client_name = Column(String(255), nullable=False)
@@ -353,8 +380,9 @@ class BlacklistedClient(Base):
 
 class ProfileMetrics(Base):
     """Métricas do perfil público do Workana."""
+
     __tablename__ = "profile_metrics"
-    
+
     id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
     user_id = Column(Uuid(as_uuid=True), nullable=False, index=True)
     profile_url = Column(String(500), nullable=False)
@@ -376,6 +404,7 @@ class ProfileMetrics(Base):
 
 class ProfileConfig(Base):
     """Configuração do perfil público para monitoramento."""
+
     __tablename__ = "profile_config"
 
     id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
@@ -400,6 +429,7 @@ class ProjectCatalog(Base):
     qualquer usuário autenticado; escrita somente pelo processo worker, cuja
     role possui uma policy RLS própria.
     """
+
     __tablename__ = "projects_catalog"
 
     workana_id = Column(String(255), primary_key=True)
@@ -452,16 +482,20 @@ class ProjectBidsHistory(Base):
     proposals_count de um projeto muda (ou na primeira captura). Permite analisar
     a evolução da concorrência ("ganhou X propostas nas últimas 24h").
     """
+
     __tablename__ = "project_bids_history"
 
     id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
-    workana_id = Column(String(255), ForeignKey("projects_catalog.workana_id", ondelete="CASCADE"), nullable=False, index=True)
+    workana_id = Column(
+        String(255),
+        ForeignKey("projects_catalog.workana_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     proposals_count = Column(Integer, nullable=False)
     captured_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
-    __table_args__ = (
-        Index("idx_bids_history_workana_captured", "workana_id", "captured_at"),
-    )
+    __table_args__ = (Index("idx_bids_history_workana_captured", "workana_id", "captured_at"),)
 
 
 class UserProjectState(Base):
@@ -470,6 +504,7 @@ class UserProjectState(Base):
     Chave única (user_id, workana_id). Substitui as colunas is_favorite /
     is_ignored / notes que viviam na antiga tabela `projects` por usuário.
     """
+
     __tablename__ = "user_project_states"
 
     user_id = Column(Uuid(as_uuid=True), nullable=False)
@@ -482,13 +517,12 @@ class UserProjectState(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
-    __table_args__ = (
-        PrimaryKeyConstraint("user_id", "workana_id", name="pk_user_project_states"),
-    )
+    __table_args__ = (PrimaryKeyConstraint("user_id", "workana_id", name="pk_user_project_states"),)
 
 
 class ProposalBatch(Base):
     """Lote de envio de propostas, com execução persistente e progresso."""
+
     __tablename__ = "proposal_batches"
 
     id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
@@ -511,6 +545,7 @@ class ProposalBatch(Base):
 
 class ProposalBatchItem(Base):
     """Item individual de um lote de propostas, com máquina de estados."""
+
     __tablename__ = "proposal_batch_items"
 
     id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
@@ -536,7 +571,7 @@ class ProposalBatchItem(Base):
             ["batch_id"],
             ["proposal_batches.id"],
             ondelete="CASCADE",
-            name="fk_proposal_batch_items_batch_id"
+            name="fk_proposal_batch_items_batch_id",
         ),
         Index("idx_proposal_batch_items_batch_id_status", "batch_id", "status"),
     )

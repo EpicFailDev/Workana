@@ -20,16 +20,18 @@ from app.observability.context import new_operation_id, operation_id_var
 from app.observability.privacy import pseudonymize, sanitize_exception
 from app.config import settings
 
+
 class SearchScheduler:
     """
     Serviço de agendamento de busca utilizando APScheduler.
     Executa periodicamente buscas por filtros salvos de todos os usuários,
     respeitando a janela anti-ban, pontuando relevância e enviando notificações.
     """
-    
+
     def __init__(self):
         import os
         from pytz import timezone as pytz_timezone
+
         tz_name = os.getenv("TZ", "America/Cuiaba")
         try:
             tz = pytz_timezone(tz_name)
@@ -49,7 +51,7 @@ class SearchScheduler:
             "interval",
             minutes=30,
             id="periodic_workana_search",
-            replace_existing=True
+            replace_existing=True,
         )
 
         # Job de catálogo: upsert do catálogo compartilhado (roda a cada 15 minutos)
@@ -58,7 +60,7 @@ class SearchScheduler:
             "interval",
             minutes=15,
             id="catalog_upsert",
-            replace_existing=True
+            replace_existing=True,
         )
 
         # Job de lotes de proposta: consome fila de disparos em background a cada 30 segundos
@@ -67,7 +69,7 @@ class SearchScheduler:
             "interval",
             seconds=30,
             id="proposal_batch_dispatch",
-            replace_existing=True
+            replace_existing=True,
         )
 
         self.scheduler.start()
@@ -92,14 +94,13 @@ class SearchScheduler:
 
         # Adquirir lock consultivo (advisory lock) no Postgres para impedir execuções simultâneas
         lock_id = 742189  # ID único arbitrário
-        
+
         async with async_session() as lock_session:
             lock_res = await lock_session.execute(
-                text("SELECT pg_try_advisory_lock(:lock_id)"),
-                {"lock_id": lock_id}
+                text("SELECT pg_try_advisory_lock(:lock_id)"), {"lock_id": lock_id}
             )
             acquired = lock_res.scalar()
-            
+
             if not acquired:
                 logger.bind(event="scheduler.lock.busy").warning(
                     "Outra instância do worker já está executando execute_scheduled_search. Abortando execução concorrente."
@@ -168,11 +169,16 @@ class SearchScheduler:
                                 # Tratar se vier string ou dict do banco
                                 if isinstance(filter_data, str):
                                     import json
+
                                     filter_data = json.loads(filter_data)
 
                                 # Forçar limite inteligente de resultados no background
-                                filter_data["max_results"] = min(filter_data.get("max_results", 20), 50)
-                                filter_data["pages_to_fetch"] = min(filter_data.get("pages_to_fetch", 1), 3)
+                                filter_data["max_results"] = min(
+                                    filter_data.get("max_results", 20), 50
+                                )
+                                filter_data["pages_to_fetch"] = min(
+                                    filter_data.get("pages_to_fetch", 1), 3
+                                )
 
                                 filters_obj = SearchFilters(**filter_data)
 
@@ -180,7 +186,9 @@ class SearchScheduler:
                                 logger.bind(event="scheduler.filter.searching").info(
                                     f"Buscando com filtro '{saved_filter.name}'."
                                 )
-                                found_projects = await automation.search_projects(filters_obj, user_id=user_id_str)
+                                found_projects = await automation.search_projects(
+                                    filters_obj, user_id=user_id_str
+                                )
 
                                 new_projects_count = 0
                                 for proj in found_projects:
@@ -198,13 +206,16 @@ class SearchScheduler:
                                         "posted_at": proj.posted_at,
                                         # Adicionar budget extraído
                                         "budget_min": proj.budget_min,
-                                        "budget_max": proj.budget_max
+                                        "budget_max": proj.budget_max,
                                     }
 
                                     # Extrair orçamentos min/max do texto se não definidos
                                     if proj.budget and not (proj.budget_min or proj.budget_max):
                                         from app.services.currency import CurrencyService
-                                        min_val, max_val = CurrencyService.parse_budget_string(proj.budget)
+
+                                        min_val, max_val = CurrencyService.parse_budget_string(
+                                            proj.budget
+                                        )
                                         project_dict["budget_min"] = min_val
                                         project_dict["budget_max"] = max_val
 
@@ -212,9 +223,13 @@ class SearchScheduler:
                                     async with async_session() as session:
                                         from app.database.models import Project as ProjectModel
                                         from sqlalchemy import and_
+
                                         res = await session.execute(
                                             select(ProjectModel).where(
-                                                and_(ProjectModel.workana_id == proj.id, ProjectModel.user_id == user_id_str)
+                                                and_(
+                                                    ProjectModel.workana_id == proj.id,
+                                                    ProjectModel.user_id == user_id_str,
+                                                )
                                             )
                                         )
                                         is_new = res.scalar_one_or_none() is None
@@ -236,7 +251,7 @@ class SearchScheduler:
                                             user_id=user_id_str,
                                             project=proj,
                                             filter_name=saved_filter.name,
-                                            score=score
+                                            score=score,
                                         )
 
                                         # Pequeno delay entre notificações para evitar concorrência ou throttling das APIs externas
@@ -244,97 +259,163 @@ class SearchScheduler:
 
                                         # Verificação e execução de Auto-Apply
                                         try:
-                                            user_config = await crud.get_automation_config(user_id_str)
+                                            user_config = await crud.get_automation_config(
+                                                user_id_str
+                                            )
                                             if user_config and user_config.get("auto_apply"):
-                                                logger.bind(event="scheduler.auto_apply.start").info(
+                                                logger.bind(
+                                                    event="scheduler.auto_apply.start"
+                                                ).info(
                                                     f"Auto-Apply ativo para o usuário {pseudonymize(user_id_str)}. Iniciando processo."
                                                 )
 
                                                 # Verificar se atingiu limite diário de propostas
-                                                daily_stats = await crud.get_daily_stats(user_id_str)
-                                                proposals_today = daily_stats.get("proposals_today", 0)
-                                                max_allowed = user_config.get("max_proposals_per_day") or 10
+                                                daily_stats = await crud.get_daily_stats(
+                                                    user_id_str
+                                                )
+                                                proposals_today = daily_stats.get(
+                                                    "proposals_today", 0
+                                                )
+                                                max_allowed = (
+                                                    user_config.get("max_proposals_per_day") or 10
+                                                )
 
                                                 if proposals_today >= max_allowed:
-                                                    logger.bind(event="scheduler.auto_apply.daily_limit").warning(
+                                                    logger.bind(
+                                                        event="scheduler.auto_apply.daily_limit"
+                                                    ).warning(
                                                         f"Auto-Apply abortado: limite diário de propostas atingido ({proposals_today}/{max_allowed})."
                                                     )
                                                 else:
                                                     # 1. Gerar proposta usando o proposal_agent
-                                                    from app.services.proposal_agent import proposal_agent_instance
+                                                    from app.services.proposal_agent import (
+                                                        proposal_agent_instance,
+                                                    )
+
                                                     project_dict_for_agent = {
                                                         "title": proj.title,
                                                         "description": proj.description,
                                                         "skills": proj.skills,
-                                                        "budget": proj.budget
+                                                        "budget": proj.budget,
                                                     }
 
-                                                    logger.bind(event="scheduler.auto_apply.generating").info(
-                                                        "Gerando proposta por IA."
+                                                    logger.bind(
+                                                        event="scheduler.auto_apply.generating"
+                                                    ).info("Gerando proposta por IA.")
+                                                    preferred_template_id = user_config.get(
+                                                        "preferred_template_id"
                                                     )
-                                                    preferred_template_id = user_config.get("preferred_template_id")
                                                     template = None
                                                     if preferred_template_id:
-                                                        template = await crud.get_template(user_id_str, preferred_template_id)
+                                                        template = await crud.get_template(
+                                                            user_id_str, preferred_template_id
+                                                        )
                                                     if not template:
-                                                        template = await crud.get_preferred_or_default_template(user_id_str)
-                                                        
-                                                    actual_template_id = template.id if template else None
+                                                        template = await crud.get_preferred_or_default_template(
+                                                            user_id_str
+                                                        )
 
-                                                    gen_result = await proposal_agent_instance.generate_proposal(
-                                                        user_id_str, project_dict_for_agent, template_id=actual_template_id
+                                                    actual_template_id = (
+                                                        template.id if template else None
                                                     )
 
-                                                    if gen_result.get("success") and gen_result.get("proposal"):
+                                                    gen_result = await proposal_agent_instance.generate_proposal(
+                                                        user_id_str,
+                                                        project_dict_for_agent,
+                                                        template_id=actual_template_id,
+                                                    )
+
+                                                    if gen_result.get("success") and gen_result.get(
+                                                        "proposal"
+                                                    ):
                                                         if gen_result.get("template_id_used"):
-                                                            actual_template_id = gen_result.get("template_id_used")
-                                                        proposal_text = gen_result.get("proposal", "")
-                                                        
+                                                            actual_template_id = gen_result.get(
+                                                                "template_id_used"
+                                                            )
+                                                        proposal_text = gen_result.get(
+                                                            "proposal", ""
+                                                        )
+
                                                         # Determinar Preço (Precedência: valor do template, sugestão da IA, fallback)
                                                         budget_val = None
-                                                        if template and template.default_budget and template.default_budget > 0:
+                                                        if (
+                                                            template
+                                                            and template.default_budget
+                                                            and template.default_budget > 0
+                                                        ):
                                                             budget_val = template.default_budget
                                                         else:
-                                                            suggested_price_str = gen_result.get("suggested_price", proj.budget or "R$ 100")
+                                                            suggested_price_str = gen_result.get(
+                                                                "suggested_price",
+                                                                proj.budget or "R$ 100",
+                                                            )
                                                             import re
-                                                            price_clean = suggested_price_str.replace('.', '').replace(',', '.')
-                                                            price_match = re.search(r'[\d.]+', price_clean)
-                                                            budget_val = float(price_match.group()) if price_match else (proj.budget_min or 100.0)
-                                                            
+
+                                                            price_clean = (
+                                                                suggested_price_str.replace(
+                                                                    ".", ""
+                                                                ).replace(",", ".")
+                                                            )
+                                                            price_match = re.search(
+                                                                r"[\d.]+", price_clean
+                                                            )
+                                                            budget_val = (
+                                                                float(price_match.group())
+                                                                if price_match
+                                                                else (proj.budget_min or 100.0)
+                                                            )
+
                                                         # Determinar Prazo (Precedência: valor do template, fallback)
                                                         deadline_val = 7
-                                                        if template and template.default_deadline_days and template.default_deadline_days > 0:
-                                                            deadline_val = template.default_deadline_days
+                                                        if (
+                                                            template
+                                                            and template.default_deadline_days
+                                                            and template.default_deadline_days > 0
+                                                        ):
+                                                            deadline_val = (
+                                                                template.default_deadline_days
+                                                            )
 
                                                         # Instanciar ProposalSubmit
                                                         from app.api.schemas import ProposalSubmit
+
                                                         submit_data = ProposalSubmit(
                                                             project_id=proj.id,
                                                             template_id=actual_template_id,
                                                             custom_message=proposal_text,
                                                             budget=budget_val,
-                                                            deadline_days=deadline_val
+                                                            deadline_days=deadline_val,
                                                         )
 
                                                         # 2. Enviar proposta de fato usando a automação
-                                                        logger.bind(event="scheduler.auto_apply.submitting").info(
-                                                            "Enviando proposta automática."
-                                                        )
-                                                        apply_result = await automation.submit_proposal(user_id_str, submit_data)
-                                                        if apply_result.success:
-                                                            logger.bind(event="scheduler.auto_apply.success").success(
-                                                                "Auto-Apply bem sucedido."
+                                                        logger.bind(
+                                                            event="scheduler.auto_apply.submitting"
+                                                        ).info("Enviando proposta automática.")
+                                                        apply_result = (
+                                                            await automation.submit_proposal(
+                                                                user_id_str, submit_data
                                                             )
+                                                        )
+                                                        if apply_result.success:
+                                                            logger.bind(
+                                                                event="scheduler.auto_apply.success"
+                                                            ).success("Auto-Apply bem sucedido.")
                                                         else:
-                                                            logger.bind(event="scheduler.auto_apply.failed").error(
+                                                            logger.bind(
+                                                                event="scheduler.auto_apply.failed"
+                                                            ).error(
                                                                 f"Auto-Apply falhou: {sanitize_exception(Exception(str(apply_result.message))) if apply_result.message else 'sem detalhe'}"
                                                             )
                                                     else:
-                                                        logger.bind(event="scheduler.auto_apply.generation_failed").warning(
+                                                        logger.bind(
+                                                            event="scheduler.auto_apply.generation_failed"
+                                                        ).warning(
                                                             "Falha ao gerar proposta automática."
                                                         )
                                         except Exception as auto_apply_err:
-                                            logger.bind(event="scheduler.auto_apply.error").exception(
+                                            logger.bind(
+                                                event="scheduler.auto_apply.error"
+                                            ).exception(
                                                 f"Erro no Auto-Apply do agendador: {sanitize_exception(auto_apply_err)}"
                                             )
 
@@ -349,7 +430,10 @@ class SearchScheduler:
 
                             # Jitter/Delay anti-ban entre os filtros do mesmo usuário
                             import random
-                            random_delay = random.uniform(3.0, 7.0) + (5.0 if new_projects_count > 0 else 0.0)
+
+                            random_delay = random.uniform(3.0, 7.0) + (
+                                5.0 if new_projects_count > 0 else 0.0
+                            )
                             await asyncio.sleep(random_delay)
 
                     finally:
@@ -370,8 +454,7 @@ class SearchScheduler:
                 # pg_advisory_unlock (NÃO pg_release_lock, que não existe).
                 try:
                     unlock_res = await lock_session.execute(
-                        text("SELECT pg_advisory_unlock(:lock_id)"),
-                        {"lock_id": lock_id}
+                        text("SELECT pg_advisory_unlock(:lock_id)"), {"lock_id": lock_id}
                     )
                     released = unlock_res.scalar()
                     if released:
@@ -401,218 +484,242 @@ class SearchScheduler:
         tenant_token = current_user_id.set(None)
 
         try:
-          async with async_session() as lock_session:
-            lock_res = await lock_session.execute(
-                text("SELECT pg_try_advisory_lock(:lock_id)"),
-                {"lock_id": catalog_lock_id}
-            )
-            acquired = lock_res.scalar()
-
-            if not acquired:
-                logger.bind(event="catalog.lock.busy").warning(
-                    "Outra instância já está executando a coleta do catálogo. Abortando."
+            async with async_session() as lock_session:
+                lock_res = await lock_session.execute(
+                    text("SELECT pg_try_advisory_lock(:lock_id)"), {"lock_id": catalog_lock_id}
                 )
-                raise RuntimeError("Catalog upsert already running — advisory lock not acquired.")
+                acquired = lock_res.scalar()
 
-            try:
-                op_token = operation_id_var.set(new_operation_id())
-                upserted = 0
-                errors = 0
-                seen_ids: set[str] = set()
-                cycle_started_at = datetime.now(timezone.utc)
+                if not acquired:
+                    logger.bind(event="catalog.lock.busy").warning(
+                        "Outra instância já está executando a coleta do catálogo. Abortando."
+                    )
+                    raise RuntimeError(
+                        "Catalog upsert already running — advisory lock not acquired."
+                    )
 
                 try:
-                    # 1. Obter buscas: prioriza custom_query se fornecido pelo usuário
-                    if custom_query:
-                        queries = [custom_query]
-                    else:
-                        queries = await crud.get_distinct_saved_filter_queries()
+                    op_token = operation_id_var.set(new_operation_id())
+                    upserted = 0
+                    errors = 0
+                    seen_ids: set[str] = set()
+                    cycle_started_at = datetime.now(timezone.utc)
 
-                    if not queries:
-                        logger.bind(event="catalog.cycle.no_filters").info(
-                            "Sem filtros salvos. Usando busca ampla padrão."
-                        )
-                        queries = [{
-                            "keywords": settings.catalog_default_keywords,
-                            "category": settings.catalog_default_category,
-                            "_metric_user_ids": [],
-                        }]
+                    try:
+                        # 1. Obter buscas: prioriza custom_query se fornecido pelo usuário
+                        if custom_query:
+                            queries = [custom_query]
+                        else:
+                            queries = await crud.get_distinct_saved_filter_queries()
 
-                    queries = queries[:settings.catalog_max_searches_per_cycle]
-
-                    logger.bind(event="catalog.cycle.started").info(
-                        f"Coleta do catálogo iniciada ({len(queries)} buscas únicas)."
-                    )
-
-                    for filter_data in queries:
-                        if upserted >= settings.catalog_max_projects_per_cycle:
-                            break
-                        metric_user_ids = filter_data.pop("_metric_user_ids", [])
-                        started = time.perf_counter()
-                        success = False
-                        blocked = False
-                        try:
-                            # Limites para o worker de catálogo
-                            remaining = settings.catalog_max_projects_per_cycle - upserted
-                            if custom_query:
-                                filter_data["pages_to_fetch"] = min(filter_data.get("pages_to_fetch", 10), 100)
-                                filter_data["max_results"] = min(filter_data.get("max_results", 500), remaining)
-                            else:
-                                filter_data["max_results"] = min(filter_data.get("max_results", 50), remaining)
-                                filter_data["pages_to_fetch"] = min(
-                                    filter_data.get("pages_to_fetch", settings.catalog_pages_per_search),
-                                    settings.catalog_pages_per_search,
-                                )
-                            filters_obj = SearchFilters(**filter_data)
-
-                            # Busca anônima (user_id=None — sem credenciais)
-                            projects = []
-                            last_error = None
-                            for attempt in range(settings.catalog_search_retries):
-                                try:
-                                    projects = await automation.search_projects(filters_obj, user_id=None)
-                                    success = True
-                                    break
-                                except Exception as exc:
-                                    last_error = exc
-                                    if attempt + 1 < settings.catalog_search_retries:
-                                        await asyncio.sleep(random.uniform(1.0, 3.0) * (attempt + 1))
-                            if not success and last_error:
-                                raise last_error
-
-                            projects = projects[:remaining]
-                            batch_catalog_rows = []
-
-                            for proj in projects:
-                                if not proj.id or not str(proj.id).strip():
-                                    continue
-
-                                # Mapear campos do modelo Project para o formato do catálogo
-                                catalog_data = {
-                                    "workana_id": str(proj.id).strip(),
-                                    "title": proj.title,
-                                    "description": proj.description,
-                                    "url": proj.url,
-                                    "category": proj.category,
-                                    "subcategory": proj.subcategory,
-                                    "budget_min": proj.budget_min,
-                                    "budget_max": proj.budget_max,
-                                    "budget_type": proj.project_type,
-                                    "deadline": proj.deadline,
-                                    "skills": proj.skills or [],
-                                    "details": proj.details or {},
-                                    "client_name": proj.client_name,
-                                    "client_country": proj.client_country,
-                                    "client_rating": proj.client_rating,
-                                    "client_projects_posted": proj.client_projects_posted,
-                                    "client_projects_paid": proj.client_projects_paid,
-                                    "client_member_since": proj.client_member_since,
-                                    "client_plan": proj.client_plan,
-                                    "proposals_count": proj.proposals_count,
-                                    "payment_verified": proj.payment_verified,
-                                    "posted_at": proj.posted_at,
-                                    "published_at": proj.published_at,
-                                    "last_client_activity": proj.last_client_activity,
-                                    "is_urgent": proj.is_urgent,
-                                    "is_featured": proj.is_featured,
-                                }
-
-                                # Data de publicação estimada a partir do texto relativo
-                                try:
-                                    catalog_data["estimated_published_at"] = parse_relative_datetime(
-                                        proj.posted_at, base_time=datetime.now(timezone.utc)
-                                    )
-                                except Exception:
-                                    catalog_data["estimated_published_at"] = None
-
-                                # Modalidade do contrato a partir de sinais textuais.
-                                try:
-                                    catalog_data["contract_type"] = detect_contract_type(
-                                        budget_type=proj.project_type,
-                                        title=proj.title,
-                                        description=proj.description,
-                                        details=proj.details,
-                                    )
-                                except Exception:
-                                    catalog_data["contract_type"] = "project_fixed"
-
-                                batch_catalog_rows.append(catalog_data)
-                                seen_ids.add(proj.id)
-
-                            if batch_catalog_rows:
-                                batch_saved = await crud.upsert_catalog_rows_batch(batch_catalog_rows)
-                                upserted += batch_saved
-
-                            # Jitter anti-ban entre buscas
-                            await asyncio.sleep(random.uniform(2.0, 5.0))
-
-                        except Exception as ex:
-                            errors += 1
-                            blocked = bool(getattr(automation._fast_scraper, "was_blocked", False))
-                            logger.bind(event="catalog.query.error").exception(
-                                f"Erro na busca do catálogo: {sanitize_exception(ex)}"
+                        if not queries:
+                            logger.bind(event="catalog.cycle.no_filters").info(
+                                "Sem filtros salvos. Usando busca ampla padrão."
                             )
-                        finally:
-                            duration_ms = int((time.perf_counter() - started) * 1000)
-                            for metric_user_id in metric_user_ids:
-                                metric_token = current_user_id.set(UUID(metric_user_id))
-                                try:
-                                    await crud.update_scraping_stats(
-                                        metric_user_id, success, blocked, duration_ms
-                                    )
-                                except Exception as metric_error:
-                                    logger.bind(event="catalog.metrics.error").warning(
-                                        f"Falha ao registrar métrica: {sanitize_exception(metric_error)}"
-                                    )
-                                finally:
-                                    current_user_id.reset(metric_token)
+                            queries = [
+                                {
+                                    "keywords": settings.catalog_default_keywords,
+                                    "category": settings.catalog_default_category,
+                                    "_metric_user_ids": [],
+                                }
+                            ]
 
-                    # 2. Marcar projetos ausentes como 'gone'
-                    lifecycle = {"gone": 0, "closed": 0}
-                    is_full_cycle = custom_query is None and not any(bool(q.get("keywords")) for q in queries)
-                    target_category = custom_query.get("category") if custom_query else None
-                    if errors == 0:
-                        lifecycle = await crud.mark_gone_catalog_projects(
-                            list(seen_ids),
-                            cycle_started_at=cycle_started_at,
-                            category=target_category,
-                            is_full_catalog_cycle=is_full_cycle,
-                            close_after_minutes=15 * settings.catalog_close_after_cycles,
+                        queries = queries[: settings.catalog_max_searches_per_cycle]
+
+                        logger.bind(event="catalog.cycle.started").info(
+                            f"Coleta do catálogo iniciada ({len(queries)} buscas únicas)."
                         )
-                    marked_gone = lifecycle["gone"]
 
-                    total_active = await crud.count_active_catalog_projects()
-                    logger.bind(event="catalog.cycle.completed").info(
-                        f"Catálogo atualizado: {upserted} upserted, total ativo: {total_active} projetos, {marked_gone} gone, {errors} errors."
-                    )
+                        for filter_data in queries:
+                            if upserted >= settings.catalog_max_projects_per_cycle:
+                                break
+                            metric_user_ids = filter_data.pop("_metric_user_ids", [])
+                            started = time.perf_counter()
+                            success = False
+                            blocked = False
+                            try:
+                                # Limites para o worker de catálogo
+                                remaining = settings.catalog_max_projects_per_cycle - upserted
+                                if custom_query:
+                                    filter_data["pages_to_fetch"] = min(
+                                        filter_data.get("pages_to_fetch", 10), 100
+                                    )
+                                    filter_data["max_results"] = min(
+                                        filter_data.get("max_results", 500), remaining
+                                    )
+                                else:
+                                    filter_data["max_results"] = min(
+                                        filter_data.get("max_results", 50), remaining
+                                    )
+                                    filter_data["pages_to_fetch"] = min(
+                                        filter_data.get(
+                                            "pages_to_fetch", settings.catalog_pages_per_search
+                                        ),
+                                        settings.catalog_pages_per_search,
+                                    )
+                                filters_obj = SearchFilters(**filter_data)
 
-                    return {
-                        "success": True,
-                        "message": f"Catálogo atualizado: {upserted} projetos escaneados nesta busca. Total acumulado no banco: {total_active} projetos ativos.",
-                        "upserted": upserted,
-                        "total_active": total_active,
-                        "marked_gone": marked_gone,
-                        "errors": errors,
-                        "closed": lifecycle["closed"],
-                    }
+                                # Busca anônima (user_id=None — sem credenciais)
+                                projects = []
+                                last_error = None
+                                for attempt in range(settings.catalog_search_retries):
+                                    try:
+                                        projects = await automation.search_projects(
+                                            filters_obj, user_id=None
+                                        )
+                                        success = True
+                                        break
+                                    except Exception as exc:
+                                        last_error = exc
+                                        if attempt + 1 < settings.catalog_search_retries:
+                                            await asyncio.sleep(
+                                                random.uniform(1.0, 3.0) * (attempt + 1)
+                                            )
+                                if not success and last_error:
+                                    raise last_error
+
+                                projects = projects[:remaining]
+                                batch_catalog_rows = []
+
+                                for proj in projects:
+                                    if not proj.id or not str(proj.id).strip():
+                                        continue
+
+                                    # Mapear campos do modelo Project para o formato do catálogo
+                                    catalog_data = {
+                                        "workana_id": str(proj.id).strip(),
+                                        "title": proj.title,
+                                        "description": proj.description,
+                                        "url": proj.url,
+                                        "category": proj.category,
+                                        "subcategory": proj.subcategory,
+                                        "budget_min": proj.budget_min,
+                                        "budget_max": proj.budget_max,
+                                        "budget_type": proj.project_type,
+                                        "deadline": proj.deadline,
+                                        "skills": proj.skills or [],
+                                        "details": proj.details or {},
+                                        "client_name": proj.client_name,
+                                        "client_country": proj.client_country,
+                                        "client_rating": proj.client_rating,
+                                        "client_projects_posted": proj.client_projects_posted,
+                                        "client_projects_paid": proj.client_projects_paid,
+                                        "client_member_since": proj.client_member_since,
+                                        "client_plan": proj.client_plan,
+                                        "proposals_count": proj.proposals_count,
+                                        "payment_verified": proj.payment_verified,
+                                        "posted_at": proj.posted_at,
+                                        "published_at": proj.published_at,
+                                        "last_client_activity": proj.last_client_activity,
+                                        "is_urgent": proj.is_urgent,
+                                        "is_featured": proj.is_featured,
+                                    }
+
+                                    # Data de publicação estimada a partir do texto relativo
+                                    try:
+                                        catalog_data["estimated_published_at"] = (
+                                            parse_relative_datetime(
+                                                proj.posted_at, base_time=datetime.now(timezone.utc)
+                                            )
+                                        )
+                                    except Exception:
+                                        catalog_data["estimated_published_at"] = None
+
+                                    # Modalidade do contrato a partir de sinais textuais.
+                                    try:
+                                        catalog_data["contract_type"] = detect_contract_type(
+                                            budget_type=proj.project_type,
+                                            title=proj.title,
+                                            description=proj.description,
+                                            details=proj.details,
+                                        )
+                                    except Exception:
+                                        catalog_data["contract_type"] = "project_fixed"
+
+                                    batch_catalog_rows.append(catalog_data)
+                                    seen_ids.add(proj.id)
+
+                                if batch_catalog_rows:
+                                    batch_saved = await crud.upsert_catalog_rows_batch(
+                                        batch_catalog_rows
+                                    )
+                                    upserted += batch_saved
+
+                                # Jitter anti-ban entre buscas
+                                await asyncio.sleep(random.uniform(2.0, 5.0))
+
+                            except Exception as ex:
+                                errors += 1
+                                blocked = bool(
+                                    getattr(automation._fast_scraper, "was_blocked", False)
+                                )
+                                logger.bind(event="catalog.query.error").exception(
+                                    f"Erro na busca do catálogo: {sanitize_exception(ex)}"
+                                )
+                            finally:
+                                duration_ms = int((time.perf_counter() - started) * 1000)
+                                for metric_user_id in metric_user_ids:
+                                    metric_token = current_user_id.set(UUID(metric_user_id))
+                                    try:
+                                        await crud.update_scraping_stats(
+                                            metric_user_id, success, blocked, duration_ms
+                                        )
+                                    except Exception as metric_error:
+                                        logger.bind(event="catalog.metrics.error").warning(
+                                            f"Falha ao registrar métrica: {sanitize_exception(metric_error)}"
+                                        )
+                                    finally:
+                                        current_user_id.reset(metric_token)
+
+                        # 2. Marcar projetos ausentes como 'gone'
+                        lifecycle = {"gone": 0, "closed": 0}
+                        is_full_cycle = custom_query is None and not any(
+                            bool(q.get("keywords")) for q in queries
+                        )
+                        target_category = custom_query.get("category") if custom_query else None
+                        if errors == 0:
+                            lifecycle = await crud.mark_gone_catalog_projects(
+                                list(seen_ids),
+                                cycle_started_at=cycle_started_at,
+                                category=target_category,
+                                is_full_catalog_cycle=is_full_cycle,
+                                close_after_minutes=15 * settings.catalog_close_after_cycles,
+                            )
+                        marked_gone = lifecycle["gone"]
+
+                        total_active = await crud.count_active_catalog_projects()
+                        logger.bind(event="catalog.cycle.completed").info(
+                            f"Catálogo atualizado: {upserted} upserted, total ativo: {total_active} projetos, {marked_gone} gone, {errors} errors."
+                        )
+
+                        return {
+                            "success": True,
+                            "message": f"Catálogo atualizado: {upserted} projetos escaneados nesta busca. Total acumulado no banco: {total_active} projetos ativos.",
+                            "upserted": upserted,
+                            "total_active": total_active,
+                            "marked_gone": marked_gone,
+                            "errors": errors,
+                            "closed": lifecycle["closed"],
+                        }
+
+                    finally:
+                        operation_id_var.reset(op_token)
 
                 finally:
-                    operation_id_var.reset(op_token)
-
-            finally:
-                try:
-                    await lock_session.execute(
-                        text("SELECT pg_advisory_unlock(:lock_id)"),
-                        {"lock_id": catalog_lock_id}
-                    )
-                except Exception:
-                    pass
+                    try:
+                        await lock_session.execute(
+                            text("SELECT pg_advisory_unlock(:lock_id)"),
+                            {"lock_id": catalog_lock_id},
+                        )
+                    except Exception:
+                        pass
         finally:
             current_user_id.reset(tenant_token)
 
     async def execute_proposal_batch_dispatch(self):
         """Processa a fila de lotes de proposta."""
         from app.services.batch_processor import ProposalBatchProcessor
+
         try:
             await ProposalBatchProcessor.process_one()
         except Exception as ex:
@@ -623,4 +730,3 @@ class SearchScheduler:
 
 # Instância global do agendador
 scheduler_instance = SearchScheduler()
-

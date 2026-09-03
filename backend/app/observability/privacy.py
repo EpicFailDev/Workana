@@ -13,6 +13,7 @@ Fornece:
 Estes helpers são a camada explícita (por call site) de defesa; a camada
 implícita (safety-net por padrão no pipeline) está em logging_config.py.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -22,18 +23,44 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 # Nomes de chave cujo valor deve ser sempre mascarado quando serializado.
-SENSITIVE_KEYS = frozenset({
-    "token", "access_token", "refresh_token", "id_token",
-    "password", "passwd", "secret", "client_secret",
-    "api_key", "apikey", "api_secret",
-    "authorization", "auth",
-    "cookie", "cookies", "set_cookie",
-    "proposal", "custom_message", "message",
-    "body", "html", "body_html", "text_body", "content",
-    "email", "mail", "to", "recipient",
-    "key", "private_key", "session",
-    "credit_card", "card_number", "cvv",
-})
+SENSITIVE_KEYS = frozenset(
+    {
+        "token",
+        "access_token",
+        "refresh_token",
+        "id_token",
+        "password",
+        "passwd",
+        "secret",
+        "client_secret",
+        "api_key",
+        "apikey",
+        "api_secret",
+        "authorization",
+        "auth",
+        "cookie",
+        "cookies",
+        "set_cookie",
+        "proposal",
+        "custom_message",
+        "message",
+        "body",
+        "html",
+        "body_html",
+        "text_body",
+        "content",
+        "email",
+        "mail",
+        "to",
+        "recipient",
+        "key",
+        "private_key",
+        "session",
+        "credit_card",
+        "card_number",
+        "cvv",
+    }
+)
 REDACTED = "***"
 
 # Pseudônimo com 10 chars hex (48 bits) — curto o bastante para logs, estável por deployment.
@@ -47,6 +74,7 @@ def _deployment_salt() -> bytes:
     # apenas quando logging_config/middleware são carregados, não aqui em runtime.
     try:
         from app.config import settings
+
         base = (settings.secret_key or "unconfigured-salt").encode("utf-8")
     except Exception:
         base = b"unconfigured-salt"

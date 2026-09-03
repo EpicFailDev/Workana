@@ -64,5 +64,9 @@ def test_unknown_unit_ignored():
 def test_humanize_age():
     assert humanize_age(None) == "sem data"
     assert humanize_age(BASE, base_time=BASE) == "agora"
-    assert humanize_age(datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc), base_time=BASE) == "há 3h"
-    assert humanize_age(datetime(2026, 8, 19, 14, 30, tzinfo=timezone.utc), base_time=BASE) == "há 1d"
+    assert (
+        humanize_age(datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc), base_time=BASE) == "há 3h"
+    )
+    assert (
+        humanize_age(datetime(2026, 8, 19, 14, 30, tzinfo=timezone.utc), base_time=BASE) == "há 1d"
+    )

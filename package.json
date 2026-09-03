@@ -1,0 +1,32 @@
+{
+  "name": "workana-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Workana Accelerator - Plataforma Fullstack de Automação e Conversão",
+  "scripts": {
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "node scripts/py.js -m uvicorn app.main:app --reload --port 8000",
+    "dev:worker": "node scripts/py.js run_worker.py",
+    "format:frontend": "npm --prefix frontend run format",
+    "format:backend": "node scripts/py.js -m ruff format .",
+    "format:all": "npm run format:frontend && npm run format:backend",
+    "format:check": "npm --prefix frontend run format:check && node scripts/py.js -m ruff format --check .",
+    "lint:frontend": "npm --prefix frontend run lint",
+    "lint:backend": "node scripts/py.js -m ruff check .",
+    "lint:all": "npm run lint:frontend && npm run lint:backend",
+    "test:frontend": "npm --prefix frontend run test",
+    "test:backend": "node scripts/py.js -m pytest",
+    "test:all": "npm run test:frontend && npm run test:backend",
+    "typecheck": "npm --prefix frontend run build"
+  },
+  "keywords": [
+    "workana",
+    "automation",
+    "fastapi",
+    "react",
+    "typescript",
+    "playwright"
+  ],
+  "author": "EpicFailDev",
+  "license": "UNLICENSED"
+}

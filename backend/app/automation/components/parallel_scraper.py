@@ -2,6 +2,7 @@
 Scraper paralelo ANÔNIMO usando múltiplas abas do Playwright.
 Cada busca usa contextos isolados (modo incógnito) para evitar rastreamento.
 """
+
 import asyncio
 from typing import List, Optional
 from loguru import logger
@@ -25,23 +26,24 @@ from bs4 import BeautifulSoup
 
 # Lista de User-Agents Chrome modernos para rotação
 USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
 ]
 
 # Resoluções de tela comuns
 VIEWPORTS = [
-    {'width': 1920, 'height': 1080},
-    {'width': 1366, 'height': 768},
-    {'width': 1536, 'height': 864},
-    {'width': 1440, 'height': 900},
+    {"width": 1920, "height": 1080},
+    {"width": 1366, "height": 768},
+    {"width": 1536, "height": 864},
+    {"width": 1440, "height": 900},
 ]
 
 
 from app.config import settings
+
 
 class AnonymousParallelScraper:
     """
@@ -52,25 +54,28 @@ class AnonymousParallelScraper:
     - Fecha tudo após cada busca
     - Não mantém cookies/sessão entre buscas
     """
-    
+
     # URLs obtidas das configurações
     WORKANA_BASE_URL = settings.workana_base_url
     WORKANA_JOBS_URL = settings.workana_jobs_url
 
-
-
     async def _safe_goto(self, page, url: str):
         """Navega para a URL com retry, timeout configurado e resolvedor de captcha."""
         from app.automation.components.captcha_solver import CaptchaSolver
+
         solver = CaptchaSolver()
         for attempt in range(settings.max_retries):
             try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=settings.scraping_timeout)
+                await page.goto(
+                    url, wait_until="domcontentloaded", timeout=settings.scraping_timeout
+                )
                 await asyncio.sleep(3)  # Espera carregar JS
-                
+
                 # Se detectou bloqueio por Captcha/Cloudflare, tenta resolver
                 if await solver.is_blocked(page):
-                    logger.warning(f"⚠️ [Tentativa {attempt + 1}] Bloqueio de WAF/Cloudflare detectado! Ativando resolvedor...")
+                    logger.warning(
+                        f"⚠️ [Tentativa {attempt + 1}] Bloqueio de WAF/Cloudflare detectado! Ativando resolvedor..."
+                    )
                     solved = await solver.detect_and_solve(page)
                     if not solved:
                         raise Exception("Falha ao resolver captcha")
@@ -95,10 +100,10 @@ class AnonymousParallelScraper:
         # Novos filtros
         if filters.publication and filters.publication != "any":
             params.append(f"publication={filters.publication}")
-        
+
         if filters.language and filters.language != "any":
             params.append(f"language={filters.language}")
-            
+
         if filters.proposals:
             if filters.proposals == "less_than_5":
                 params.append("has_few_bids=1")
@@ -107,20 +112,20 @@ class AnonymousParallelScraper:
 
         if filters.payment_verified:
             params.append("client_history=1")
-            
+
         if filters.skills:
             for skill in filters.skills:
                 params.append(f"skills={skill}")
 
         if filters.sort and filters.sort.value != "relevance":
             params.append(f"ranking={filters.sort.value}")
-        
+
         # Forçar moeda BRL
         params.append("currency=BRL")
-        
+
         if page_num > 1:
             params.append(f"page={page_num}")
-        
+
         url = "/jobs"
         if params:
             url += "?" + "&".join(params)
@@ -130,26 +135,32 @@ class AnonymousParallelScraper:
         """Extrai um projeto de um dicionário (JSON do Workana)."""
         return await parse_project_json(data, self.WORKANA_BASE_URL)
 
-    async def _extract_project(self, card, default_category: Optional[str] = None) -> Optional[Project]:
+    async def _extract_project(
+        self, card, default_category: Optional[str] = None
+    ) -> Optional[Project]:
         """Extrai informações de um card de projeto via DOM de forma robusta."""
         try:
             # Link e ID do projeto (garantir que localiza a tag <a> do job)
-            a_el = await card.query_selector('a[href*="/job/"], a[href*="/jobs/"], .project-title a, h2.project-title a, h3.project-title a')
+            a_el = await card.query_selector(
+                'a[href*="/job/"], a[href*="/jobs/"], .project-title a, h2.project-title a, h3.project-title a'
+            )
             if not a_el:
                 return None
-            
+
             ref = await a_el.get_attribute("href")
             if not ref:
                 return None
             if not ref.startswith("http"):
                 ref = self.WORKANA_BASE_URL + ref
-            
+
             pid = ref.split("/")[-1].split("?")[0].strip()
             if not pid:
                 return None
-            
+
             # Título (prioriza o atributo title do span ou texto do <a>)
-            span_title_el = await card.query_selector('.project-title span[title], a[href*="/job/"] span[title]')
+            span_title_el = await card.query_selector(
+                '.project-title span[title], a[href*="/job/"] span[title]'
+            )
             title = None
             if span_title_el:
                 title = await span_title_el.get_attribute("title")
@@ -158,14 +169,16 @@ class AnonymousParallelScraper:
             title = (title or "").strip()
             if not title:
                 return None
-            
+
             # Descrição (seletor específico para o container de texto da descrição)
-            desc_el = await card.query_selector('.project-body .html-desc, .html-desc, .project-details, .expander, [data-text-expand], .project-item-description, .project-description')
+            desc_el = await card.query_selector(
+                ".project-body .html-desc, .html-desc, .project-details, .expander, [data-text-expand], .project-item-description, .project-description"
+            )
             desc = ""
             if desc_el:
                 desc = await desc_el.text_content()
                 desc = desc.strip() if desc else ""
-            
+
             # Orçamento
             budget_el = await card.query_selector(WorkanaSelectors.CARD_BUDGET)
             budget = None
@@ -177,12 +190,14 @@ class AnonymousParallelScraper:
                 if raw_budget:
                     budget = await CurrencyService.convert_to_brl(raw_budget)
                     budget_min, budget_max = CurrencyService.parse_budget_string(budget)
-            
+
             # Tipo de projeto (hourly vs fixed)
             is_hourly = False
-            if budget and ("/ hora" in budget.lower() or "/hr" in budget.lower() or "/hour" in budget.lower()):
+            if budget and (
+                "/ hora" in budget.lower() or "/hr" in budget.lower() or "/hour" in budget.lower()
+            ):
                 is_hourly = True
-            
+
             # Skills
             skills = []
             skill_els = await card.query_selector_all(WorkanaSelectors.CARD_SKILLS)
@@ -192,35 +207,37 @@ class AnonymousParallelScraper:
                     clean_txt = txt.strip()
                     if clean_txt and clean_txt != "+" and clean_txt not in skills:
                         skills.append(clean_txt)
-            
+
             # Propostas
             proposals = 0
             p_el = await card.query_selector(WorkanaSelectors.CARD_PROPOSALS)
             if p_el:
                 p_text = await p_el.text_content()
                 if p_text:
-                    m = re.search(r'\d+', p_text)
+                    m = re.search(r"\d+", p_text)
                     if m:
                         proposals = int(m.group())
-            
+
             # Data
             date_el = await card.query_selector(WorkanaSelectors.CARD_DATE)
             posted_at = None
             if date_el:
                 posted_at = await date_el.text_content()
                 if not posted_at:
-                    posted_at = await date_el.get_attribute('title')
+                    posted_at = await date_el.get_attribute("title")
                 if posted_at:
                     posted_at = posted_at.replace("Publicado:", "").strip()
 
             # Extração de país do card DOM
-            country_el = await card.query_selector('.country-name a, .country-name, .location')
+            country_el = await card.query_selector(".country-name a, .country-name, .location")
             client_country = await country_el.text_content() if country_el else None
             if client_country:
                 client_country = client_country.strip()
 
             # Extração de pagamento verificado
-            payment_el = await card.query_selector('[title*="Pagamento verificado"], [title*="verified"], .payment-verified, .verified-payment')
+            payment_el = await card.query_selector(
+                '[title*="Pagamento verificado"], [title*="verified"], .payment-verified, .verified-payment'
+            )
             payment_verified = payment_el is not None
 
             details = _extract_briefing_details(desc) if desc else {}
@@ -242,7 +259,7 @@ class AnonymousParallelScraper:
                 posted_at=posted_at.strip() if posted_at else None,
                 url=ref or f"{self.WORKANA_BASE_URL}/job/{pid}",
                 client_country=client_country,
-                payment_verified=payment_verified
+                payment_verified=payment_verified,
             )
         except Exception as e:
             logger.warning(f"Erro ao extrair projeto do card: {e}")
@@ -256,45 +273,40 @@ class AnonymousParallelScraper:
         playwright = None
         browser = None
         context = None
-        
+
         try:
             playwright = await async_playwright().start()
             browser = await playwright.chromium.launch(
                 headless=True,
                 args=[
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-dev-shm-usage',
-                    '--no-sandbox',
-                    '--disable-web-security',
-                    '--disable-features=IsolateOrigins,site-per-process',
-                    '--incognito',
-                ]
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-dev-shm-usage",
+                    "--no-sandbox",
+                    "--disable-web-security",
+                    "--disable-features=IsolateOrigins,site-per-process",
+                    "--incognito",
+                ],
             )
-            
+
             user_agent = random.choice(USER_AGENTS)
             viewport = random.choice(VIEWPORTS)
-            
+
             context = await browser.new_context(
                 viewport=viewport,
                 user_agent=user_agent,
-                locale='pt-BR',
-                timezone_id='America/Sao_Paulo',
+                locale="pt-BR",
+                timezone_id="America/Sao_Paulo",
                 geolocation={"latitude": -23.5505, "longitude": -46.6333},
                 permissions=["geolocation"],
-                extra_http_headers={
-                    "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
-                },
+                extra_http_headers={"Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"},
                 ignore_https_errors=True,
             )
-            
+
             # Forçar cookie de moeda para BRL
-            await context.add_cookies([{
-                "name": "currency",
-                "value": "BRL",
-                "domain": ".workana.com",
-                "path": "/"
-            }])
-            
+            await context.add_cookies(
+                [{"name": "currency", "value": "BRL", "domain": ".workana.com", "path": "/"}]
+            )
+
             # Scripts anti-detecção
             await context.add_init_script("""
                 Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
@@ -303,34 +315,35 @@ class AnonymousParallelScraper:
                 });
                 window.chrome = { runtime: {} };
             """)
-            
+
             page = await context.new_page()
-            
+
             start_page = filters.page
             pages_to_fetch = filters.pages_to_fetch
             end_page = start_page + pages_to_fetch - 1
-            
+
             logger.info(f"🔒 Busca ANÔNIMA Playwright: páginas {start_page} a {end_page}")
-            
+
             # Navegar para a página inicial da busca para resolver Cloudflare
             first_url_rel = self._build_search_url(filters, start_page)
             initial_url = self.WORKANA_BASE_URL + first_url_rel
-            
+
             await self._safe_goto(page, initial_url)
             await asyncio.sleep(2.0)
-            
+
             # Preparar as URLs relativas para todas as páginas solicitadas
             urls_rel = [
                 self._build_search_url(filters, p_num)
                 for p_num in range(start_page, start_page + pages_to_fetch)
             ]
-            
+
             all_projects: List[Project] = []
             seen_ids = set()
-            
+
             # 1. Tentar extração rápida e completa via Fetch API dentro da sessão validada do navegador
             try:
-                raw_results = await page.evaluate("""async (targetUrls) => {
+                raw_results = await page.evaluate(
+                    """async (targetUrls) => {
                     const pagesData = [];
                     const decodeHtml = (htmlStr) => {
                         if (!htmlStr) return '';
@@ -419,22 +432,24 @@ class AnonymousParallelScraper:
                         }
                     }
                     return pagesData;
-                }""", urls_rel)
-                
-                for item in (raw_results or []):
+                }""",
+                    urls_rel,
+                )
+
+                for item in raw_results or []:
                     if not item.get("ok"):
                         continue
                     data = item.get("data")
                     if not isinstance(data, dict):
                         continue
-                    
+
                     results_container = data.get("results", {})
                     results_list = []
                     if isinstance(results_container, dict):
                         results_list = results_container.get("results", [])
                     elif isinstance(results_container, list):
                         results_list = results_container
-                    
+
                     for p_dict in results_list:
                         proj = await self._extract_project_from_json(p_dict)
                         if proj and proj.id and proj.id.strip() and proj.id not in seen_ids:
@@ -442,10 +457,10 @@ class AnonymousParallelScraper:
                                 proj.category = filters.category
                             seen_ids.add(proj.id)
                             all_projects.append(proj)
-                            
+
             except Exception as fe:
                 logger.warning(f"Extração via fetch no browser falhou: {fe}")
-            
+
             # 2. Se a extração via Fetch não retornou nenhum projeto, faz fallback para DOM parsing multi-página
             if not all_projects:
                 logger.info("Executando fallback para parsing DOM dos cards (multi-página)...")
@@ -464,11 +479,11 @@ class AnonymousParallelScraper:
                         await page.wait_for_selector(WorkanaSelectors.PROJECT_CARD, timeout=6000)
                     except Exception:
                         pass
-                    
+
                     cards = await page.query_selector_all(WorkanaSelectors.PROJECT_CARD)
                     if not cards:
                         break
-                    
+
                     page_extracted = 0
                     for card in cards:
                         proj = await self._extract_project(card, default_category=filters.category)
@@ -479,10 +494,12 @@ class AnonymousParallelScraper:
 
                     if page_extracted == 0:
                         break
-            
-            logger.success(f"✅ {len(all_projects)} projetos únicos obtidos de {len(urls_rel)} páginas (anônimo)")
+
+            logger.success(
+                f"✅ {len(all_projects)} projetos únicos obtidos de {len(urls_rel)} páginas (anônimo)"
+            )
             return all_projects
-            
+
         finally:
             if context:
                 await context.close()
@@ -497,18 +514,18 @@ class AnonymousParallelScraper:
         playwright = None
         browser = None
         context = None
-        
+
         try:
             playwright = await async_playwright().start()
             browser = await playwright.chromium.launch(
                 headless=True,
                 args=[
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-dev-shm-usage',
-                    '--no-sandbox',
-                    '--disable-web-security',
-                    '--incognito',
-                ]
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-dev-shm-usage",
+                    "--no-sandbox",
+                    "--disable-web-security",
+                    "--incognito",
+                ],
             )
             context = await browser.new_context(
                 user_agent=random.choice(USER_AGENTS),
@@ -523,35 +540,35 @@ class AnonymousParallelScraper:
                 });
                 window.chrome = { runtime: {} };
             """)
-            
+
             page = await context.new_page()
             url = f"{self.WORKANA_BASE_URL}/job/{project_id}"
-            
+
             await self._safe_goto(page, url)
             await asyncio.sleep(2)
-            
+
             title_el = await page.query_selector(WorkanaSelectors.DETAILS_TITLE)
             title = (await title_el.text_content()).strip() if title_el else "Sem título"
-            
+
             desc_el = await page.query_selector(WorkanaSelectors.DETAILS_DESCRIPTION)
             description = ""
             if desc_el:
                 description = (await desc_el.inner_text()).strip()
-            
+
             if not description:
                 content = await page.content()
-                soup = BeautifulSoup(content, 'html.parser')
+                soup = BeautifulSoup(content, "html.parser")
                 soup_desc = (
                     soup.select_one(WorkanaSelectors.DETAILS_DESCRIPTION)
-                    or soup.find('div', class_='project-details')
-                    or soup.find('div', class_='job-details')
-                    or soup.find('div', class_='job-description')
-                    or soup.find('div', class_='description')
+                    or soup.find("div", class_="project-details")
+                    or soup.find("div", class_="job-details")
+                    or soup.find("div", class_="job-description")
+                    or soup.find("div", class_="description")
                 )
                 if soup_desc:
-                    description = soup_desc.get_text(separator='\n', strip=True)
+                    description = soup_desc.get_text(separator="\n", strip=True)
 
-            description = re.sub(r'\n{3,}', '\n\n', description).strip()
+            description = re.sub(r"\n{3,}", "\n\n", description).strip()
 
             # Metadados do Briefing
             details = _extract_briefing_details(description)
@@ -562,7 +579,9 @@ class AnonymousParallelScraper:
             budget_el = await page.query_selector(WorkanaSelectors.DETAILS_BUDGET)
             raw_budget = (await budget_el.text_content()).strip() if budget_el else None
             budget = await CurrencyService.convert_to_brl(raw_budget) if raw_budget else None
-            budget_min, budget_max = CurrencyService.parse_budget_string(budget) if budget else (None, None)
+            budget_min, budget_max = (
+                CurrencyService.parse_budget_string(budget) if budget else (None, None)
+            )
 
             # Skills
             skills: List[str] = []
@@ -608,11 +627,15 @@ class AnonymousParallelScraper:
             except Exception:
                 pass
 
-            payment_el = await page.query_selector('[title*="Pagamento verificado"], [title*="verified"], .payment-verified, .verified-payment')
+            payment_el = await page.query_selector(
+                '[title*="Pagamento verificado"], [title*="verified"], .payment-verified, .verified-payment'
+            )
             payment_verified = payment_el is not None
 
             is_hourly = False
-            if budget and ("/ hora" in budget.lower() or "/hr" in budget.lower() or "/hour" in budget.lower()):
+            if budget and (
+                "/ hora" in budget.lower() or "/hr" in budget.lower() or "/hour" in budget.lower()
+            ):
                 is_hourly = True
 
             deadline = details.get("delivery_deadline") or details.get("duration")
@@ -637,7 +660,7 @@ class AnonymousParallelScraper:
                 client_projects_paid=paid,
                 client_member_since=since,
                 payment_verified=payment_verified,
-                url=url
+                url=url,
             )
         except Exception as e:
             logger.error(f"Erro ao obter detalhes: {e}")

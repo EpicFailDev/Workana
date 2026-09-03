@@ -19,7 +19,13 @@ logs/
 
 # Sessão exportada do Workana (contém cookies autenticados — nunca commitar)
 workana_storage_state.json
+scratch/
 
 # IDE
 .vscode/
 .idea/
+
+# AI Agent Skills & MCP
+.agents/
+skills-lock.json
+.mcp.json

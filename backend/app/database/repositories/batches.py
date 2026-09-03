@@ -1,6 +1,7 @@
 """
 Repository para gerenciamento de lotes de proposta (Proposal Batches e Batch Items).
 """
+
 from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, timezone
 from sqlalchemy import select, func, and_, update
@@ -483,7 +484,9 @@ async def update_proposal_batch_item(
         now = datetime.now(timezone.utc)
         item_res = await session.execute(
             select(ProposalBatchItemModel).where(
-                and_(ProposalBatchItemModel.id == item_id, ProposalBatchItemModel.user_id == user_id)
+                and_(
+                    ProposalBatchItemModel.id == item_id, ProposalBatchItemModel.user_id == user_id
+                )
             )
         )
         item = item_res.scalar_one_or_none()
@@ -524,7 +527,9 @@ async def delete_proposal_batch_item(user_id: Any, item_id: int) -> bool:
     async with crud.async_session() as session:
         item_res = await session.execute(
             select(ProposalBatchItemModel).where(
-                and_(ProposalBatchItemModel.id == item_id, ProposalBatchItemModel.user_id == user_id)
+                and_(
+                    ProposalBatchItemModel.id == item_id, ProposalBatchItemModel.user_id == user_id
+                )
             )
         )
         item = item_res.scalar_one_or_none()
@@ -550,7 +555,7 @@ async def save_project_to_draft_batch(
     """Adiciona ou atualiza uma proposta nos lotes em fila / rascunho do usuário."""
     async with crud.async_session() as session:
         now = datetime.now(timezone.utc)
-        
+
         # Buscar lote recente aberto ('queued' ou 'running')
         batch_res = await session.execute(
             select(ProposalBatchModel)

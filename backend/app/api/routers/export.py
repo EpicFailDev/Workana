@@ -5,6 +5,7 @@ Exportação do catálogo em CSV (base da Fase F — análise externa).
 - Sanitização anti formula injection: células de texto que começam com
   = + - @ recebem um apóstrofo prefixado (OTF CSV Injection Mitigation).
 """
+
 import csv
 import io
 import re
@@ -20,18 +21,39 @@ router = APIRouter()
 
 # Células de texto que, se iniciarem com estes caracteres, são tratadas como
 # fórmula no Excel/Sheets e devem ser neutralizadas.
-_FORMULA_PREFIX = re.compile(r'^[=+\-@\t\r]')
+_FORMULA_PREFIX = re.compile(r"^[=+\-@\t\r]")
 
 _CSV_COLUMNS = [
-    "workana_id", "title", "url", "category", "subcategory",
-    "budget_min", "budget_max", "budget_type", "deadline", "skills",
-    "proposals_count", "proposals_delta", "contract_type", "estimated_published_at",
-    "posted_at", "published_at", "last_client_activity",
-    "is_urgent", "is_featured", "status",
-    "client_name", "client_country", "client_rating",
-    "client_projects_posted", "client_projects_paid",
-    "client_member_since", "client_plan", "payment_verified",
-    "first_seen_at", "last_seen_at",
+    "workana_id",
+    "title",
+    "url",
+    "category",
+    "subcategory",
+    "budget_min",
+    "budget_max",
+    "budget_type",
+    "deadline",
+    "skills",
+    "proposals_count",
+    "proposals_delta",
+    "contract_type",
+    "estimated_published_at",
+    "posted_at",
+    "published_at",
+    "last_client_activity",
+    "is_urgent",
+    "is_featured",
+    "status",
+    "client_name",
+    "client_country",
+    "client_rating",
+    "client_projects_posted",
+    "client_projects_paid",
+    "client_member_since",
+    "client_plan",
+    "payment_verified",
+    "first_seen_at",
+    "last_seen_at",
 ]
 
 

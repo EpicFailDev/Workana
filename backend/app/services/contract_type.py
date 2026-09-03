@@ -11,6 +11,7 @@ para especializar escopo/marcos e precificação:
 A decisão é tomada no momento do upsert do catálogo (worker) e persistida na
 coluna `contract_type` para consumo determinístico nos endpoints.
 """
+
 from typing import Optional
 
 import re
@@ -46,11 +47,7 @@ def detect_contract_type(
     Se `budget_type` já vier explícito ("hourly"/"fixed"), ele é usado como
     referência forte.
     """
-    blob = " ".join(
-        str(x)
-        for x in (title, description, str(details or ""))
-        if x
-    )
+    blob = " ".join(str(x) for x in (title, description, str(details or "")) if x)
     budget = (budget_type or "").lower()
 
     if budget in {"hourly", "hora", "horas"}:

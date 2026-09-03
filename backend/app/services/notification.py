@@ -7,18 +7,23 @@ from loguru import logger
 from app.database import crud
 from app.api.schemas import Project
 
+
 class NotificationService:
     """
     Serviço para enviar notificações de novos projetos por canais como Telegram, Webhook e E-mail.
     """
 
     @classmethod
-    async def notify_new_project(cls, user_id: Any, project: Project, filter_name: str, score: float):
+    async def notify_new_project(
+        cls, user_id: Any, project: Project, filter_name: str, score: float
+    ):
         """Dispara notificações para todos os canais ativados do usuário."""
         # Obter configurações de automação do usuário
         config = await crud.get_automation_config(user_id)
         if not config:
-            logger.warning(f"Configurações de automação não encontradas para o usuário {user_id}. Notificação cancelada.")
+            logger.warning(
+                f"Configurações de automação não encontradas para o usuário {user_id}. Notificação cancelada."
+            )
             return
 
         # Construir mensagens e dados
@@ -44,11 +49,15 @@ class NotificationService:
         )
 
         # 1. Telegram
-        if config.get("telegram_enabled") and config.get("telegram_bot_token") and config.get("telegram_chat_id"):
+        if (
+            config.get("telegram_enabled")
+            and config.get("telegram_bot_token")
+            and config.get("telegram_chat_id")
+        ):
             await cls.send_telegram(
                 token=config["telegram_bot_token"],
                 chat_id=config["telegram_chat_id"],
-                message=text_message
+                message=text_message,
             )
 
         # 2. Webhook
@@ -66,13 +75,10 @@ class NotificationService:
                     "proposals_count": project.proposals_count,
                     "posted_at": project.posted_at,
                     "client_country": project.client_country,
-                    "payment_verified": project.payment_verified
-                }
+                    "payment_verified": project.payment_verified,
+                },
             }
-            await cls.send_webhook(
-                url=config["webhook_url"],
-                payload=payload
-            )
+            await cls.send_webhook(url=config["webhook_url"], payload=payload)
 
         # 3. E-mail
         if config.get("email_enabled") and config.get("email_to"):
@@ -94,11 +100,7 @@ class NotificationService:
             </body>
             </html>
             """
-            await cls.send_email(
-                email_to=config["email_to"],
-                subject=subject,
-                body_html=body_html
-            )
+            await cls.send_email(email_to=config["email_to"], subject=subject, body_html=body_html)
 
     @classmethod
     async def send_telegram(cls, token: str, chat_id: str, message: str) -> bool:
@@ -106,17 +108,22 @@ class NotificationService:
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(url, json={
-                    "chat_id": chat_id,
-                    "text": message,
-                    "parse_mode": "Markdown",
-                    "disable_web_page_preview": False
-                })
+                response = await client.post(
+                    url,
+                    json={
+                        "chat_id": chat_id,
+                        "text": message,
+                        "parse_mode": "Markdown",
+                        "disable_web_page_preview": False,
+                    },
+                )
                 if response.status_code == 200:
                     logger.success(f"✓ Notificação enviada com sucesso para o Telegram ({chat_id})")
                     return True
                 else:
-                    logger.error(f"Erro ao enviar Telegram ({response.status_code}): {response.text}")
+                    logger.error(
+                        f"Erro ao enviar Telegram ({response.status_code}): {response.text}"
+                    )
                     return False
         except Exception as e:
             logger.error(f"Exceção ao enviar notificação Telegram: {e}")
@@ -142,7 +149,7 @@ class NotificationService:
     async def send_email(cls, email_to: str, subject: str, body_html: str) -> bool:
         """Envia um e-mail HTML (com suporte SMTP padrão de mercado ou fallback de simulação)."""
         from app.config import settings
-        
+
         # Obter configurações de SMTP locais ou usar logging se não configurado
         smtp_host = getattr(settings, "smtp_host", None) or "localhost"
         smtp_port = getattr(settings, "smtp_port", None) or 25
@@ -154,7 +161,7 @@ class NotificationService:
         msg["Subject"] = subject
         msg["From"] = email_from
         msg["To"] = email_to
-        
+
         part = MIMEText(body_html, "html")
         msg.attach(part)
 

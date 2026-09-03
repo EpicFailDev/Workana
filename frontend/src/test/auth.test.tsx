@@ -16,16 +16,21 @@ vi.mock('../integrations/supabase/client', () => {
             },
           },
         })),
-        signInWithPassword: vi.fn().mockResolvedValue({ data: { user: {}, session: {} }, error: null }),
+        signInWithPassword: vi
+          .fn()
+          .mockResolvedValue({ data: { user: {}, session: {} }, error: null }),
         signUp: vi.fn().mockResolvedValue({ data: { user: {}, session: {} }, error: null }),
-        signInWithOAuth: vi.fn().mockResolvedValue({ data: { provider: 'google', url: 'https://google.com' }, error: null }),
+        signInWithOAuth: vi.fn().mockResolvedValue({
+          data: { provider: 'google', url: 'https://google.com' },
+          error: null,
+        }),
         signOut: vi.fn().mockResolvedValue({ error: null }),
         resetPasswordForEmail: vi.fn().mockResolvedValue({ data: {}, error: null }),
         verifyOtp: vi.fn().mockResolvedValue({ data: { session: {} }, error: null }),
         updateUser: vi.fn().mockResolvedValue({ data: { user: {} }, error: null }),
         exchangeCodeForSession: vi.fn().mockResolvedValue({ data: { session: {} }, error: null }),
       },
-    }
+    },
   };
 });
 
@@ -48,9 +53,7 @@ const renderWithProviders = (ui: React.ReactElement, initialRoute = '/') => {
   return render(
     <MemoryRouter initialEntries={[initialRoute]}>
       <ToastProvider>
-        <AuthProvider>
-          {ui}
-        </AuthProvider>
+        <AuthProvider>{ui}</AuthProvider>
       </ToastProvider>
     </MemoryRouter>
   );
@@ -69,7 +72,10 @@ describe('Autenticação e Registro', () => {
     mockAuth.getSession.mockResolvedValue({ data: { session: null }, error: null });
     mockAuth.signInWithPassword.mockResolvedValue({ data: { user: {}, session: {} }, error: null });
     mockAuth.signUp.mockResolvedValue({ data: { user: {}, session: {} }, error: null });
-    mockAuth.signInWithOAuth.mockResolvedValue({ data: { provider: 'google', url: 'https://google.com' }, error: null });
+    mockAuth.signInWithOAuth.mockResolvedValue({
+      data: { provider: 'google', url: 'https://google.com' },
+      error: null,
+    });
     mockAuth.signOut.mockResolvedValue({ error: null });
     mockAuth.resetPasswordForEmail.mockResolvedValue({ data: {}, error: null });
     mockAuth.verifyOtp.mockResolvedValue({ data: { session: {} }, error: null });
@@ -83,7 +89,7 @@ describe('Autenticação e Registro', () => {
       expect(calculatePasswordStrength('123').label).toBe('Fraca');
       expect(calculatePasswordStrength('workana').label).toBe('Fraca');
       expect(calculatePasswordStrength('aaaaaa').label).toBe('Fraca');
-      
+
       // Razoável/Boa/Forte
       expect(calculatePasswordStrength('Aa12345').label).toBe('Razoável');
       expect(calculatePasswordStrength('Aa12345!').label).toBe('Boa');
@@ -92,16 +98,22 @@ describe('Autenticação e Registro', () => {
 
     it('deve traduzir erros do Supabase de forma amigável e segura em português', () => {
       expect(translateAuthError({ message: 'Invalid login credentials' })).toContain('incorretos');
-      expect(translateAuthError({ message: 'User already registered' })).toContain('enviamos uma mensagem');
-      expect(translateAuthError({ message: 'rate limit exceeded' })).toContain('Muitas solicitações');
-      expect(translateAuthError({ message: 'database query failed' })).toContain('Não foi possível concluir');
+      expect(translateAuthError({ message: 'User already registered' })).toContain(
+        'enviamos uma mensagem'
+      );
+      expect(translateAuthError({ message: 'rate limit exceeded' })).toContain(
+        'Muitas solicitações'
+      );
+      expect(translateAuthError({ message: 'database query failed' })).toContain(
+        'Não foi possível concluir'
+      );
     });
   });
 
   describe('Tela de Login', () => {
     it('deve renderizar campos de login e botão Google', () => {
       renderWithProviders(<Login />, '/auth/login');
-      
+
       expect(screen.getByPlaceholderText(/seu-email@dominio.com/i)).toBeInTheDocument();
       expect(screen.getByPlaceholderText(/Sua senha secreta/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /^Entrar$/i })).toBeInTheDocument();
@@ -123,7 +135,7 @@ describe('Autenticação e Registro', () => {
 
       fireEvent.change(emailInput, { target: { value: 'test@empresa.com' } });
       fireEvent.change(passwordInput, { target: { value: 'password123' } });
-      
+
       // Clica em Lembrar-me
       fireEvent.click(rememberMe);
 
@@ -146,8 +158,12 @@ describe('Autenticação e Registro', () => {
 
       renderWithProviders(<Login />, '/auth/login');
 
-      fireEvent.change(screen.getByPlaceholderText(/seu-email@dominio.com/i), { target: { value: 'legacy@empresa.com' } });
-      fireEvent.change(screen.getByPlaceholderText(/Sua senha secreta/i), { target: { value: '123' } }); // Senha curta
+      fireEvent.change(screen.getByPlaceholderText(/seu-email@dominio.com/i), {
+        target: { value: 'legacy@empresa.com' },
+      });
+      fireEvent.change(screen.getByPlaceholderText(/Sua senha secreta/i), {
+        target: { value: '123' },
+      }); // Senha curta
       fireEvent.click(screen.getByRole('button', { name: /^Entrar$/i }));
 
       await waitFor(() => {
@@ -168,20 +184,28 @@ describe('Autenticação e Registro', () => {
       await waitFor(() => {
         expect(screen.getByText('Por favor, insira um e-mail válido.')).toBeInTheDocument();
         expect(screen.getByText('A senha deve ter no mínimo 6 caracteres.')).toBeInTheDocument();
-        expect(screen.getByText('Você precisa aceitar os Termos de Serviço e Política de Privacidade.')).toBeInTheDocument();
+        expect(
+          screen.getByText('Você precisa aceitar os Termos de Serviço e Política de Privacidade.')
+        ).toBeInTheDocument();
       });
     });
 
     it('deve falhar se confirmação de senha for diferente', async () => {
       renderWithProviders(<Cadastro />, '/auth/cadastro');
 
-      fireEvent.change(screen.getByPlaceholderText(/seu-email@dominio.com/i), { target: { value: 'cadastro@empresa.com' } });
-      fireEvent.change(screen.getByPlaceholderText(/Crie uma senha forte/i), { target: { value: 'senha123' } });
-      fireEvent.change(screen.getByPlaceholderText(/Repita a mesma senha/i), { target: { value: 'senha999' } });
-      
+      fireEvent.change(screen.getByPlaceholderText(/seu-email@dominio.com/i), {
+        target: { value: 'cadastro@empresa.com' },
+      });
+      fireEvent.change(screen.getByPlaceholderText(/Crie uma senha forte/i), {
+        target: { value: 'senha123' },
+      });
+      fireEvent.change(screen.getByPlaceholderText(/Repita a mesma senha/i), {
+        target: { value: 'senha999' },
+      });
+
       const acceptCheckbox = screen.getByRole('checkbox');
       fireEvent.click(acceptCheckbox);
-      
+
       fireEvent.click(screen.getByRole('button', { name: /Criar minha Conta/i }));
 
       await waitFor(() => {
@@ -197,17 +221,25 @@ describe('Autenticação e Registro', () => {
 
       renderWithProviders(<Cadastro />, '/auth/cadastro');
 
-      fireEvent.change(screen.getByPlaceholderText(/seu-email@dominio.com/i), { target: { value: 'novo@empresa.com' } });
-      fireEvent.change(screen.getByPlaceholderText(/Crie uma senha forte/i), { target: { value: 'novasenha123' } });
-      fireEvent.change(screen.getByPlaceholderText(/Repita a mesma senha/i), { target: { value: 'novasenha123' } });
-      
+      fireEvent.change(screen.getByPlaceholderText(/seu-email@dominio.com/i), {
+        target: { value: 'novo@empresa.com' },
+      });
+      fireEvent.change(screen.getByPlaceholderText(/Crie uma senha forte/i), {
+        target: { value: 'novasenha123' },
+      });
+      fireEvent.change(screen.getByPlaceholderText(/Repita a mesma senha/i), {
+        target: { value: 'novasenha123' },
+      });
+
       const acceptCheckbox = screen.getByRole('checkbox');
       fireEvent.click(acceptCheckbox);
-      
+
       fireEvent.click(screen.getByRole('button', { name: /Criar minha Conta/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/Cadastro recebido! Enviamos um link de confirmação/i)).toBeInTheDocument();
+        expect(
+          screen.getByText(/Cadastro recebido! Enviamos um link de confirmação/i)
+        ).toBeInTheDocument();
       });
     });
   });
@@ -218,7 +250,9 @@ describe('Autenticação e Registro', () => {
 
       renderWithProviders(<Recuperar />, '/auth/recuperar');
 
-      fireEvent.change(screen.getByPlaceholderText(/seu-email@dominio.com/i), { target: { value: 'recupera@empresa.com' } });
+      fireEvent.change(screen.getByPlaceholderText(/seu-email@dominio.com/i), {
+        target: { value: 'recupera@empresa.com' },
+      });
       fireEvent.click(screen.getByRole('button', { name: /Enviar Código OTP/i }));
 
       await waitFor(() => {
@@ -288,10 +322,13 @@ describe('Autenticação e Registro', () => {
 
   describe('Google OAuth e Callback', () => {
     it('deve iniciar login Google com redirectTo correto e PKCE implícito do Supabase', async () => {
-      mockAuth.signInWithOAuth.mockResolvedValue({ data: { provider: 'google', url: 'https://google.com' }, error: null });
+      mockAuth.signInWithOAuth.mockResolvedValue({
+        data: { provider: 'google', url: 'https://google.com' },
+        error: null,
+      });
 
       renderWithProviders(<Login />, '/auth/login');
-      
+
       fireEvent.click(screen.getByRole('button', { name: /Entrar com Google/i }));
 
       await waitFor(() => {

@@ -150,7 +150,7 @@
 
 .divider::before,
 .divider::after {
-  content: "";
+  content: '';
   flex: 1;
   height: 1px;
   background: var(--color-border);
@@ -254,16 +254,22 @@
     width: auto;
     padding: var(--spacing-sm) var(--spacing-md);
   }
-  
+
   .contentArea {
-     padding: var(--spacing-md);
+    padding: var(--spacing-md);
   }
 }
 
 /* Animations */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .animated {

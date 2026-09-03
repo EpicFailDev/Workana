@@ -16,19 +16,17 @@ def test_cloudflare_challenge_is_detected():
     response = httpx.Response(200, text="<title>Just a moment...</title><div class='cf-chl-test'>")
     assert FastProjectScraper._is_cloudflare_block(response) is True
 
+
 @pytest.mark.asyncio
 async def test_fast_scraper_json_extraction():
     scraper = FastProjectScraper()
-    
+
     # Mock data parecido com o formato que vem no :results-initials do HTML do Workana
     mock_project_json = {
         "title": "<strong>Desenvolvedor Python backend</strong>",
         "slug": "desenvolvedor-python-backend-1",
         "budget": "USD 500 - 1000",
-        "skills": [
-            {"anchorText": "Python"},
-            {"anchorText": "FastAPI"}
-        ],
+        "skills": [{"anchorText": "Python"}, {"anchorText": "FastAPI"}],
         "totalBids": "15 propostas",
         "description": "Precisamos de um desenvolvedor backend para criar APIs.<br>Categoria: TI e Programação<br>Subcategoria: Programação Web",
         "postedDate": "há 2 horas",
@@ -42,13 +40,13 @@ async def test_fast_scraper_json_extraction():
         "lastEmployerMessage": "há 10 minutos",
         "isUrgent": True,
         "isSearchFeatured": True,
-        "country": "<span class=\"country-name\">Brasil</span>",
-        "hasVerifiedPaymentMethod": True
+        "country": '<span class="country-name">Brasil</span>',
+        "hasVerifiedPaymentMethod": True,
     }
-    
+
     # Executar a extração
     project = await scraper._extract_project_from_json(mock_project_json)
-    
+
     # Validar campos do contrato
     assert project is not None
     assert project.id == "desenvolvedor-python-backend-1"

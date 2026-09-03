@@ -27,12 +27,18 @@ export default function VerificarOtp() {
   // Get email from query parameter or state
   const emailParam = searchParams.get('email') || '';
 
-  const { register, handleSubmit, formState: { errors }, setValue, trigger } = useForm<OtpInputs>({
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    setValue,
+    trigger,
+  } = useForm<OtpInputs>({
     resolver: zodResolver(otpSchema),
     defaultValues: {
       email: emailParam,
       otp: '',
-    }
+    },
   });
 
   // Keep react-hook-form's email sync'ed
@@ -63,9 +69,9 @@ export default function VerificarOtp() {
     const newOtp = [...otpValues];
     newOtp[index] = lastChar;
     setOtpValues(newOtp);
-    
+
     // Read directly from DOM to get true synchronous code string
-    const codeString = inputRefs.current.map(input => input?.value || '').join('');
+    const codeString = inputRefs.current.map((input) => input?.value || '').join('');
     setValue('otp', codeString);
     trigger('otp');
 
@@ -83,7 +89,7 @@ export default function VerificarOtp() {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
     if (e.key === 'Backspace') {
       const newOtp = [...otpValues];
-      
+
       // Update DOM immediately
       if (inputRefs.current[index]) {
         if (inputRefs.current[index]!.value === '') {
@@ -108,10 +114,13 @@ export default function VerificarOtp() {
 
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     e.preventDefault();
-    const pastedData = e.clipboardData.getData('text').trim().replace(/[^0-9]/g, '');
+    const pastedData = e.clipboardData
+      .getData('text')
+      .trim()
+      .replace(/[^0-9]/g, '');
     if (pastedData.length === 6) {
       const digits = pastedData.split('');
-      
+
       // Update DOM inputs immediately
       digits.forEach((digit, idx) => {
         if (inputRefs.current[idx]) {
@@ -217,12 +226,14 @@ export default function VerificarOtp() {
               <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block text-center">
                 Código OTP de Redefinição
               </label>
-              
+
               <div className="flex justify-between gap-2 max-w-[320px] mx-auto pt-2">
                 {otpValues.map((digit, idx) => (
                   <input
                     key={idx}
-                    ref={(el) => { inputRefs.current[idx] = el; }}
+                    ref={(el) => {
+                      inputRefs.current[idx] = el;
+                    }}
                     type="text"
                     inputMode="numeric"
                     pattern="[0-9]*"
@@ -237,7 +248,7 @@ export default function VerificarOtp() {
                   />
                 ))}
               </div>
-              
+
               <input type="hidden" {...register('otp')} />
               {errors.otp && (
                 <p className="text-xs text-red-400 mt-2 text-center">{errors.otp.message}</p>
@@ -245,19 +256,17 @@ export default function VerificarOtp() {
             </div>
 
             <div className="text-center text-xs text-slate-400 leading-normal bg-white/5 border border-white/5 rounded-2xl p-4">
-              <p><strong>Duração planejada:</strong> O código expira em 10 minutos.</p>
+              <p>
+                <strong>Duração planejada:</strong> O código expira em 10 minutos.
+              </p>
             </div>
 
             <Button
               type="submit"
-              disabled={loading || resendLoading || otpValues.some(v => !v)}
+              disabled={loading || resendLoading || otpValues.some((v) => !v)}
               className="w-full h-12 bg-gradient-to-r from-blue-500 to-indigo-600 hover:brightness-110 text-white font-semibold rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-950/20 active:scale-[0.99] border-none"
             >
-              {loading ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <>Validar Código OTP</>
-              )}
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Validar Código OTP</>}
             </Button>
 
             <div className="text-center pt-2">

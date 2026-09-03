@@ -9,6 +9,7 @@ router = APIRouter()
 
 # ==================== Dashboard ====================
 
+
 @router.get("/dashboard/stats", response_model=DashboardStats)
 async def get_dashboard_stats(user: dict = Depends(get_current_user)):
     """Retorna estatísticas para o dashboard do usuário."""
@@ -17,6 +18,7 @@ async def get_dashboard_stats(user: dict = Depends(get_current_user)):
 
 # ==================== Histórico de Propostas ====================
 
+
 @router.get("/proposals/history", response_model=List[ProposalHistory])
 async def get_proposal_history(limit: int = 50, user: dict = Depends(get_current_user)):
     """Retorna o histórico de propostas geradas/enviadas do usuário."""
@@ -24,34 +26,34 @@ async def get_proposal_history(limit: int = 50, user: dict = Depends(get_current
 
 
 @router.put("/proposals/{proposal_id}/status")
-async def update_proposal_status(proposal_id: int, status_data: dict, user: dict = Depends(get_current_user)):
+async def update_proposal_status(
+    proposal_id: int, status_data: dict, user: dict = Depends(get_current_user)
+):
     """Atualiza o status de uma proposta manualmente."""
     status = status_data.get("status")
     if not status:
-         raise HTTPException(status_code=400, detail="Status obrigatório")
-         
+        raise HTTPException(status_code=400, detail="Status obrigatório")
+
     success = await crud.update_proposal_status(user["user_id"], proposal_id, status)
     if not success:
         raise HTTPException(status_code=404, detail="Proposta não encontrada")
-        
+
     return {"success": True, "message": "Status atualizado!"}
 
 
 # ==================== Logs de Atividade ====================
+
 
 @router.get("/logs")
 async def list_activity_logs(
     limit: int = 100,
     action_type: str = None,
     status: str = None,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(get_current_user),
 ):
     """Lista logs de atividade do sistema vinculados ao usuário."""
     logs = await crud.get_activity_logs(
-        user_id=user["user_id"],
-        limit=limit,
-        action_type=action_type,
-        status=status
+        user_id=user["user_id"], limit=limit, action_type=action_type, status=status
     )
     return {"logs": logs, "total": len(logs)}
 
@@ -65,12 +67,13 @@ async def create_log(log_data: dict, user: dict = Depends(get_current_user)):
         description=log_data.get("description", "Ação manual"),
         details=log_data.get("details"),
         project_id=log_data.get("project_id"),
-        status=log_data.get("status", "success")
+        status=log_data.get("status", "success"),
     )
     return {"success": True, "message": "Log criado!"}
 
 
 # ==================== Estatísticas ====================
+
 
 @router.get("/statistics")
 async def get_statistics(days: int = 30, user: dict = Depends(get_current_user)):
@@ -87,6 +90,7 @@ async def get_statistics_summary(user: dict = Depends(get_current_user)):
 
 # ==================== Clientes Bloqueados ====================
 
+
 @router.get("/blacklist")
 async def list_blacklisted_clients(user: dict = Depends(get_current_user)):
     """Lista clientes na lista negra do usuário."""
@@ -99,15 +103,15 @@ async def add_to_blacklist(client_data: dict, user: dict = Depends(get_current_u
     """Adiciona um cliente à lista negra do usuário."""
     client_name = client_data.get("client_name")
     reason = client_data.get("reason")
-    
+
     if not client_name:
         raise HTTPException(status_code=400, detail="Nome do cliente é obrigatório")
-    
+
     await crud.add_blacklisted_client(user["user_id"], client_name, reason)
     await crud.log_activity(
         user_id=user["user_id"],
         action_type="blacklist_add",
-        description=f"Cliente adicionado à lista negra: {client_name}"
+        description=f"Cliente adicionado à lista negra: {client_name}",
     )
     return {"success": True, "message": f"Cliente '{client_name}' adicionado à lista negra!"}
 

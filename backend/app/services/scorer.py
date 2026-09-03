@@ -84,7 +84,9 @@ def _parse_age_minutes(value: Any) -> Optional[float]:
 
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    return max(0.0, (datetime.now(timezone.utc) - dt.astimezone(timezone.utc)).total_seconds() / 60.0)
+    return max(
+        0.0, (datetime.now(timezone.utc) - dt.astimezone(timezone.utc)).total_seconds() / 60.0
+    )
 
 
 def _profile_keywords(user_profile: Mapping[str, Any]) -> list[str]:
@@ -142,7 +144,9 @@ def _score_budget(project: Any, user_profile: Mapping[str, Any]) -> tuple[float,
         score = max(20.0, 55.0 - min(35.0, gap * 0.15))
         return score, "Acima do máximo alvo"
 
-    span = (max_budget - min_budget) if (min_budget is not None and max_budget is not None) else None
+    span = (
+        (max_budget - min_budget) if (min_budget is not None and max_budget is not None) else None
+    )
     if span is not None and span > 0:
         center = min_budget + (span / 2.0)
         delta = abs(floor - center) / span
@@ -213,7 +217,14 @@ def _score_recency(project: Any) -> tuple[float, str]:
 
 def _score_risk(project: Any, dimensions: Mapping[str, float]) -> tuple[float, str]:
     missing_signals = 0
-    for field in ("title", "description", "budget_min", "budget_max", "client_rating", "proposals_count"):
+    for field in (
+        "title",
+        "description",
+        "budget_min",
+        "budget_max",
+        "client_rating",
+        "proposals_count",
+    ):
         if _get_value(project, field) in (None, "", []):
             missing_signals += 1
 

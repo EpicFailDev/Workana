@@ -7,6 +7,7 @@ vazar entre tarefas concorrentes. O request_id é injetado no pipeline de
 logs automaticamente (logging_config), e o operation_id pode ser ligado
 explicitamente via `bind_operation_id()`.
 """
+
 from __future__ import annotations
 
 import contextvars
@@ -25,9 +26,7 @@ operation_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar
 )
 
 # ID do usuário autenticado no contexto atual.
-user_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
-    "user_id", default=None
-)
+user_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("user_id", default=None)
 
 # Nome do serviço / container (ex: workana-api, workana-worker).
 service_name_var: contextvars.ContextVar[str] = contextvars.ContextVar(
@@ -115,4 +114,3 @@ def bind_user_id(user_id: Optional[str]) -> Iterator[Optional[str]]:
         yield user_id
     finally:
         user_id_var.reset(token)
-

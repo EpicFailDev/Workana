@@ -26,7 +26,8 @@ export default function Privacidade() {
           <AlertTriangle className="w-5 h-5 shrink-0" />
           <div className="text-xs leading-normal">
             <span className="font-bold uppercase block">Documento sob Revisão</span>
-            Esta política de privacidade está sob revisão jurídica obrigatória antes do lançamento de produção.
+            Esta política de privacidade está sob revisão jurídica obrigatória antes do lançamento
+            de produção.
           </div>
         </div>
 
@@ -35,7 +36,9 @@ export default function Privacidade() {
           <Shield className="w-8 h-8 text-slate-400" />
           <div>
             <h1 className="text-2xl font-extrabold text-white">Política de Privacidade</h1>
-            <p className="text-xs text-slate-400">Última atualização: Junho de 2026 (Versão Preliminar)</p>
+            <p className="text-xs text-slate-400">
+              Última atualização: Junho de 2026 (Versão Preliminar)
+            </p>
           </div>
         </div>
 
@@ -44,7 +47,10 @@ export default function Privacidade() {
           <section className="space-y-2">
             <h2 className="text-base font-bold text-white">1. Informações Coletadas</h2>
             <p className="leading-relaxed">
-              Coletamos dados necessários para autenticação e segurança do seu acesso, incluindo endereço de e-mail, logs de acesso ao sistema (data, hora e IP) e tokens criptografados de sessão persistida (usados de acordo com sua preferência no checkbox "Lembrar-me").
+              Coletamos dados necessários para autenticação e segurança do seu acesso, incluindo
+              endereço de e-mail, logs de acesso ao sistema (data, hora e IP) e tokens
+              criptografados de sessão persistida (usados de acordo com sua preferência no checkbox
+              "Lembrar-me").
             </p>
           </section>
 
@@ -55,26 +61,38 @@ export default function Privacidade() {
             </p>
             <ul className="list-disc pl-5 space-y-1 text-slate-400">
               <li>Permitir o login seguro e restaurar suas sessões de uso.</li>
-              <li>Prevenir fraudes e acessos não autorizados por meio da autenticação de duplo fator ou envio de códigos OTP.</li>
+              <li>
+                Prevenir fraudes e acessos não autorizados por meio da autenticação de duplo fator
+                ou envio de códigos OTP.
+              </li>
               <li>Monitorar a estabilidade do sistema e investigar incidentes de segurança.</li>
             </ul>
           </section>
 
           <section className="space-y-2">
             <h2 className="text-base font-bold text-white">3. Persistência de Tokens de Acesso</h2>
-            <p className="leading-relaxed">
-              De acordo com a sua escolha no formulário de login:
-            </p>
+            <p className="leading-relaxed">De acordo com a sua escolha no formulário de login:</p>
             <ul className="list-disc pl-5 space-y-1 text-slate-400">
-              <li>Se a opção "Lembrar-me" for ativada, seu token de sessão será salvo no armazenamento local persistente do navegador (<code className="text-slate-300">localStorage</code>), mantendo seu acesso ativo após fechar o navegador.</li>
-              <li>Caso desmarque a opção, o token será mantido apenas na memória temporária da aba ativa (<code className="text-slate-300">sessionStorage</code>) e será removido ao fechar a aba.</li>
+              <li>
+                Se a opção "Lembrar-me" for ativada, seu token de sessão será salvo no armazenamento
+                local persistente do navegador (<code className="text-slate-300">localStorage</code>
+                ), mantendo seu acesso ativo após fechar o navegador.
+              </li>
+              <li>
+                Caso desmarque a opção, o token será mantido apenas na memória temporária da aba
+                ativa (<code className="text-slate-300">sessionStorage</code>) e será removido ao
+                fechar a aba.
+              </li>
             </ul>
           </section>
 
           <section className="space-y-2">
             <h2 className="text-base font-bold text-white">4. Seus Direitos (LGPD)</h2>
             <p className="leading-relaxed">
-              Você possui o direito de confirmar a existência de tratamento de dados pessoais, solicitar acesso a eles, corrigir dados incompletos ou inexatos, ou solicitar a exclusão de sua conta a qualquer momento. Suas solicitações podem ser feitas diretamente por nossos canais corporativos de suporte.
+              Você possui o direito de confirmar a existência de tratamento de dados pessoais,
+              solicitar acesso a eles, corrigir dados incompletos ou inexatos, ou solicitar a
+              exclusão de sua conta a qualquer momento. Suas solicitações podem ser feitas
+              diretamente por nossos canais corporativos de suporte.
             </p>
           </section>
         </div>

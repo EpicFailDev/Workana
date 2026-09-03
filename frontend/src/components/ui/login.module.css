@@ -17,7 +17,8 @@
   justify-content: center;
   overflow: hidden;
   padding: 40px 32px;
-  background: radial-gradient(circle at 43% 43%, rgba(26, 29, 36, 0.42), transparent 48%),
+  background:
+    radial-gradient(circle at 43% 43%, rgba(26, 29, 36, 0.42), transparent 48%),
     linear-gradient(135deg, #090b0f 0%, #080a0e 100%);
 }
 
@@ -28,12 +29,37 @@
   max-width: 430px;
 }
 
-.logoBlock { margin-bottom: 36px; }
-.header { display: flex; flex-direction: column; text-align: left; }
-.description { margin-top: 16px; color: #a6a8b2; font-size: 16px; font-weight: 400; line-height: 24px; }
-.form { margin-top: 50px; display: flex; flex-direction: column; gap: 20px; }
-.field { display: flex; flex-direction: column; gap: 8px; }
-.label { color: #d7d8dc; font-size: 13px; font-weight: 500; }
+.logoBlock {
+  margin-bottom: 36px;
+}
+.header {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+.description {
+  margin-top: 16px;
+  color: #a6a8b2;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+}
+.form {
+  margin-top: 50px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.label {
+  color: #d7d8dc;
+  font-size: 13px;
+  font-weight: 500;
+}
 
 .input {
   box-sizing: border-box;
@@ -48,11 +74,23 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
 }
 
-.input::placeholder { color: #8f929d; }
-.input:hover { border-color: #555965; }
-.input:focus { outline: none; border-color: #777b88; box-shadow: 0 0 0 1px rgba(255,255,255,.1); }
-.passwordWrap { position: relative; }
-.passwordInput { padding-right: 44px; }
+.input::placeholder {
+  color: #8f929d;
+}
+.input:hover {
+  border-color: #555965;
+}
+.input:focus {
+  outline: none;
+  border-color: #777b88;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+.passwordWrap {
+  position: relative;
+}
+.passwordInput {
+  padding-right: 44px;
+}
 
 .eyeButton {
   position: absolute;
@@ -67,13 +105,43 @@
   cursor: pointer;
 }
 
-.eyeButton:hover { color: white; }
-.options { display: flex; min-height: 20px; align-items: center; justify-content: space-between; }
-.checkItem { display: flex; flex-direction: row; align-items: center; gap: 8px; }
-.check { width: 20px; height: 20px; border: 1px solid #5b5e68; border-radius: 5px; }
-.checkLabel { color: #a6a8b2; font-size: 13px; font-weight: 400; cursor: pointer; user-select: none; }
-.forgot { color: #b7b8bf; font-size: 13px; text-decoration: none; }
-.forgot:hover { color: white; text-decoration: underline; }
+.eyeButton:hover {
+  color: white;
+}
+.options {
+  display: flex;
+  min-height: 20px;
+  align-items: center;
+  justify-content: space-between;
+}
+.checkItem {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.check {
+  width: 20px;
+  height: 20px;
+  border: 1px solid #5b5e68;
+  border-radius: 5px;
+}
+.checkLabel {
+  color: #a6a8b2;
+  font-size: 13px;
+  font-weight: 400;
+  cursor: pointer;
+  user-select: none;
+}
+.forgot {
+  color: #b7b8bf;
+  font-size: 13px;
+  text-decoration: none;
+}
+.forgot:hover {
+  color: white;
+  text-decoration: underline;
+}
 
 .submit {
   width: 100%;
@@ -89,10 +157,23 @@
   cursor: pointer;
 }
 
-.submit:hover { filter: brightness(1.08); }
-.footer { margin-top: 40px; color: #a6a8b2; font-size: 16px; text-align: center; }
-.footerLink { color: white; font-weight: 600; text-decoration: none; }
-.footerLink:hover { text-decoration: underline; }
+.submit:hover {
+  filter: brightness(1.08);
+}
+.footer {
+  margin-top: 40px;
+  color: #a6a8b2;
+  font-size: 16px;
+  text-align: center;
+}
+.footerLink {
+  color: white;
+  font-weight: 600;
+  text-decoration: none;
+}
+.footerLink:hover {
+  text-decoration: underline;
+}
 
 .rightPanel {
   position: relative;
@@ -109,16 +190,39 @@
 }
 
 @media (max-width: 767px) {
-  .screen { display: block; overflow-y: auto; }
-  .leftPanel { width: 100%; padding: 40px 24px; }
-  .rightPanel { display: none; }
-  .formShell { max-width: 430px; }
+  .screen {
+    display: block;
+    overflow-y: auto;
+  }
+  .leftPanel {
+    width: 100%;
+    padding: 40px 24px;
+  }
+  .rightPanel {
+    display: none;
+  }
+  .formShell {
+    max-width: 430px;
+  }
 }
 
 @media (max-height: 760px) and (min-width: 768px) {
-  .leftPanel { justify-content: flex-start; overflow-y: auto; }
-  .formShell { margin: auto 0; padding: 32px 0; }
-  .logoBlock { margin-bottom: 24px; }
-  .form { margin-top: 28px; gap: 14px; }
-  .footer { margin-top: 24px; }
+  .leftPanel {
+    justify-content: flex-start;
+    overflow-y: auto;
+  }
+  .formShell {
+    margin: auto 0;
+    padding: 32px 0;
+  }
+  .logoBlock {
+    margin-bottom: 24px;
+  }
+  .form {
+    margin-top: 28px;
+    gap: 14px;
+  }
+  .footer {
+    margin-top: 24px;
+  }
 }
