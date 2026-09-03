@@ -12,6 +12,11 @@ interface AuthContextType {
     rememberMe?: boolean,
     next?: string
   ) => Promise<{ data: { provider: string; url: string } | null; error: any }>;
+  signInWithGoogleIdToken: (
+    idToken: string,
+    rememberMe?: boolean,
+    next?: string
+  ) => Promise<AuthResponse>;
   signOut: () => Promise<void>;
   requestPasswordReset: (email: string) => Promise<{ error: any }>;
   verifyOTP: (email: string, otp: string) => Promise<AuthResponse>;
@@ -140,6 +145,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const signInWithGoogleIdToken = async (
+    idToken: string,
+    rememberMe = false,
+    next = '/'
+  ): Promise<AuthResponse> => {
+    setLoading(true);
+    try {
+      localStorage.setItem(REMEMBER_ME_KEY, rememberMe ? 'true' : 'false');
+      sessionStorage.setItem('auth_redirect_to', next);
+
+      const response = await supabase.auth.signInWithIdToken({
+        provider: 'google',
+        token: idToken,
+      });
+      if (response.data.session) {
+        setSession(response.data.session);
+        setUser(response.data.session.user);
+      }
+      return response;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const signOut = async () => {
     setLoading(true);
     try {
@@ -218,6 +247,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signIn,
         signUp,
         signInWithGoogle,
+        signInWithGoogleIdToken,
         signOut,
         requestPasswordReset,
         verifyOTP,

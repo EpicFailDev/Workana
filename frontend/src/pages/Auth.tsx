@@ -3,8 +3,11 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { AuthFormSplitScreen } from '@/components/ui/login';
+import { useGoogleOneTap } from '../hooks/useGoogleOneTap';
 
 export default function Auth() {
+  useGoogleOneTap({ next: '/' });
+
   const location = useLocation();
   const navigate = useNavigate();
   const { signIn, signUp, signInWithGoogle } = useAuth();

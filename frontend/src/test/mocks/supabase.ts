@@ -13,6 +13,9 @@ export const mockSupabase = {
     signInWithPassword: vi.fn(),
     signUp: vi.fn(),
     signInWithOAuth: vi.fn(),
+    signInWithIdToken: vi
+      .fn()
+      .mockResolvedValue({ data: { session: null, user: null }, error: null }),
     signOut: vi.fn().mockResolvedValue({ error: null }),
     resetPasswordForEmail: vi.fn(),
     verifyOtp: vi.fn(),

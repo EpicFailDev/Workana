@@ -24,6 +24,9 @@ vi.mock('../integrations/supabase/client', () => {
           data: { provider: 'google', url: 'https://google.com' },
           error: null,
         }),
+        signInWithIdToken: vi
+          .fn()
+          .mockResolvedValue({ data: { user: {}, session: {} }, error: null }),
         signOut: vi.fn().mockResolvedValue({ error: null }),
         resetPasswordForEmail: vi.fn().mockResolvedValue({ data: {}, error: null }),
         verifyOtp: vi.fn().mockResolvedValue({ data: { session: {} }, error: null }),
@@ -76,6 +79,7 @@ describe('Autenticação e Registro', () => {
       data: { provider: 'google', url: 'https://google.com' },
       error: null,
     });
+    mockAuth.signInWithIdToken.mockResolvedValue({ data: { user: {}, session: {} }, error: null });
     mockAuth.signOut.mockResolvedValue({ error: null });
     mockAuth.resetPasswordForEmail.mockResolvedValue({ data: {}, error: null });
     mockAuth.verifyOtp.mockResolvedValue({ data: { session: {} }, error: null });
@@ -352,6 +356,42 @@ describe('Autenticação e Registro', () => {
 
       await waitFor(() => {
         expect(mockAuth.exchangeCodeForSession).toHaveBeenCalledWith('abc-auth-code');
+      });
+    });
+
+    it('deve inicializar Google One Tap e autenticar via token de credencial', async () => {
+      mockAuth.signInWithIdToken.mockResolvedValue({
+        data: { session: { user: { id: 'google-onetap-user' } } },
+        error: null,
+      });
+
+      let oneTapCallback: ((resp: { credential?: string }) => void) | null = null;
+      window.google = {
+        accounts: {
+          id: {
+            initialize: vi.fn((config: any) => {
+              oneTapCallback = config.callback;
+            }),
+            prompt: vi.fn(),
+          },
+        },
+      } as any;
+
+      renderWithProviders(<Login />, '/auth/login');
+
+      expect(window.google?.accounts?.id?.initialize).toHaveBeenCalled();
+      expect(window.google?.accounts?.id?.prompt).toHaveBeenCalled();
+
+      // Simula a seleção de conta pelo Google One Tap
+      if (oneTapCallback) {
+        (oneTapCallback as any)({ credential: 'mock-jwt-id-token' });
+      }
+
+      await waitFor(() => {
+        expect(mockAuth.signInWithIdToken).toHaveBeenCalledWith({
+          provider: 'google',
+          token: 'mock-jwt-id-token',
+        });
       });
     });
   });

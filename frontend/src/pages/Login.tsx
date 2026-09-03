@@ -9,6 +9,7 @@ import { Eye, EyeOff, Loader2, LogIn } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Checkbox } from '../components/ui/checkbox';
+import { useGoogleOneTap } from '../hooks/useGoogleOneTap';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -37,6 +38,8 @@ export default function Login() {
   });
 
   const rememberMeValue = watch('rememberMe');
+
+  useGoogleOneTap({ next, rememberMe: rememberMeValue });
 
   const handleLogin = async (data: LoginInputs) => {
     setLoading(true);
