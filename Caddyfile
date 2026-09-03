@@ -1,14 +1,32 @@
 {
     # Bloco de configuração global do Caddy
     email {$ACME_EMAIL:admin@example.com}
+    auto_https disable_redirects
 }
 
-{$APP_DOMAIN:localhost} {
+# Bloco HTTP (Porta 80) - Acesso direto e sem redirecionamento forçado para HTTPS
+http://{$APP_DOMAIN:localhost}, http://localhost, :80 {
     # Compressão de arquivos para melhor performance
     encode gzip zstd
 
-    # Roteamento da API para o container do backend
+    # Roteamento da API e Healthcheck para o container do backend
     reverse_proxy /api/* api:8000
+    reverse_proxy /health api:8000
+    reverse_proxy /ready api:8000
+
+    # Roteamento de todos os outros caminhos para o container do frontend
+    reverse_proxy * frontend:80
+}
+
+# Bloco HTTPS (Porta 443) - Com suporte a TLS interno/resiliente
+https://{$APP_DOMAIN:localhost}, https://localhost {
+    tls internal
+    encode gzip zstd
+
+    # Roteamento da API e Healthcheck para o container do backend
+    reverse_proxy /api/* api:8000
+    reverse_proxy /health api:8000
+    reverse_proxy /ready api:8000
 
     # Roteamento de todos os outros caminhos para o container do frontend
     reverse_proxy * frontend:80

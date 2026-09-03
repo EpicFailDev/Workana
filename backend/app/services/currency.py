@@ -51,23 +51,34 @@ class CurrencyService:
         Extrai valores min/max de uma string de orçamento do Workana.
         Ex: "USD 100 - 250" -> (100.0, 250.0)
         Ex: "USD 500" -> (500.0, 500.0)
+        Ex: "R$ 500,00" -> (500.0, 500.0)
         """
         if not budget_str:
             return None, None
             
-        # Limpar a string e focar nos números
-        # Workana usa pontos para milhar em alguns casos, vamos remover.
-        clean_str = budget_str.replace(".", "")
-        numbers = re.findall(r'\d+', clean_str)
-        
-        if not numbers:
+        if "-" in budget_str:
+            parts = budget_str.split("-", 1)
+            # Remove pontos de milhar
+            p0 = parts[0].replace(".", "").replace(",", ".")
+            p1 = parts[1].replace(".", "").replace(",", ".")
+            m0 = re.search(r'\d+(?:\.\d+)?', p0)
+            m1 = re.search(r'\d+(?:\.\d+)?', p1)
+            if m0 and m1:
+                return float(m0.group()), float(m1.group())
+            elif m0:
+                return float(m0.group()), float(m0.group())
+            elif m1:
+                return float(m1.group()), float(m1.group())
             return None, None
+
+        # Valor único
+        clean = budget_str.replace(".", "").replace(",", ".")
+        m = re.search(r'\d+(?:\.\d+)?', clean)
+        if m:
+            val = float(m.group())
+            return val, val
             
-        vals = [float(n) for n in numbers]
-        
-        if len(vals) >= 2:
-            return vals[0], vals[1]
-        return vals[0], vals[0]
+        return None, None
 
     @classmethod
     async def convert_to_brl(cls, budget_str: str) -> str:

@@ -75,32 +75,34 @@ class CaptchaSolver:
             return False
 
     async def is_blocked(self, page) -> bool:
-        """Verifica se a página está bloqueada por WAF/Cloudflare."""
-        title = await page.title()
-        content = await page.content()
-        
-        cloudflare_indicators = [
-            "Just a moment...",
-            "Please turn on JS",
-            "Attention Required!",
-            "Cloudflare",
-            "checking your browser",
-            "ddos guard"
-        ]
-        
-        # Verificar título ou elementos específicos do CF
-        if any(ind.lower() in title.lower() for ind in cloudflare_indicators):
-            return True
+        """Verifica se a página está bloqueada por tela de desafio / WAF / Cloudflare Interstitial."""
+        try:
+            title = await page.title()
             
-        if "cf-challenge" in content or "cf-turnstile" in content or "cf-cookie-banner" in content:
-            return True
+            cloudflare_indicators = [
+                "Just a moment...",
+                "Please turn on JS",
+                "Attention Required!",
+                "ddos guard",
+                "Checking your browser"
+            ]
             
-        # Verificar se existe algum iframe de Turnstile
-        for frame in page.frames:
-            if "challenges.cloudflare.com" in frame.url:
+            # Verificar título explícito de bloqueio do CF
+            if any(ind.lower() in title.lower() for ind in cloudflare_indicators):
                 return True
                 
-        return False
+            content = await page.content()
+            
+            # Elementos específicos de bloqueio de página inteira (Interstitial Challenge)
+            if "#challenge-running" in content or "cf-challenge-running" in content or "id=\"challenge-stage\"" in content:
+                # Se o app principal já montou, a página não está bloqueada
+                app_el = await page.query_selector('#app, .container, header.main-header')
+                if not app_el:
+                    return True
+                    
+            return False
+        except Exception:
+            return False
 
     async def get_challenge_info(self, page) -> Optional[Dict[str, str]]:
         """Extrai sitekey e tipo do Captcha da página."""

@@ -24,16 +24,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [session, setSession] = useState<Session | null>(null);
     const [loading, setLoading] = useState(true);
 
+    const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number, errorMessage: string): Promise<T> => {
+        return Promise.race([
+            promise,
+            new Promise<T>((_, reject) =>
+                setTimeout(() => reject(new Error(errorMessage)), timeoutMs)
+            ),
+        ]);
+    };
+
     useEffect(() => {
-        // Obter sessão inicial
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setSession(session);
-            setUser(session?.user ?? null);
-            setLoading(false);
-        }).catch((err) => {
-            console.error("Erro ao recuperar sessão Supabase:", err);
-            setLoading(false);
-        });
+        // Obter sessão inicial com timeout de 5 segundos
+        withTimeout(supabase.auth.getSession(), 5000, "Tempo limite ao conectar com Supabase")
+            .then(({ data: { session } }) => {
+                setSession(session);
+                setUser(session?.user ?? null);
+                setLoading(false);
+            })
+            .catch((err) => {
+                console.warn("Aviso ao recuperar sessão inicial Supabase:", err);
+                setLoading(false);
+            });
 
         // Observar mudanças de estado da autenticação
         const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -59,7 +70,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
             // Define o flag de lembrar-me antes da autenticação para o CustomStorage saber
             localStorage.setItem(REMEMBER_ME_KEY, rememberMe ? 'true' : 'false');
-            const response = await supabase.auth.signInWithPassword({ email, password });
+            const response = await withTimeout(
+                supabase.auth.signInWithPassword({ email, password }),
+                10000,
+                "O servidor Supabase demorou muito para responder. Verifique se o projeto no Supabase está ativo (não pausado)."
+            );
             if (response.data.session) {
                 setSession(response.data.session);
                 setUser(response.data.session.user);

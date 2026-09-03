@@ -7,14 +7,19 @@ import pytest
 os.environ["TESTING"] = "true"
 os.environ["DEBUG"] = "true"
 
-# Define dummy variables to pass Pydantic validation if not set
-if "DATABASE_URL" not in os.environ or "sqlite" in os.environ.get("DATABASE_URL", "").lower():
+# Define dummy variables to pass Pydantic validation if not explicitly set for live testing
+if "TEST_DATABASE_URL" in os.environ:
+    os.environ["DATABASE_URL"] = os.environ["TEST_DATABASE_URL"]
+elif "USE_LIVE_DB" not in os.environ or os.environ.get("USE_LIVE_DB", "").lower() != "true":
     os.environ["DATABASE_URL"] = "postgresql+asyncpg://dummy_user:dummy_pass@localhost:5432/dummy_db"
 
 if "SUPABASE_URL" not in os.environ:
-    os.environ["SUPABASE_URL"] = "https://cztwxtsuewwacjcgajjz.supabase.co"
+    os.environ["SUPABASE_URL"] = "https://pgdtcjcxrffwkvbvkjov.supabase.co"
 
-from fastapi.testclient import TestClient
+import warnings
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock
 from app.main import app
 from app.auth import get_current_user
@@ -38,18 +43,10 @@ def cleanup_database():
 
 @pytest.fixture(autouse=True)
 def check_db_test_safety(request):
-    """Garante que testes de banco de dados não rodem contra produção e sejam pulados se não houver DB de testes."""
-    db_test_files = {"test_crud_extra", "test_dashboard_stats"}
-    module_name = request.module.__name__.split(".")[-1]
-    
-    if module_name in db_test_files:
-        db_url = os.getenv("DATABASE_URL", "")
-        # Ignora se for a URL dummy de teste
-        if "dummy_user" in db_url:
-            pytest.skip("Teste de banco ignorado: DATABASE_URL é dummy (sem banco PostgreSQL local configurado).")
-        # Proteção rígida contra testes destrutivos contra o projeto hospedado
-        if "cztwxtsuewwacjcgajjz" in db_url:
-            pytest.skip("Bloqueio de segurança: Não é permitido rodar testes contra o banco hospedado em produção.")
+    """Proteção rígida contra testes destrutivos contra o projeto hospedado em produção."""
+    db_url = os.getenv("DATABASE_URL", "")
+    if any(h in db_url for h in ["supabase.co", "supabase.com", "pooler.supabase.com", "cztwxtsuewwacjcgajjz", "pgdtcjcxrffwkvbvkjov"]):
+        pytest.skip("Bloqueio de segurança: Não é permitido rodar testes contra o banco hospedado em produção.")
 
 
 @pytest.fixture(autouse=True)
@@ -64,6 +61,7 @@ def mock_db_session(monkeypatch, request):
             from unittest.mock import MagicMock, AsyncMock
             
             mock_session = AsyncMock()
+            mock_session.add = MagicMock()
             mock_session.execute.return_value = MagicMock()
             mock_session.commit.return_value = None
             

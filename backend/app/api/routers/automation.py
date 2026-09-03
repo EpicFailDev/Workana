@@ -1,10 +1,11 @@
 from fastapi import APIRouter, HTTPException, Depends
-from typing import List
+from typing import List, Optional
+from loguru import logger
 
 from app.api.schemas import (
     AutomationStatus, AutomationConfig,
     ProposalTemplate, ProposalTemplateCreate,
-    BlueprintTestRequest
+    BlueprintTestRequest, SearchFilters
 )
 from app.auth import get_current_user
 from app.automation.browser import WorkanaAutomation
@@ -37,18 +38,42 @@ async def update_automation_config(config: AutomationConfig, user: dict = Depend
 
 @router.get("/automation/credentials", response_model=dict)
 async def get_credentials_status(user: dict = Depends(get_current_user)):
-    """Retorna se as credenciais do usuário estão configuradas."""
+    """Retorna se as credenciais/sessão do Workana do usuário estão configuradas."""
     creds = await crud.get_credentials(user["user_id"])
+    session_row = await crud.get_workana_session(user["user_id"])
+    session_ready = bool(session_row and session_row.get("session_json"))
+
+    masked = None
+    email = None
     if creds:
         email = creds.get("email", "")
-        # Mascarar email
         if "@" in email:
             parts = email.split("@")
             masked = parts[0][:3] + "***" + "@" + parts[1]
         else:
             masked = "***"
-        return {"configured": True, "email": masked}
-    return {"configured": False, "email": None}
+    elif session_row and session_row.get("account_email"):
+        email = session_row["account_email"]
+        if "@" in email:
+            parts = email.split("@")
+            masked = parts[0][:3] + "***" + "@" + parts[1]
+        else:
+            masked = "***"
+
+    if creds:
+        login_method = "password"
+    elif session_ready:
+        login_method = "google"
+    else:
+        login_method = None
+
+    return {
+        "configured": bool(creds) or session_ready,
+        "email": masked,
+        "login_method": login_method,
+        "session_ready": session_ready,
+        "session_updated_at": session_row.get("updated_at").isoformat() if session_row and session_row.get("updated_at") else None,
+    }
 
 
 @router.post("/automation/credentials")
@@ -60,6 +85,57 @@ async def update_credentials(creds: dict, user: dict = Depends(get_current_user)
         return {"success": False, "message": "Email e senha são obrigatórios"}
     await crud.save_credentials(user["user_id"], email, password)
     return {"success": True, "message": "Credenciais salvas com sucesso!"}
+
+
+# ==================== Login via Google / Sessão ====================
+
+@router.post("/automation/workana/google-login")
+async def workana_google_login(user: dict = Depends(get_current_user)):
+    """Abre um navegador real para o login do Workana via Google e salva a sessão."""
+    result = await automation.login_with_google(user["user_id"])
+    if not result.get("success"):
+        # Mensagem orientativa quando o login interativo não é possível (ex: container)
+        hint = result.get("message", "")
+        if any(k in hint.lower() for k in ("headless", "display", "sandbox", "closed")):
+            result["message"] = (
+                f"{hint} | Dica: em ambiente sem janela (Docker), use a opção "
+                f"'Importar sessão' nas configurações."
+            )
+    return result
+
+
+@router.post("/automation/workana/session-import")
+async def workana_session_import(payload: dict, user: dict = Depends(get_current_user)):
+    """Importa um storage_state (JSON do Playwright, lista de cookies, HAR ou string de cookies)."""
+    from app.automation import session_manager as _session_manager
+
+    session_json = payload.get("session_json") or ""
+    account_email = payload.get("account_email")
+    if not str(session_json).strip():
+        return {"success": False, "message": "Cole o JSON, arquivo HAR ou cookies da sessão para importar."}
+
+    state = _session_manager.normalize_storage_state(session_json)
+    if not state or not state.get("cookies"):
+        return {
+            "success": False,
+            "message": "Formato de sessão inválido. Cole o JSON do Playwright, lista de cookies ou arquivo HAR contendo cookies válidos do Workana."
+        }
+
+    await _session_manager.save_storage_state(user["user_id"], state, account_email=account_email)
+    logger.info(f"Sessão importada com sucesso para o usuário {user['user_id']} ({len(state['cookies'])} cookies)")
+    return {
+        "success": True,
+        "message": f"Sessão importada com sucesso ({len(state['cookies'])} cookies salvos)! As propostas poderão ser enviadas pelo Workana."
+    }
+
+
+@router.post("/automation/workana/disconnect")
+async def workana_disconnect(user: dict = Depends(get_current_user)):
+    """Remove credenciais e sessão do Workana do usuário."""
+    await crud.delete_credentials(user["user_id"])
+    from app.automation import session_manager as _session_manager
+    await _session_manager.clear_storage_state(user["user_id"])
+    return {"success": True, "message": "Conexão com o Workana removida."}
 
 
 # ==================== Templates de Proposta ====================
@@ -218,7 +294,7 @@ async def test_blueprint(payload: BlueprintTestRequest, user: dict = Depends(get
         }
     
     # 2. Compilar o blueprint para a representação em prompt
-    blueprint_dicts = [b.dict() for b in payload.blueprint]
+    blueprint_dicts = [b.model_dump() if hasattr(b, "model_dump") else b.dict() for b in payload.blueprint]
     user_name = "Desenvolvedor"
     
     try:
@@ -295,17 +371,45 @@ async def can_search(user: dict = Depends(get_current_user)):
 # ==================== Catálogo do Sistema ====================
 
 @router.post("/automation/catalog/refresh")
-async def refresh_catalog(user: dict = Depends(get_current_user)):
+async def refresh_catalog(
+    custom_filters: Optional[SearchFilters] = None,
+    user: dict = Depends(get_current_user)
+):
     """Aciona manualmente uma coleta do catálogo (lock-aware, retorna 409 se já em execução)."""
     from app.services.scheduler import scheduler_instance
 
     # executa um ciclo síncrono (sem job); o lock previne concorrência.
     try:
-        result = await scheduler_instance.execute_catalog_upsert()
+        custom_query = custom_filters.model_dump(exclude_unset=True) if custom_filters else None
+        result = await scheduler_instance.execute_catalog_upsert(custom_query=custom_query)
         return result
     except RuntimeError as e:
         if "already running" in str(e).lower() or "lock" in str(e).lower():
-            from fastapi import HTTPException
             raise HTTPException(status_code=409, detail="Uma coleta do catálogo já está em execução.")
         raise
+
+
+@router.post("/automation/catalog/restore-gone")
+async def restore_gone_catalog(
+    category: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    """Restaura projetos do catálogo marcados incorretamente como 'gone' de volta para 'active'."""
+    restored = await crud.restore_gone_catalog_projects(category=category)
+    return {
+        "success": True,
+        "restored": restored,
+        "message": f"{restored} projetos restaurados para o status ativo com sucesso!"
+    }
+
+
+@router.get("/automation/realtime-status")
+async def get_realtime_status(user: dict = Depends(get_current_user)):
+    """Retorna o status do listener WebSocket em tempo real (Pusher) do Workana."""
+    from app.services.realtime_pusher import pusher_realtime_instance
+    return {
+        "is_active": pusher_realtime_instance.is_running,
+        "channels": ["projects-pt", "projects-en"],
+        "gateway": "ws-mt1.pusher.com",
+    }
 

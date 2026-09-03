@@ -2,7 +2,7 @@ import asyncio
 import random
 import time
 from datetime import datetime, timezone
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from loguru import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select, text
@@ -361,7 +361,7 @@ class SearchScheduler:
             finally:
                 # Limpa o operation_id do ciclo.
                 try:
-                    _obs_context.operation_id_var.reset(op_token)
+                    operation_id_var.reset(op_token)
                 except ValueError:
                     pass
 
@@ -388,7 +388,7 @@ class SearchScheduler:
                         f"Erro ao liberar o lock no Postgres: {sanitize_exception(e)}"
                     )
 
-    async def execute_catalog_upsert(self) -> Dict[str, Any]:
+    async def execute_catalog_upsert(self, custom_query: Optional[dict] = None) -> Dict[str, Any]:
         """Executa um ciclo de coleta do catálogo: busca anônima + upsert + marca gone.
 
         Chamado pelo job agendado (15 min) ou manualmente via POST /automation/catalog/refresh.
@@ -422,8 +422,11 @@ class SearchScheduler:
                 cycle_started_at = datetime.now(timezone.utc)
 
                 try:
-                    # 1. Obter buscas agregadas de todos os filtros salvos
-                    queries = await crud.get_distinct_saved_filter_queries()
+                    # 1. Obter buscas: prioriza custom_query se fornecido pelo usuário
+                    if custom_query:
+                        queries = [custom_query]
+                    else:
+                        queries = await crud.get_distinct_saved_filter_queries()
 
                     if not queries:
                         logger.bind(event="catalog.cycle.no_filters").info(
@@ -449,13 +452,17 @@ class SearchScheduler:
                         success = False
                         blocked = False
                         try:
-                            # Limites conservadores para o worker de catálogo
+                            # Limites para o worker de catálogo
                             remaining = settings.catalog_max_projects_per_cycle - upserted
-                            filter_data["max_results"] = min(filter_data.get("max_results", 50), remaining)
-                            filter_data["pages_to_fetch"] = min(
-                                filter_data.get("pages_to_fetch", settings.catalog_pages_per_search),
-                                settings.catalog_pages_per_search,
-                            )
+                            if custom_query:
+                                filter_data["pages_to_fetch"] = min(filter_data.get("pages_to_fetch", 10), 100)
+                                filter_data["max_results"] = min(filter_data.get("max_results", 500), remaining)
+                            else:
+                                filter_data["max_results"] = min(filter_data.get("max_results", 50), remaining)
+                                filter_data["pages_to_fetch"] = min(
+                                    filter_data.get("pages_to_fetch", settings.catalog_pages_per_search),
+                                    settings.catalog_pages_per_search,
+                                )
                             filters_obj = SearchFilters(**filter_data)
 
                             # Busca anônima (user_id=None — sem credenciais)
@@ -474,11 +481,15 @@ class SearchScheduler:
                                 raise last_error
 
                             projects = projects[:remaining]
+                            batch_catalog_rows = []
 
                             for proj in projects:
+                                if not proj.id or not str(proj.id).strip():
+                                    continue
+
                                 # Mapear campos do modelo Project para o formato do catálogo
                                 catalog_data = {
-                                    "workana_id": proj.id,
+                                    "workana_id": str(proj.id).strip(),
                                     "title": proj.title,
                                     "description": proj.description,
                                     "url": proj.url,
@@ -507,7 +518,6 @@ class SearchScheduler:
                                 }
 
                                 # Data de publicação estimada a partir do texto relativo
-                                # ("Publicado: há 2 horas", "ontem") usando o tempo do ciclo.
                                 try:
                                     catalog_data["estimated_published_at"] = parse_relative_datetime(
                                         proj.posted_at, base_time=datetime.now(timezone.utc)
@@ -526,9 +536,12 @@ class SearchScheduler:
                                 except Exception:
                                     catalog_data["contract_type"] = "project_fixed"
 
-                                await crud.upsert_catalog_row(catalog_data)
+                                batch_catalog_rows.append(catalog_data)
                                 seen_ids.add(proj.id)
-                                upserted += 1
+
+                            if batch_catalog_rows:
+                                batch_saved = await crud.upsert_catalog_rows_batch(batch_catalog_rows)
+                                upserted += batch_saved
 
                             # Jitter anti-ban entre buscas
                             await asyncio.sleep(random.uniform(2.0, 5.0))
@@ -556,22 +569,28 @@ class SearchScheduler:
 
                     # 2. Marcar projetos ausentes como 'gone'
                     lifecycle = {"gone": 0, "closed": 0}
+                    is_full_cycle = custom_query is None and not any(bool(q.get("keywords")) for q in queries)
+                    target_category = custom_query.get("category") if custom_query else None
                     if errors == 0:
                         lifecycle = await crud.mark_gone_catalog_projects(
                             list(seen_ids),
                             cycle_started_at=cycle_started_at,
+                            category=target_category,
+                            is_full_catalog_cycle=is_full_cycle,
                             close_after_minutes=15 * settings.catalog_close_after_cycles,
                         )
                     marked_gone = lifecycle["gone"]
 
+                    total_active = await crud.count_active_catalog_projects()
                     logger.bind(event="catalog.cycle.completed").info(
-                        f"Catálogo atualizado: {upserted} upserted, {marked_gone} gone, {errors} errors."
+                        f"Catálogo atualizado: {upserted} upserted, total ativo: {total_active} projetos, {marked_gone} gone, {errors} errors."
                     )
 
                     return {
                         "success": True,
-                        "message": f"Catálogo atualizado: {upserted} projetos, {marked_gone} removidos.",
+                        "message": f"Catálogo atualizado: {upserted} projetos escaneados nesta busca. Total acumulado no banco: {total_active} projetos ativos.",
                         "upserted": upserted,
+                        "total_active": total_active,
                         "marked_gone": marked_gone,
                         "errors": errors,
                         "closed": lifecycle["closed"],

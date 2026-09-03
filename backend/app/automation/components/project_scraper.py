@@ -6,8 +6,14 @@ from loguru import logger
 from app.api.schemas import SearchFilters, Project
 from app.automation.components.browser_driver import BrowserDriver
 from app.automation.selectors import WorkanaSelectors
-
 from app.automation.components.captcha_solver import CaptchaSolver
+from app.services.currency import CurrencyService
+from app.automation.components.project_parser import (
+    _extract_briefing_details,
+    _parse_client_history,
+    _parse_rating,
+)
+import re
 
 class ProjectScraper:
     """
@@ -54,6 +60,12 @@ class ProjectScraper:
         if filters.category: params.append(f"category={filters.category}")
         if filters.min_budget: params.append(f"budget_min={filters.min_budget}")
         if filters.max_budget: params.append(f"budget_max={filters.max_budget}")
+        if filters.publication and filters.publication != "any": params.append(f"publication={filters.publication}")
+        if filters.language and filters.language != "any": params.append(f"language={filters.language}")
+        if filters.payment_verified: params.append("client_history=1")
+        if filters.skills:
+            for skill in filters.skills:
+                params.append(f"skills={skill}")
         
         # Filtro de propostas
         if filters.proposals:
@@ -131,10 +143,63 @@ class ProjectScraper:
         # Extração
         title = await self._get_text(page, WorkanaSelectors.DETAILS_TITLE)
         description = await self._get_text(page, WorkanaSelectors.DETAILS_DESCRIPTION)
+        if not description:
+            try:
+                from bs4 import BeautifulSoup
+                content = await page.content()
+                soup = BeautifulSoup(content, 'html.parser')
+                soup_desc = (
+                    soup.select_one(WorkanaSelectors.DETAILS_DESCRIPTION)
+                    or soup.find('div', class_='project-details')
+                    or soup.find('div', class_='job-details')
+                    or soup.find('div', class_='job-description')
+                    or soup.find('div', class_='description')
+                )
+                if soup_desc:
+                    description = soup_desc.get_text(separator='\n', strip=True)
+            except Exception:
+                pass
+
+        description = re.sub(r'\n{3,}', '\n\n', (description or '')).strip()
+
+        details = _extract_briefing_details(description)
+        category = details.get("category")
+        subcategory = details.get("subcategory")
+
         budget = await self._get_text(page, WorkanaSelectors.DETAILS_BUDGET)
-        
+        budget_min = None
+        budget_max = None
+        if budget:
+            if "USD" in budget.upper():
+                budget = await CurrencyService.convert_to_brl(budget)
+            budget_min, budget_max = CurrencyService.parse_budget_string(budget)
+
+        is_hourly = False
+        if budget and ("/ hora" in budget.lower() or "/hr" in budget.lower() or "/hour" in budget.lower()):
+            is_hourly = True
+
+        # Skills
+        skills: List[str] = []
+        try:
+            for s_el in await page.query_selector_all(WorkanaSelectors.DETAILS_SKILLS):
+                s_txt = (await s_el.text_content()).strip()
+                if s_txt and s_txt not in skills:
+                    skills.append(s_txt)
+        except Exception:
+            pass
+
         client_name = await self._get_text(page, WorkanaSelectors.DETAILS_CLIENT_NAME)
-        client_country = await self._get_text(page, WorkanaSelectors.DETAILS_CLIENT_COUNTRY)
+        country_el = await page.query_selector(WorkanaSelectors.DETAILS_CLIENT_COUNTRY)
+        client_country = None
+        if country_el:
+            c_txt = (await country_el.text_content()).strip()
+            if c_txt:
+                client_country = c_txt
+            else:
+                cls_attr = (await country_el.get_attribute("class")) or ""
+                for c in cls_attr.split():
+                    if c.startswith("flag-") and len(c) > 5:
+                        client_country = c[5:].upper()
         
         # Avaliação
         client_rating = None
@@ -143,13 +208,12 @@ class ProjectScraper:
             if stars_el:
                 title_attr = await stars_el.get_attribute("title")
                 if title_attr:
-                    import re
-                    match = re.search(r'([\d\.]+)', title_attr)
-                    if match: client_rating = float(match.group(1))
+                    client_rating = _parse_rating(title_attr)
                 else:
                     full_stars = await stars_el.query_selector_all(WorkanaSelectors.DETAILS_STARS)
                     client_rating = float(len(full_stars))
-        except: pass
+        except Exception:
+            pass
         
         # Stats Sidebar
         posted = None
@@ -157,47 +221,74 @@ class ProjectScraper:
         since = None
         try:
             sidebar = await page.inner_text(WorkanaSelectors.DETAILS_SIDEBAR)
-            import re
-            m_posted = re.search(r'(\d+)\s*Projetos publicados', sidebar, re.IGNORECASE)
-            if m_posted: posted = int(m_posted.group(1))
-            
-            m_paid = re.search(r'(\d+)\s*Projetos pagos', sidebar, re.IGNORECASE)
-            if m_paid: paid = int(m_paid.group(1))
-            
-            m_since = re.search(r'Membro desde:\s*(.*?)(?:\n|$)', sidebar, re.IGNORECASE)
-            if m_since: since = m_since.group(1).strip()
-        except: pass
+            posted, paid, since = _parse_client_history(sidebar)
+        except Exception:
+            pass
+
+        payment_el = await page.query_selector('[title*="Pagamento verificado"], [title*="verified"], .payment-verified, .verified-payment')
+        payment_verified = payment_el is not None
+
+        deadline = details.get("delivery_deadline") or details.get("duration")
 
         return Project(
             id=project_id,
             title=title or "Sem título",
             description=description or "",
             budget=budget,
+            budget_min=budget_min,
+            budget_max=budget_max,
+            project_type="hourly" if is_hourly else "fixed",
+            category=category,
+            subcategory=subcategory,
+            deadline=deadline,
+            details=details,
             client_name=client_name,
             client_country=client_country,
             client_rating=client_rating,
             client_projects_posted=posted,
             client_projects_paid=paid,
             client_member_since=since,
+            payment_verified=payment_verified,
             url=url,
-            skills=[]
+            skills=skills
         )
 
     async def _extract_project_from_card(self, card) -> Optional[Project]:
         try:
             title_el = await card.query_selector(WorkanaSelectors.CARD_TITLE)
             title = await title_el.text_content() if title_el else "Sem título"
+            title = title.strip() if title else ""
+
+            # Pegar título completo se disponível em span[title]
+            if title_el:
+                span_title_el = await title_el.query_selector('span[title]')
+                if span_title_el:
+                    full_title = await span_title_el.get_attribute("title")
+                    if full_title and full_title.strip():
+                        title = full_title.strip()
             
             ref = await title_el.get_attribute("href") if title_el else ""
             if ref and not ref.startswith("http"): ref = self.WORKANA_BASE_URL + ref
             
-            pid = ref.split("/")[-1] if ref else ""
+            pid = ref.split("/")[-1].split("?")[0] if ref else ""
             
             desc_el = await card.query_selector(WorkanaSelectors.CARD_DESCRIPTION)
             desc = await desc_el.text_content() if desc_el else ""
             
             budget_el = await card.query_selector(WorkanaSelectors.CARD_BUDGET)
             budget = await budget_el.text_content() if budget_el else None
+            budget_min = None
+            budget_max = None
+            if budget:
+                budget = budget.strip()
+                if "USD" in budget.upper():
+                    budget = await CurrencyService.convert_to_brl(budget)
+                budget_min, budget_max = CurrencyService.parse_budget_string(budget)
+
+            # Tipo de projeto
+            is_hourly = False
+            if budget and ("/ hora" in budget.lower() or "/hr" in budget.lower() or "/hour" in budget.lower()):
+                is_hourly = True
             
             # Skills
             skills = []
@@ -226,6 +317,8 @@ class ProjectScraper:
             # Data
             date_el = await card.query_selector(WorkanaSelectors.CARD_DATE)
             posted_at = await date_el.text_content() if date_el else None
+            if posted_at:
+                posted_at = posted_at.replace("Publicado:", "").strip()
             
             # Extração de país do card DOM
             country_el = await card.query_selector('.country-name a, .country-name')
@@ -239,12 +332,15 @@ class ProjectScraper:
 
             return Project(
                 id=pid,
-                title=title.strip(),
+                title=title,
                 description=desc.strip(),
-                budget=budget.strip() if budget else None,
+                budget=budget,
+                budget_min=budget_min,
+                budget_max=budget_max,
+                project_type="hourly" if is_hourly else "fixed",
                 skills=skills,
                 proposals_count=proposals,
-                posted_at=posted_at.strip() if posted_at else None,
+                posted_at=posted_at,
                 url=ref,
                 client_country=client_country,
                 payment_verified=payment_verified

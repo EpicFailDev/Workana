@@ -5,7 +5,7 @@ Este serviço coleta apenas dados públicos (sem login) para evitar violação d
 import httpx
 from bs4 import BeautifulSoup
 from typing import Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from loguru import logger
 import re
 import asyncio
@@ -140,7 +140,7 @@ class ProfileScraperService:
         cached_time = cls._cache[cache_key].get("cached_at")
         if not cached_time:
             return False
-        return datetime.utcnow() - cached_time < cls._cache_ttl
+        return datetime.now(timezone.utc) - cached_time < cls._cache_ttl
     
     @classmethod
     async def fetch_public_profile(cls, profile_url: str, force_refresh: bool = False) -> Dict[str, Any]:
@@ -199,7 +199,7 @@ class ProfileScraperService:
                     # Salvar no cache apenas sucessos
                     cls._cache[cache_key] = {
                         "data": metrics,
-                        "cached_at": datetime.utcnow()
+                        "cached_at": datetime.now(timezone.utc)
                     }
                     logger.info(f"Perfil coletado com sucesso: {metrics.get('display_name', 'Unknown')}")
                 return metrics
@@ -209,7 +209,7 @@ class ProfileScraperService:
             try:
                 metrics = await cls._fetch_with_playwright(profile_url)
                 if metrics.get("success", False):
-                    cls._cache[cache_key] = {"data": metrics, "cached_at": datetime.utcnow()}
+                    cls._cache[cache_key] = {"data": metrics, "cached_at": datetime.now(timezone.utc)}
                 return metrics
             except Exception as pe:
                 return {"error": f"HTTP {e.response.status_code} / Playwright: {str(pe)}", "success": False}
@@ -219,7 +219,7 @@ class ProfileScraperService:
             try:
                 metrics = await cls._fetch_with_playwright(profile_url)
                 if metrics.get("success", False):
-                    cls._cache[cache_key] = {"data": metrics, "cached_at": datetime.utcnow()}
+                    cls._cache[cache_key] = {"data": metrics, "cached_at": datetime.now(timezone.utc)}
                 return metrics
             except Exception as pe:
                 return {"error": f"Erro principal: {str(e)} / Playwright: {str(pe)}", "success": False}
@@ -247,7 +247,7 @@ class ProfileScraperService:
             "skills": [],
             "last_login": None,
             "profile_photo_url": None,
-            "scraped_at": datetime.utcnow().isoformat()
+            "scraped_at": datetime.now(timezone.utc).isoformat()
         }
         
         # Concorrência controlada
@@ -566,7 +566,7 @@ class ProfileScraperService:
             "hourly_rate": None,
             "skills": [],
             "last_login": None,
-            "scraped_at": datetime.utcnow().isoformat()
+            "scraped_at": datetime.now(timezone.utc).isoformat()
         }
         
         try:

@@ -1,23 +1,9 @@
 import { useState, useEffect } from "react";
 import styles from "./Settings.module.css";
-import { api } from "../services/api";
+import { api, type CredentialsStatus, type AutomationConfig } from "../services/api";
 import { useToast } from "../context/ToastContext";
 import Loader from "../components/Loader";
 import CyberHeader from "../components/CyberHeader";
-
-interface CredentialsStatus {
-    configured: boolean;
-    email: string | null;
-}
-
-interface AutomationConfig {
-    headless: boolean;
-    delay_between_actions_ms: number;
-    max_proposals_per_day: number;
-    auto_apply: boolean;
-    gemini_api_key?: string;
-    user_full_name?: string;
-}
 
 type SettingsTab = 'general' | 'workana' | 'automation' | 'danger';
 
@@ -34,6 +20,7 @@ export default function Settings() {
         delay_between_actions_ms: 2000,
         max_proposals_per_day: 10,
         auto_apply: false,
+        preferred_template_id: null,
         gemini_api_key: "",
         user_full_name: ""
     });
@@ -43,6 +30,13 @@ export default function Settings() {
     const [isSaving, setIsSaving] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [showApiKey, setShowApiKey] = useState(false);
+
+    // Login via Google / Import de sessão
+    const [isGoogleLogging, setIsGoogleLogging] = useState(false);
+    const [importMode, setImportMode] = useState(false);
+    const [sessionJson, setSessionJson] = useState("");
+    const [accountEmail, setAccountEmail] = useState("");
+    const [isImporting, setIsImporting] = useState(false);
 
     useEffect(() => {
         const loadSettings = async () => {
@@ -119,6 +113,87 @@ export default function Settings() {
             toast.error("Erro ao salvar configurações.");
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    const handleGoogleLogin = async () => {
+        setIsGoogleLogging(true);
+        try {
+            const response: any = await api.googleLogin();
+            if (response.success) {
+                toast.success(response.email ? `Conectado como ${response.email}` : "Login via Google concluído!");
+                await reloadCredentials();
+            } else {
+                toast.error(response.message || "Não foi possível abrir o login via Google.");
+                if (response.message && (response.message.includes("Docker") || response.message.includes("XServer") || response.message.includes("headless") || response.message.includes("Importar"))) {
+                    setImportMode(true);
+                }
+            }
+        } catch (error: any) {
+            toast.error(error.message || "Erro ao abrir o login via Google.");
+            setImportMode(true);
+        } finally {
+            setIsGoogleLogging(false);
+        }
+    };
+
+    const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const content = e.target?.result as string;
+            if (content) {
+                setSessionJson(content);
+                toast.info(`Arquivo "${file.name}" carregado! Clique em "Importar Sessão" para salvar.`);
+            }
+        };
+        reader.readAsText(file);
+    };
+
+    const handleImportSession = async () => {
+        if (!sessionJson.trim()) {
+            toast.error("Cole o JSON da sessão para importar.");
+            return;
+        }
+        setIsImporting(true);
+        try {
+            const response: any = await api.importSession(sessionJson.trim(), accountEmail.trim() || undefined);
+            if (response.success) {
+                toast.success(response.message || "Sessão importada!");
+                setSessionJson("");
+                setImportMode(false);
+                await reloadCredentials();
+            } else {
+                toast.error(response.message || "Erro ao importar a sessão.");
+            }
+        } catch (error: any) {
+            toast.error(error.message || "Erro ao importar a sessão.");
+        } finally {
+            setIsImporting(false);
+        }
+    };
+
+    const handleDisconnect = async () => {
+        try {
+            const response: any = await api.disconnectWorkana();
+            if (response.success) {
+                toast.success("Conexão com o Workana removida.");
+                await reloadCredentials();
+            } else {
+                toast.error(response.message || "Erro ao desconectar.");
+            }
+        } catch (error: any) {
+            toast.error(error.message || "Erro ao desconectar.");
+        }
+    };
+
+    const reloadCredentials = async () => {
+        try {
+            const status = await api.getCredentialsStatus();
+            setCredentials(status);
+        } catch (error) {
+            console.error("Failed to reload credentials:", error);
         }
     };
 
@@ -221,55 +296,32 @@ export default function Settings() {
                                 <div className="flex justify-between items-center mb-6">
                                     <h3 className="text-lg font-bold">Status da Conexão</h3>
                                     {credentials.configured ? (
-                                        <span className="badge badge-success">● Conectado como {credentials.email}</span>
+                                        <span className="badge badge-success">
+                                            ● Conectado{credentials.login_method === 'google' ? ' via Google' : ''} {credentials.email ? `como ${credentials.email}` : ''}
+                                        </span>
                                     ) : (
                                         <span className="badge badge-neutral">● Desconectado</span>
                                     )}
                                 </div>
 
-                                {!credentials.configured ? (
-                                    <div className="space-y-4">
-                                        <div className={styles.formGroup}>
-                                            <label className={styles.label}>Email</label>
-                                            <input 
-                                                type="email" 
-                                                className={styles.input}
-                                                placeholder="email@workana.com"
-                                                value={newCredentials.email}
-                                                onChange={e => setNewCredentials({...newCredentials, email: e.target.value})}
-                                            />
+                                {credentials.login_method === 'google' && credentials.session_ready ? (
+                                    <div className="text-center py-6">
+                                        <div className="mb-3 text-5xl">🔐</div>
+                                        <p className="mb-1">Sua sessão do navegador está salva e será usada para enviar propostas.</p>
+                                        <p className="text-xs text-muted mb-4">O worker restaura os cookies localmente — não precisa de senha.</p>
+                                        <div className="flex flex-wrap gap-3 justify-center">
+                                            <button className="btn btn-secondary" onClick={handleGoogleLogin} disabled={isGoogleLogging}>
+                                                {isGoogleLogging ? "Aguardando login no navegador..." : "Refazer Login Google"}
+                                            </button>
+                                            <button className="btn btn-secondary" onClick={() => setImportMode(!importMode)}>
+                                                Importar Sessão
+                                            </button>
+                                            <button className="btn btn-danger" onClick={handleDisconnect}>
+                                                Desconectar
+                                            </button>
                                         </div>
-                                        <div className={styles.formGroup}>
-                                            <label className={styles.label}>Senha</label>
-                                            <div className="relative">
-                                                <input 
-                                                    type={showPassword ? "text" : "password"} 
-                                                    className={styles.input}
-                                                    placeholder="••••••••"
-                                                    value={newCredentials.password}
-                                                    onChange={e => setNewCredentials({...newCredentials, password: e.target.value})}
-                                                />
-                                                <button 
-                                                    type="button"
-                                                    onClick={() => setShowPassword(!showPassword)}
-                                                    style={{ position: 'absolute', right: '12px', top: '12px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)' }}
-                                                >
-                                                    {showPassword ? "Ocultar" : "Mostrar"}
-                                                </button>
-                                            </div>
-                                        </div>
-                                        <button 
-                                            className="btn btn-primary w-full"
-                                            onClick={handleSaveCredentials}
-                                            disabled={!newCredentials.email || !newCredentials.password || isSaving}
-                                        >
-                                            {isSaving ? "Salvando..." : "Conectar Conta"}
-                                        </button>
-                                        <p className="text-xs text-muted mt-4 text-center">
-                                            Suas credenciais são criptografadas e salvas apenas no seu dispositivo.
-                                        </p>
                                     </div>
-                                ) : (
+                                ) : credentials.configured ? (
                                     <div className="text-center py-8">
                                         <div className="mb-4 text-6xl">🔒</div>
                                         <p className="mb-6">Sua conta está conectada e segura.</p>
@@ -279,6 +331,114 @@ export default function Settings() {
                                         >
                                             Desconectar / Alterar Conta
                                         </button>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-5">
+                                        <div style={{ padding: '16px', background: 'rgba(59, 130, 246, 0.05)', borderRadius: '8px', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
+                                            <h4 className="text-base font-bold text-primary mb-2 flex items-center gap-2">
+                                                <svg width="20" height="20" viewBox="0 0 24 24">
+                                                    <path fill="#EA4335" d="M12 5.04c1.62 0 3.06.56 4.2 1.65l3.1-3.1C17.4 1.67 14.9.68 12 .68 7.36.68 3.36 3.3 1.55 7.11l3.62 2.8C6 7.17 8.77 5.04 12 5.04z"/>
+                                                    <path fill="#4285F4" d="M23.32 12.28c0-.85-.08-1.48-.24-2.13H12v3.86h6.5c-.14.7-.84 1.74-2.42 2.44l3.54 2.74c2.11-1.95 3.7-4.82 3.7-6.91z"/>
+                                                    <path fill="#FBBC05" d="M5.17 14.09a6.7 6.7 0 0 1-.35-2.09c0-.72.13-1.42.34-2.09l-3.62-2.8C.62 8.88 0 10.37 0 12s.63 3.12 1.54 4.89l3.63-2.8z"/>
+                                                    <path fill="#34A853" d="M12 23.32c3.05 0 5.62-1 7.49-2.73l-3.54-2.74c-1.02.72-2.37 1.22-3.95 1.22-3.23 0-6-2.13-6.84-5.09l-3.63 2.8C3.36 20.7 7.36 23.32 12 23.32z"/>
+                                                </svg>
+                                                Login com Conta Google / Importar Sessão
+                                            </h4>
+                                            <p className="text-xs text-muted mb-3">
+                                                Como o sistema roda dentro do Docker, o navegador para o login com Google deve ser aberto no Windows pelo script <strong>LOGIN-WORKANA.bat</strong>:
+                                            </p>
+                                            <ol className="text-xs text-muted space-y-1 pl-4 mb-4" style={{ listStyleType: 'decimal' }}>
+                                                <li>Dê dois cliques no arquivo <strong><code>LOGIN-WORKANA.bat</code></strong> na pasta do projeto.</li>
+                                                <li>Faça o login com sua conta Google na janela do Chrome que abrir.</li>
+                                                <li>O script fechará o navegador e <strong>copiará a sessão para sua Área de Transferência</strong> automaticamente.</li>
+                                                <li>Volte aqui, cole (<code>Ctrl + V</code>) ou clique em <em>Carregar Arquivo</em> e salve.</li>
+                                            </ol>
+
+                                            <div className="flex justify-between items-center mb-2">
+                                                <label className={styles.label} style={{ margin: 0, fontWeight: 'bold' }}>
+                                                    JSON da Sessão / Cookies
+                                                </label>
+                                                <label className="btn btn-secondary text-xs" style={{ cursor: 'pointer', margin: 0, padding: '4px 8px' }}>
+                                                    📁 Carregar Arquivo (.json / .har)
+                                                    <input 
+                                                        type="file" 
+                                                        accept=".json,.har,.txt" 
+                                                        onChange={handleFileUpload} 
+                                                        style={{ display: 'none' }} 
+                                                    />
+                                                </label>
+                                            </div>
+
+                                            <textarea
+                                                className={styles.input}
+                                                rows={5}
+                                                style={{ fontFamily: 'monospace', fontSize: '11px' }}
+                                                placeholder='Cole aqui a sessão com Ctrl + V...'
+                                                value={sessionJson}
+                                                onChange={e => setSessionJson(e.target.value)}
+                                            />
+                                            <div className={styles.formGroup} style={{ marginTop: '8px' }}>
+                                                <label className={styles.label}>Email da conta Workana (opcional)</label>
+                                                <input
+                                                    type="email"
+                                                    className={styles.input}
+                                                    placeholder="seuemail@gmail.com"
+                                                    value={accountEmail}
+                                                    onChange={e => setAccountEmail(e.target.value)}
+                                                />
+                                            </div>
+                                            <button
+                                                className="btn btn-primary w-full mt-3"
+                                                onClick={handleImportSession}
+                                                disabled={isImporting || !sessionJson.trim()}
+                                            >
+                                                {isImporting ? "Importando..." : "Salvar e Conectar Sessão"}
+                                            </button>
+                                        </div>
+
+                                        <div className={styles.divider}>ou use email e senha</div>
+
+                                        <div className="space-y-4">
+                                            <div className={styles.formGroup}>
+                                                <label className={styles.label}>Email</label>
+                                                <input 
+                                                    type="email" 
+                                                    className={styles.input}
+                                                    placeholder="email@workana.com"
+                                                    value={newCredentials.email}
+                                                    onChange={e => setNewCredentials({...newCredentials, email: e.target.value})}
+                                                />
+                                            </div>
+                                            <div className={styles.formGroup}>
+                                                <label className={styles.label}>Senha</label>
+                                                <div className="relative">
+                                                    <input 
+                                                        type={showPassword ? "text" : "password"} 
+                                                        className={styles.input}
+                                                        placeholder="••••••••"
+                                                        value={newCredentials.password}
+                                                        onChange={e => setNewCredentials({...newCredentials, password: e.target.value})}
+                                                    />
+                                                    <button 
+                                                        type="button"
+                                                        onClick={() => setShowPassword(!showPassword)}
+                                                        style={{ position: 'absolute', right: '12px', top: '12px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)' }}
+                                                    >
+                                                        {showPassword ? "Ocultar" : "Mostrar"}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <button 
+                                                className="btn btn-primary w-full"
+                                                onClick={handleSaveCredentials}
+                                                disabled={!newCredentials.email || !newCredentials.password || isSaving}
+                                            >
+                                                {isSaving ? "Salvando..." : "Conectar Conta"}
+                                            </button>
+                                            <p className="text-xs text-muted mt-4 text-center">
+                                                Suas credenciais são criptografadas e salvas apenas no seu dispositivo.
+                                            </p>
+                                        </div>
                                     </div>
                                 )}
                             </div>

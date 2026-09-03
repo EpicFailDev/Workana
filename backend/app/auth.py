@@ -92,7 +92,9 @@ def get_current_user(authorization: Optional[str] = Header(default=None)) -> Use
             raise _unauthorized("Token inválido: subject não é um UUID.")
             
         from app.database.models import current_user_id
+        from app.observability import context as obs_ctx
         current_user_id.set(user_uuid)
+        obs_ctx.set_user_id(str(user_uuid))
             
         return {
             "user_id": user_uuid,

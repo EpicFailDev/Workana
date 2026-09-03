@@ -14,13 +14,9 @@ from app.config import settings
 # de forma que Uvicorn/SQLAlchemy já emitam pelo pipeline estruturado.
 from app.observability.logging_config import configure_logging
 from app.observability.middleware import RequestIDMiddleware
-from app.api.routers import projects, automation, dashboard, profile, export
+from app.api.routers import projects, automation, dashboard, profile, export, investment, workana_api
 from app.database.models import init_db
 
-
-# Configurar política de event loop para Windows (necessário para Playwright)
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 # Pipeline de logs estruturado (JSON em produção, console colorido em desenvolvimento).
 configure_logging()
@@ -79,6 +75,8 @@ app.include_router(projects.router, prefix="/api", tags=["Projects"])
 app.include_router(automation.router, prefix="/api", tags=["Automation"])
 app.include_router(dashboard.router, prefix="/api", tags=["Dashboard"])
 app.include_router(profile.router, prefix="/api", tags=["Profile"])
+app.include_router(investment.router, prefix="/api", tags=["Investment"])
+app.include_router(workana_api.router, prefix="/api", tags=["Workana API"])
 
 
 @app.get("/")

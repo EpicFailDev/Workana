@@ -1,5 +1,8 @@
+import warnings
 try:
-    import google.generativeai as genai
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=FutureWarning)
+        import google.generativeai as genai
     HAS_GENAI = True
 except ImportError:
     genai = None
@@ -8,8 +11,10 @@ except ImportError:
 from loguru import logger
 from app.config import settings
 import json
+import re
 
-from typing import Optional, Any, List, Dict
+from typing import Optional, Any, List, Dict, Literal
+from app.services.investment_breakdown import InvestmentBreakdownCalculator
 
 class ProposalAgent:
     def __init__(self):
@@ -17,9 +22,23 @@ class ProposalAgent:
         # Lazy loading or init check could be done here, but factory handles creation.
         self.model = None
 
-    async def generate_proposal(self, user_id: str, project_details: dict, template_id: Optional[Any] = None, blueprint: Optional[list] = None) -> dict:
+    async def generate_proposal(
+        self,
+        user_id: str,
+        project_details: dict,
+        template_id: Optional[Any] = None,
+        blueprint: Optional[list] = None,
+        price_level: Literal["budget", "standard", "premium"] = "standard"
+    ) -> dict:
         """
         Gera uma proposta irrecusável e um valor estipulado para o projeto.
+        
+        Args:
+            user_id: ID do usuário
+            project_details: Dados do projeto
+            template_id: ID ou referência do template
+            blueprint: Blueprint do template
+            price_level: Nível de preço (budget, standard, premium)
         """
         if not HAS_GENAI:
              return {
@@ -99,7 +118,9 @@ class ProposalAgent:
                 if blueprint:
                     blueprint_dicts = []
                     for b in blueprint:
-                        if hasattr(b, "dict"):
+                        if hasattr(b, "model_dump"):
+                            blueprint_dicts.append(b.model_dump())
+                        elif hasattr(b, "dict"):
                             blueprint_dicts.append(b.dict())
                         elif isinstance(b, dict):
                             blueprint_dicts.append(b)
@@ -124,7 +145,7 @@ class ProposalAgent:
 
         # Importar o builder
         from app.services.prompt_builder import ProposalPromptBuilder
-        user_name = config.get('user_full_name') or '[Seu Nome]'
+        user_name = config.get('user_full_name') or ''
         
         if blueprint:
             prompt = ProposalPromptBuilder.build_with_blueprint(
@@ -148,12 +169,54 @@ class ProposalAgent:
                 content = content.split("```")[1].split("```")[0].strip()
             
             result = json.loads(content)
+            
+            # Formatar preço sugerido limpo
+            raw_price = result.get("suggested_price")
+            suggested_price_str = None
+            suggested_price_numeric = None
+            if raw_price is not None:
+                if isinstance(raw_price, (int, float)):
+                    suggested_price_str = f"R$ {float(raw_price):.2f}".replace('.', ',')
+                    suggested_price_numeric = float(raw_price)
+                else:
+                    suggested_price_str = str(raw_price)
+                    # Try to extract numeric value from string
+                    price_clean = str(raw_price).replace('R$', '').replace('.', '').replace(',', '.').strip()
+                    match = re.search(r'[\d.]+', price_clean)
+                    if match:
+                        try:
+                            suggested_price_numeric = float(match.group())
+                        except ValueError:
+                            pass
+
+            # Extrair prazo sugerido em dias
+            raw_deadline = result.get("suggested_deadline_days")
+            deadline_days_val = None
+            if raw_deadline is not None:
+                try:
+                    deadline_days_val = int(raw_deadline)
+                except Exception:
+                    deadline_days_val = None
+
+            # Gerar breakdown dinâmico do investimento SEPARADAMENTE
+            proposal_text = result.get("proposal", "")
+            investment_breakdown = None
+            
+            if suggested_price_numeric and suggested_price_numeric > 0:
+                # Generate dynamic investment breakdown with price level
+                investment_breakdown = InvestmentBreakdownCalculator.get_breakdown_as_dict(
+                    suggested_price_numeric,
+                    price_level=price_level
+                )
+
             return {
                 "success": True,
-                "proposal": result.get("proposal"),
-                "suggested_price": result.get("suggested_price"),
+                "proposal": proposal_text,
+                "suggested_price": suggested_price_str,
+                "suggested_deadline_days": deadline_days_val,
                 "justification": result.get("justification"),
-                "template_id_used": template_id_used
+                "template_id_used": template_id_used,
+                "investment_breakdown": investment_breakdown
             }
         except Exception as e:
             logger.error(f"Erro ao gerar proposta com AI: {e}")

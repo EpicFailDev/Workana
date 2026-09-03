@@ -1,7 +1,7 @@
 """
 Configurações da aplicação usando Pydantic Settings.
 """
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator, model_validator
 from typing import Optional, List, Any
 import os
@@ -12,7 +12,18 @@ class Settings(BaseSettings):
     
     # CORS - URLs permitidas para requisições cross-origin
     cors_origins: Any = Field(
-        default=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8080", "http://127.0.0.1:8080", "http://localhost:5173", "http://127.0.0.1:5173"],
+        default=[
+            "http://localhost",
+            "http://localhost:80",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://workana.duckdns.org",
+            "https://workana.duckdns.org",
+        ],
         description="Origens permitidas para CORS (separadas por vírgula no .env)"
     )
     
@@ -85,6 +96,26 @@ class Settings(BaseSettings):
     captcha_provider: Optional[str] = Field(default=None, description="Provedor de captcha ('2captcha' ou 'anti-captcha')")
     captcha_api_key: Optional[str] = Field(default=None, description="Chave de API do provedor de captcha")
 
+    @field_validator("proxy_url", mode="before")
+    @classmethod
+    def validate_proxy_url(cls, v):
+        """Sanitiza proxy_url para ignorar placeholders ou valores vazios."""
+        if isinstance(v, str):
+            v = v.strip()
+            if not v or "usuario:senha" in v or "host_do_proxy" in v or "porta" in v:
+                return None
+        return v
+
+    @field_validator("captcha_api_key", mode="before")
+    @classmethod
+    def validate_captcha_key(cls, v):
+        """Sanitiza captcha_api_key para ignorar placeholders."""
+        if isinstance(v, str):
+            v = v.strip()
+            if not v or "sua_chave" in v or "exemplo" in v:
+                return None
+        return v
+
     # Observabilidade / Logging
     log_level: str = Field(default="INFO", description="Nível mínimo dos logs (DEBUG/INFO/WARNING/ERROR/CRITICAL)")
     log_format: str = Field(
@@ -115,11 +146,11 @@ class Settings(BaseSettings):
     scraping_timeout: int = Field(default=30000, description="Timeout para scraping em ms")
     max_retries: int = Field(default=3, description="Número máximo de tentativas de scraping")
     workana_conversion_rate: float = Field(default=5.0, description="Taxa de conversão USD/BRL usada internamente pelo Workana")
-    catalog_default_keywords: str = Field(
-        default="desenvolvimento software",
+    catalog_default_keywords: Optional[str] = Field(
+        default="",
         description="Busca ampla usada quando não existem filtros salvos",
     )
-    catalog_default_category: Optional[str] = Field(default=None)
+    catalog_default_category: Optional[str] = Field(default="it-programming")
     catalog_max_searches_per_cycle: int = Field(default=20, ge=1, le=100)
     catalog_max_projects_per_cycle: int = Field(default=500, ge=1, le=5000)
     catalog_pages_per_search: int = Field(default=3, ge=1, le=3)
@@ -127,11 +158,12 @@ class Settings(BaseSettings):
     catalog_search_retries: int = Field(default=2, ge=1, le=5)
 
     
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore"
+    )
 
 
 # Instância global das configurações

@@ -103,8 +103,15 @@ Para rodar os serviços nativamente de forma rápida durante o desenvolvimento:
 
 ## 🐳 Execução Local Completa com Docker
 
-Para simular o ambiente de produção completo em sua máquina local usando Docker Compose:
+### ⚡ No Windows (Painel Unificado)
+Basta dar dois cliques no arquivo **[`INICIAR.bat`](file:///C:/Users/Yumi/Documents/GitHub/Workana/INICIAR.bat)** na raiz do projeto. Ele abre um menu interativo completo para:
+- Iniciar / Parar containers Docker
+- Ver logs em tempo real
+- Fazer login no Workana e exportar cookies
+- Atualizar IP no Duck DNS
+- Configurar acesso local ao domínio (Hosts)
 
+### 🐧 No Linux / macOS / Terminal
 1. Suba todos os containers compilando as imagens:
    ```bash
    docker compose up --build -d
@@ -114,7 +121,7 @@ Para simular o ambiente de produção completo em sua máquina local usando Dock
    * `api` em rede interna (porta 8000)
    * `worker` rodando o scheduler e Playwright em rede interna
    * `caddy` exposto nas portas locais **80** e **443**
-3. Acesse `http://localhost` no seu navegador. O Caddy roteará as requisições `/api` para o container backend e servirá o frontend SPA estaticamente nos demais caminhos.
+3. Acesse `http://localhost` (ou o domínio configurado em `APP_DOMAIN`) no seu navegador.
 
 ---
 

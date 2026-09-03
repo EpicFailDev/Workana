@@ -165,6 +165,26 @@ class ProposalBatchProcessor:
                         suggested_price=suggested_price_str,
                     )
 
+                    # Persiste a proposta no histórico do usuário (como rascunho),
+                    # garantindo que fique salva e não precise ser gerada novamente.
+                    try:
+                        await crud.save_ai_proposal(
+                            user_id=user_id_str,
+                            project_id=item["workana_id"],
+                            project_title=cat_proj.get("title") or item.get("project_title") or f"Projeto {item['workana_id']}",
+                            project_url=cat_proj.get("url") or f"https://www.workana.com/job/{item['workana_id']}",
+                            proposal_text=message_text,
+                            suggested_price=suggested_price_str or "",
+                            template_id=batch.get("template_ref"),
+                            budget=budget_val,
+                            deadline_days=deadline_val,
+                            status="generated",
+                        )
+                    except Exception as history_error:
+                        logger.bind(event="batch.process.history_save_error").warning(
+                            f"Falha ao persistir proposta no histórico: {sanitize_exception(history_error)}"
+                        )
+
                 # 5. Envio da proposta via Playwright
                 await crud.update_batch_item_status(
                     item_id=item["id"],

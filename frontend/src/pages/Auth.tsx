@@ -30,7 +30,7 @@ export default function Auth() {
                 navigate('/');
             }
         } catch (err: any) {
-            console.error(err);
+            toast.error(err?.message || 'Falha na conexão com o servidor de autenticação.', 'Erro de Conexão');
             throw err;
         }
     };

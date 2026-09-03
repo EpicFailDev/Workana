@@ -1,25 +1,22 @@
 """
-Configuração central de logging (compartilhada pela API e pelo worker).
+Configuração central de logging enterprise (compartilhada pela API e pelo worker).
 
-Objetivos:
-- Pipeline único em stdout (Docker é a fonte local; sem arquivos de log).
-- Formato JSON estruturado em produção; console colorido/humano em desenvolvimento.
-- Captura do logging stdlib (Uvicorn, SQLAlchemy, warnings Python) no mesmo
-  pipeline via InterceptHandler, evitando timestamps/prefixos duplicados.
-- Campos estáveis por registro: timestamp(UTC), level, logger, event, message,
-  request_id, operation_id, environment.
-- Safety-net de privacidade: mascara padrões sensíveis (Bearer, bot tokens,
-  chaves longas, password=, api_key=) no texto renderizado, como defesa além
-  da redaction explícita feita nos call sites.
-- Filtra access logs bem-sucedidos de /health (mantém falhas/lentidão).
-
-Segurança: chamado por app.main e run_worker ANTES das demais importações de app.
+Padrão de Observabilidade (Big Tech & Senior Engineering):
+- Pipeline único em stdout (Twelve-Factor App: Docker/K8s é a fonte de logs).
+- Formato JSON estruturado em produção (compatível com Datadog, Grafana Loki, CloudWatch, OTel).
+- Formato de console limpo, colorido e dinâmico em desenvolvimento (sem tags [None] vazias).
+- Captura de logging stdlib (Uvicorn, SQLAlchemy, APScheduler, HTTPX, Warnings) via InterceptHandler.
+- Filtragem inteligente de ruído: health checks (2xx) e ticks vazios de agendadores são suprimidos.
+- Rastreamento contextual automático (service, request_id, operation_id, user_id, event).
+- Safety-net de privacidade: sanitização defensiva de tokens, senhas, chaves de API e URLs de banco.
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 import sys
+import traceback as tb_mod
 from typing import Any
 
 from loguru import logger
@@ -30,26 +27,26 @@ from app.observability import context
 _CONFIGURED = False
 
 # ---------------------------------------------------------------------------- #
-# Contexto: injeta request_id/operation_id no "extra" de cada registro.
+# Contexto: injeta campos canônicos no "extra" de cada registro Loguru.
 # ---------------------------------------------------------------------------- #
 
 
 def _context_patcher(record: "logger.Record") -> None:
     """Garante campos estáveis presentes mesmo quando ausentes no bind()."""
-    record["extra"].setdefault("request_id", context.get_request_id())
-    record["extra"].setdefault("operation_id", context.get_operation_id())
-    record["extra"].setdefault("event", None)
-    record["extra"].setdefault("environment", settings.environment)
-    # record["name"] já contém o módulo/linha; mantemos "logger" explícito.
-    record["extra"].setdefault("logger", record.get("name", ""))
+    extra = record["extra"]
+    extra.setdefault("service", context.get_service_name())
+    extra.setdefault("environment", settings.environment)
+    extra.setdefault("request_id", context.get_request_id())
+    extra.setdefault("operation_id", context.get_operation_id())
+    extra.setdefault("user_id", context.get_user_id())
+    extra.setdefault("event", None)
+    extra.setdefault("logger", record.get("name", ""))
 
 
 # ---------------------------------------------------------------------------- #
 # Safety-net de privacidade: máscara de padrões sensíveis no texto renderizado.
-# Esta é uma rede defensiva; a redaction explícita por call site vem primeiro.
 # ---------------------------------------------------------------------------- #
 
-# Padrões que podem aparecer acidentalmente em mensagens interpoladas.
 _SAFETY_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     # Authorization: Bearer <jwt>
     (re.compile(r"(?i)(Bearer\s+)[A-Za-z0-9._\-]+"), r"\1***"),
@@ -74,55 +71,70 @@ def _apply_safety_net(text: str) -> str:
     return out
 
 
-def _safety_filter(record: "logger.Record") -> bool:
-    """Filtro loguru: mascara a mensagem renderizada (campo 'message')."""
-    record["message"] = _apply_safety_net(record["message"])
+# ---------------------------------------------------------------------------- #
+# Filtro de ruído (Health checks bem-sucedidos e ticks vazios).
+# ---------------------------------------------------------------------------- #
+
+# Descarta GET /health e /ready com status 2xx emitidos por qualquer logger/framework
+_HEALTH_NOISE_RE = re.compile(r'GET\s+/(health|ready)\b.*?20[0-9]\b')
+
+
+def _log_filter(record: "logger.Record") -> bool:
+    """Filtra ruído desnecessário e aplica safety-net de privacidade."""
+    msg = record["message"]
+    
+    # 1. Suprimir health checks bem-sucedidos para manter o sinal limpo
+    if _HEALTH_NOISE_RE.search(msg):
+        return False
+    
+    # 2. Se for evento explícito de health check 2xx sem lentidão
+    if record["extra"].get("event") == "http.healthcheck.ok":
+        return False
+
+    # 3. Aplicar sanitização de privacidade
+    record["message"] = _apply_safety_net(msg)
     return True
 
 
 # ---------------------------------------------------------------------------- #
-# Serialização JSON.
+# Serialização JSON Estruturada (Padrão Enterprise / Datadog / Loki).
 # ---------------------------------------------------------------------------- #
 
 
 def _record_payload(record: "logger.Record") -> dict[str, Any]:
-    """Constrói o payload de campos a partir de um record loguru."""
+    """Constrói o payload JSON estruturado a partir de um record Loguru."""
+    extra = record["extra"]
     payload: dict[str, Any] = {
         "timestamp": record["time"].strftime("%Y-%m-%dT%H:%M:%S.") + f"{record['time'].microsecond:06d}Z",
         "level": record["level"].name,
-        "logger": record["extra"].get("logger") or record["name"],
-        "event": record["extra"].get("event"),
+        "service": extra.get("service") or "workana-app",
+        "environment": extra.get("environment") or settings.environment,
+        "logger": extra.get("logger") or record["name"],
         "message": record["message"],
-        "environment": record["extra"].get("environment"),
-        "request_id": record["extra"].get("request_id"),
-        "operation_id": record["extra"].get("operation_id"),
     }
-    # Exception/stack trace, se houver (logger.exception / .bind com error).
+    
+    if extra.get("event"):
+        payload["event"] = extra["event"]
+    if extra.get("request_id"):
+        payload["request_id"] = extra["request_id"]
+    if extra.get("operation_id"):
+        payload["operation_id"] = extra["operation_id"]
+    if extra.get("user_id"):
+        payload["user_id"] = extra["user_id"]
+
+    # Extrair contexto adicional estruturado customizado (excluindo chaves canônicas)
+    reserved = {"service", "environment", "logger", "event", "request_id", "operation_id", "user_id"}
+    custom_context = {k: v for k, v in extra.items() if k not in reserved and v is not None}
+    if custom_context:
+        payload["context"] = custom_context
+
     if record["exception"]:
         payload["exception"] = _format_exception(record["exception"])
+
     return payload
 
 
-def _json_sink(message: "logger.Message") -> None:
-    """Sink loguru que escreve uma linha JSON por registro.
-
-    Recebe um `Message` loguru; acessamos o record embutido para extrair os
-    campos e serializá-los nós mesmos (não passamos por str.format, evitando
-    que as chaves do JSON sejam interpretadas como placeholders).
-    """
-    record = message.record
-    payload = _record_payload(record)
-    sys.stdout.write(_dumps(payload) + "\n")
-    try:
-        sys.stdout.flush()
-    except Exception:
-        pass
-
-
 def _format_exception(exc) -> str:
-    # loguru passa um record["exception"] do tipo ExceptionInfo; usamos o traceback formatado.
-    import traceback as tb_mod
-
     try:
         return "".join(tb_mod.format_exception(exc.type, exc.value, exc.traceback))
     except Exception:
@@ -130,9 +142,6 @@ def _format_exception(exc) -> str:
 
 
 def _dumps(payload: dict[str, Any]) -> str:
-    # JSON compacto sem depender de biblioteca externa; controla o encoding.
-    import json
-
     def _default(o: Any) -> Any:
         try:
             return str(o)
@@ -142,33 +151,68 @@ def _dumps(payload: dict[str, Any]) -> str:
     return json.dumps(payload, default=_default, ensure_ascii=False)
 
 
-# Formato humano/colorido para desenvolvimento.
-_CONSOLE_FORMAT = (
-    "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-    "<level>{level: <8}</level> | "
-    "<cyan>{extra[logger]}</cyan> "
-    "[<magenta>{extra[request_id]}</magenta>] "
-    "<level>{message}</level>"
-)
+def _json_sink(message: "logger.Message") -> None:
+    """Sink Loguru que emite uma linha JSON válida por registro."""
+    record = message.record
+    payload = _record_payload(record)
+    sys.stdout.write(_dumps(payload) + "\n")
+    try:
+        sys.stdout.flush()
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------- #
-# Interceptador do logging stdlib -> loguru (Uvicorn, SQLAlchemy, warnings).
+# Formatação de Console Dinâmica e Colorida para Desenvolvimento.
+# ---------------------------------------------------------------------------- #
+
+
+def _console_formatter(record: "logger.Record") -> str:
+    """Gera formato de console elegante sem tags [None] vazias."""
+    extra = record["extra"]
+    service = extra.get("service") or "app"
+    req_id = extra.get("request_id")
+    op_id = extra.get("operation_id")
+    user_id = extra.get("user_id")
+    event = extra.get("event")
+
+    tags = [f"<cyan>{service}</cyan>"]
+    if req_id:
+        tags.append(f"<magenta>req:{req_id[:8]}</magenta>")
+    if op_id:
+        tags.append(f"<blue>op:{op_id}</blue>")
+    if user_id:
+        tags.append(f"<yellow>u:{user_id[:8]}</yellow>")
+    if event:
+        tags.append(f"<green>[{event}]</green>")
+
+    tag_header = " ".join(tags)
+    return (
+        "<dim>{time:YYYY-MM-DD HH:mm:ss.SSS}</dim> | "
+        "<level>{level: <8}</level> | "
+        f"{tag_header} - <level>{{message}}</level>\n{{exception}}"
+    )
+
+
+# ---------------------------------------------------------------------------- #
+# Interceptador do logging stdlib -> Loguru (Uvicorn, SQLAlchemy, APScheduler).
 # ---------------------------------------------------------------------------- #
 
 
 class InterceptHandler(logging.Handler):
-    """Encaminha registros do logging stdlib ao pipeline loguru (mesmo formato)."""
+    """Encaminha registros do logging stdlib ao pipeline unificado do Loguru."""
 
     def emit(self, record: logging.LogRecord) -> None:  # noqa: D401
         try:
             level = logger.level(record.levelname).name
         except ValueError:
             level = record.levelno
+
         frame, depth = logging.currentframe(), 2
         while frame and frame.f_code.co_filename == logging.__file__:
             frame = frame.f_back
             depth += 1
+
         logger.opt(depth=depth, exception=record.exc_info).log(
             level, record.getMessage()
         )
@@ -187,41 +231,21 @@ _LOGGERS_TO_INTERCEPT = (
 
 
 def _intercept_stdlib() -> None:
-    """Faz com que os loggers stdlib relevantes emitam pelo pipeline loguru."""
+    """Configura interceptação unificada e silencia bibliotecas ruidosas."""
     logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
     for name in _LOGGERS_TO_INTERCEPT:
         logging.getLogger(name).handlers = [InterceptHandler()]
         logging.getLogger(name).propagate = False
 
-
-# ---------------------------------------------------------------------------- #
-# Filtro de access log do /health.
-# ---------------------------------------------------------------------------- #
-
-
-class _AccessLogFilter(logging.Filter):
-    """Descarta GET /health bem-sucedido (2xx) do access log do Uvicorn;
-    mantém falhas e lentidão do endpoint."""
-
-    _HEALTH_RE = re.compile(r'GET\s+(/health)\b')
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        msg = record.getMessage()
-        if not self._HEALTH_RE.search(msg):
-            return True
-        # Uvicorn access: '... "GET /health HTTP/1.1" 200 ...'
-        m = re.search(r'"\s*\d{3}\s+', msg)
-        if not m:
-            return True
-        status_match = re.search(r'"\s*(\d{3})', msg)
-        if status_match:
-            status = int(status_match.group(1))
-            return not (200 <= status < 300)
-        return True
-
-
-def _apply_access_filter() -> None:
-    logging.getLogger("uvicorn.access").addFilter(_AccessLogFilter())
+    # Reduz ruído de loggers internos de bibliotecas que disparam a cada poucos segundos
+    logging.getLogger("apscheduler").setLevel(logging.WARNING)
+    logging.getLogger("apscheduler.scheduler").setLevel(logging.WARNING)
+    logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
+    logging.getLogger("apscheduler.executors.base_py3").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.protocols.http.httptools_impl").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.protocols.http.h11_impl").setLevel(logging.WARNING)
 
 
 # ---------------------------------------------------------------------------- #
@@ -230,13 +254,12 @@ def _apply_access_filter() -> None:
 
 
 def configure_logging() -> None:
-    """Configura o pipeline de logs (idempotente). Chamar no início de app.main e run_worker."""
+    """Configura o pipeline de logs unificado (idempotente)."""
     global _CONFIGURED
     if _CONFIGURED:
         return
 
     log_level = (settings.log_level or "INFO").upper()
-    # Em desenvolvimento (DEBUG=true), usa console colorido a menos que LOG_FORMAT=json explicitamente.
     explicit_console = (settings.log_format or "").lower() == "console"
     use_console = explicit_console or settings.debug
 
@@ -245,15 +268,14 @@ def configure_logging() -> None:
 
     sink_kwargs = {
         "level": log_level,
-        "filter": _safety_filter,
+        "filter": _log_filter,
     }
+
     if use_console:
-        logger.add(sys.stdout, format=_CONSOLE_FORMAT, **sink_kwargs)
+        logger.add(sys.stdout, format=_console_formatter, **sink_kwargs)
     else:
-        # JSON estruturado: sink próprio que serializa cada registro diretamente.
+        # JSON estruturado para produção
         logger.add(_json_sink, **sink_kwargs)
 
     _intercept_stdlib()
-    _apply_access_filter()
-
     _CONFIGURED = True

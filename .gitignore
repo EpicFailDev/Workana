@@ -17,6 +17,9 @@ Thumbs.db
 logs/
 *.log
 
+# Sessão exportada do Workana (contém cookies autenticados — nunca commitar)
+workana_storage_state.json
+
 # IDE
 .vscode/
 .idea/

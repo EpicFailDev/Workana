@@ -104,7 +104,10 @@ async def test_search_catalog_returns_callers_overlay(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_catalog_upsert_uses_workana_id_conflict(monkeypatch):
+    mock_res = MagicMock()
+    mock_res.first.return_value = None
     session = AsyncMock()
+    session.execute.return_value = mock_res
 
     class SessionContext:
         async def __aenter__(self):
@@ -335,12 +338,12 @@ async def test_catalog_cycle_uses_anonymous_fallback_and_restores_context(monkey
         url="https://www.workana.com/job/project-slug",
     )
     scrape = AsyncMock(return_value=[project])
-    upsert = AsyncMock()
+    upsert = AsyncMock(return_value=1)
     lifecycle = AsyncMock(return_value={"gone": 0, "closed": 0})
 
     monkeypatch.setattr("app.services.scheduler.async_session", SessionContext)
     monkeypatch.setattr("app.services.scheduler.crud.get_distinct_saved_filter_queries", AsyncMock(return_value=[]))
-    monkeypatch.setattr("app.services.scheduler.crud.upsert_catalog_row", upsert)
+    monkeypatch.setattr("app.services.scheduler.crud.upsert_catalog_rows_batch", upsert)
     monkeypatch.setattr("app.services.scheduler.crud.mark_gone_catalog_projects", lifecycle)
     monkeypatch.setattr("app.services.scheduler.automation.search_projects", scrape)
     monkeypatch.setattr("app.services.scheduler.asyncio.sleep", AsyncMock())
@@ -391,3 +394,56 @@ async def test_catalog_cycle_does_not_mark_gone_after_query_failure(monkeypatch)
 
     assert result["errors"] == 1
     lifecycle.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_mark_gone_catalog_projects_safety_threshold(monkeypatch):
+    """Testa se a proteção aborta marcação de gone se o volume visto for muito baixo."""
+    count_result = MagicMock()
+    count_result.scalar.return_value = 100  # 100 projetos ativos no catálogo
+    session = AsyncMock()
+    session.execute.return_value = count_result
+
+    class SessionContext:
+        async def __aenter__(self):
+            return session
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+    monkeypatch.setattr("app.database.crud.async_session", SessionContext)
+
+    # Apenas 5 projetos vistos de 100 ativos (< 25%) -> deve ativar proteção
+    res = await crud.mark_gone_catalog_projects(["id-1", "id-2", "id-3", "id-4", "id-5"])
+    assert res == {"gone": 0, "closed": 0}
+
+
+@pytest.mark.asyncio
+async def test_restore_gone_catalog_projects(monkeypatch):
+    """Testa a função de restauração de projetos marcados como gone."""
+    update_result = MagicMock()
+    update_result.rowcount = 348
+    session = AsyncMock()
+    session.execute.return_value = update_result
+
+    class SessionContext:
+        async def __aenter__(self):
+            return session
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+    monkeypatch.setattr("app.database.crud.async_session", SessionContext)
+
+    restored = await crud.restore_gone_catalog_projects()
+    assert restored == 348
+
+
+def test_restore_gone_endpoint(client):
+    """Testa o endpoint /api/automation/catalog/restore-gone."""
+    with patch("app.api.routers.automation.crud.restore_gone_catalog_projects", AsyncMock(return_value=348)) as restore_mock:
+        response = client.post("/api/automation/catalog/restore-gone")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["restored"] == 348
+        restore_mock.assert_awaited_once()
+

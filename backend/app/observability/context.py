@@ -24,6 +24,16 @@ operation_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar
     "operation_id", default=None
 )
 
+# ID do usuário autenticado no contexto atual.
+user_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "user_id", default=None
+)
+
+# Nome do serviço / container (ex: workana-api, workana-worker).
+service_name_var: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "service_name", default="workana-app"
+)
+
 _HEX = "0123456789abcdef"
 
 
@@ -60,6 +70,22 @@ def get_operation_id() -> Optional[str]:
     return operation_id_var.get()
 
 
+def get_user_id() -> Optional[str]:
+    return user_id_var.get()
+
+
+def set_user_id(user_id: Optional[str]) -> contextvars.Token:
+    return user_id_var.set(str(user_id) if user_id else None)
+
+
+def get_service_name() -> str:
+    return service_name_var.get()
+
+
+def set_service_name(service_name: str) -> contextvars.Token:
+    return service_name_var.set(service_name)
+
+
 def new_operation_id() -> str:
     """Gera um novo operation_id curto (12 chars hex) para correlação de operações de fundo."""
     return uuid.uuid4().hex[:12]
@@ -79,3 +105,14 @@ def bind_operation_id(operation_id: Optional[str] = None) -> Iterator[str]:
         yield op_id
     finally:
         operation_id_var.reset(token)
+
+
+@contextmanager
+def bind_user_id(user_id: Optional[str]) -> Iterator[Optional[str]]:
+    """Define temporariamente um user_id no contexto atual."""
+    token = user_id_var.set(str(user_id) if user_id else None)
+    try:
+        yield user_id
+    finally:
+        user_id_var.reset(token)
+

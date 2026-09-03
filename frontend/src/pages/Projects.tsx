@@ -1,12 +1,31 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, type AnalysisResult, type CatalogProject, type ProposalBatch, type ProposalBatchItem, type ProposalBatchCreate, type BidsHistoryResponse } from "../services/api";
+import {
+    api,
+    type AnalysisResult,
+    type ProposalBatch,
+    type BidsHistoryResponse,
+    type ProposalTemplate,
+    type ProposalBatchCreate,
+    type ProposalVersion,
+} from "../services/api";
+import { SCRAPING_PAGES_OPTIONS } from "../constants/options";
 import styles from "./Projects.module.css";
 import Loader from "../components/Loader";
 import { useToast } from "../context/ToastContext";
-import Skeleton from "../components/Skeleton";
-import ProjectSkeleton, { ProjectSkeletonList } from "../components/ProjectSkeleton";
 import CyberHeader from "../components/CyberHeader";
+import {
+    ProjectCard,
+    ProjectFiltersBar,
+    ProjectDetailModal,
+    ProposalModal,
+    BatchCreateModal,
+    BidsHistoryModal,
+    SaveFilterModal,
+    QueueDrawerModal,
+    type SearchFilters,
+    type BatchReviewItem,
+} from "../components/projects";
 
 interface Project {
     id: string;
@@ -47,39 +66,13 @@ interface Project {
     analyzed_at?: string | null;
 }
 
-interface SearchFilters {
-    keywords: string;
-    category: string;
-    min_budget: string;
-    max_budget: string;
-    project_type: string;
-    sort: string;
-    publication: string;
-    language: string;
-    proposals: string;
-    payment_verified: boolean;
-    pages_to_fetch: number;
-    favorites_only: boolean;
-    hidden_only: boolean;
-}
-
-const categories = [
-    { value: "", label: "Todas as categorias" },
-    { value: "it-programming", label: "TI & Programação" },
-    { value: "design-multimedia", label: "Design & Multimídia" },
-    { value: "writing-translation", label: "Escrita & Tradução" },
-    { value: "marketing-sales", label: "Marketing & Vendas" },
-    { value: "admin-support", label: "Administrativo & Suporte" },
-    { value: "finance-legal", label: "Finanças & Jurídico" },
-    { value: "engineering", label: "Engenharia & Arquitetura" },
-];
+const CATALOG_PAGE_SIZE = 24;
 
 export default function Projects() {
     const { toast } = useToast();
     const [searchParams] = useSearchParams();
 
-    // --- Persistence Logic Start ---
-    const STORAGE_KEY = "workana_projects_cache_v3";
+    const STORAGE_KEY = "workana_projects_cache_v4";
 
     const loadStateFromStorage = () => {
         try {
@@ -94,33 +87,35 @@ export default function Projects() {
     const savedState = loadStateFromStorage();
     const hasUrlParams = Array.from(searchParams.keys()).length > 0;
 
-    // Se temos params na URL, eles tem prioridade sobre o cache.
-    // Se não temos params, tentamos usar o cache, senão default.
+    const rawPages = Number(searchParams.get("pages_to_fetch") || searchParams.get("pages") || (savedState?.filters?.pages_to_fetch)) || 10;
+    const validPagesList = SCRAPING_PAGES_OPTIONS.map(o => o.value);
+    const initialPagesToFetch = validPagesList.includes(rawPages) ? rawPages : 10;
 
-    const initialFilters = (hasUrlParams || !savedState) ? {
-        keywords: searchParams.get("keywords") || "",
-        category: searchParams.get("category") || "",
-        min_budget: searchParams.get("min_budget") || "",
-        max_budget: searchParams.get("max_budget") || "",
-        project_type: searchParams.get("project_type") || "any",
-        sort: searchParams.get("sort") || "created_at_desc",
-        publication: searchParams.get("publication") || "any",
-        language: searchParams.get("language") || "any",
-        proposals: searchParams.get("proposals") || "any",
-        payment_verified: searchParams.get("payment_verified") === "true",
-        pages_to_fetch: Number(searchParams.get("limit")) || 24,
-        favorites_only: searchParams.get("favorites_only") === "true",
-        hidden_only: searchParams.get("hidden_only") === "true",
-    } : savedState.filters;
+    const initialFilters: SearchFilters = (hasUrlParams || !savedState)
+        ? {
+              keywords: searchParams.get("keywords") || "",
+              category: searchParams.get("category") || "",
+              min_budget: searchParams.get("min_budget") || "",
+              max_budget: searchParams.get("max_budget") || "",
+              project_type: searchParams.get("project_type") || "any",
+              sort: searchParams.get("sort") || "created_at_desc",
+              publication: searchParams.get("publication") || "any",
+              language: searchParams.get("language") || "any",
+              proposals: searchParams.get("proposals") || "any",
+              payment_verified: searchParams.get("payment_verified") === "true",
+              pages_to_fetch: initialPagesToFetch,
+              favorites_only: searchParams.get("favorites_only") === "true",
+              hidden_only: searchParams.get("hidden_only") === "true",
+          }
+        : {
+              ...savedState.filters,
+              pages_to_fetch: initialPagesToFetch,
+          };
 
     const [filters, setFilters] = useState<SearchFilters>(initialFilters);
-
-    // Initial project state only from cache if no new URL params forced a refresh logic implicitly
-    // Mas na verdade, se tem URL params, o useEffect vai disparar o search de qualquer jeito.
     const [projects, setProjects] = useState<Project[]>((!hasUrlParams && savedState) ? savedState.projects : []);
-    
-    // Recovery of other states
     const [isSearching, setIsSearching] = useState(false);
+    const [isSyncing, setIsSyncing] = useState(false);
     const [hasSearched, setHasSearched] = useState((!hasUrlParams && savedState) ? savedState.hasSearched : false);
     const [page, setPage] = useState((!hasUrlParams && savedState) ? savedState.page : 1);
     const [total, setTotal] = useState((!hasUrlParams && savedState) ? (savedState.total || 0) : 0);
@@ -131,45 +126,216 @@ export default function Projects() {
     const activeFilterSignature = useRef<string | null>(null);
     const knownProjects = useRef<Map<string, Project>>(new Map());
 
-    // Save state effect
-    useEffect(() => {
-        // Só salva se já tiver feito uma busca ou tiver filtros não vazios relevantes, 
-        // pra não sujar o cache com estado inicial vazio sem querer.
-        if (hasSearched || projects.length > 0) {
-            const stateToSave = {
-                filters,
-                projects,
-                hasSearched,
-                page,
-                total,
-            };
-            sessionStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
-        }
-    }, [filters, projects, hasSearched, page, total]);
-    // --- Persistence Logic End ---
-
-    // Estado para salvar filtro
+    const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+    const [showAdvanced, setShowAdvanced] = useState(false);
     const [showSaveModal, setShowSaveModal] = useState(false);
-    const [newFilterName, setNewFilterName] = useState("");
-    const [isSavingFilter, setIsSavingFilter] = useState(false);
 
-    // Estado do modal de histórico de bids (evolução de propostas)
+    // Modal de Histórico de Propostas (Bids)
     const [bidsProject, setBidsProject] = useState<Project | null>(null);
     const [bidsData, setBidsData] = useState<BidsHistoryResponse | null>(null);
     const [bidsLoading, setBidsLoading] = useState(false);
 
-    const CONTRACT_LABELS: Record<string, string> = {
-        project_fixed: "Projeto fixo",
-        hourly: "Por hora",
-        staff_augmentation: "Staff augmentation",
+    // Modal de IA Proposta
+    const [showAiModal, setShowAiModal] = useState(false);
+    const [aiProposal, setAiProposal] = useState<{
+        id?: number;
+        proposal?: string;
+        suggested_price?: string;
+        justification?: string;
+        status?: string;
+        sent_at?: string;
+        is_cached?: boolean;
+        investment_breakdown?: any;
+        template_id?: any;
+        template_slug?: string;
+    } | null>(null);
+    const [proposalVersions, setProposalVersions] = useState<ProposalVersion[]>([]);
+    const [activeVersionId, setActiveVersionId] = useState<number | null>(null);
+    const [isGeneratingAi, setIsGeneratingAi] = useState(false);
+    const [aiError, setAiError] = useState<string | null>(null);
+    const [modalBudget, setModalBudget] = useState<string>("");
+    const [modalDeadline, setModalDeadline] = useState<string>("7");
+    const [currentGeneratingProjectId, setCurrentGeneratingProjectId] = useState<string | null>(null);
+    const [isSubmittingProposal, setIsSubmittingProposal] = useState(false);
+
+    // Templates
+    const [templates, setTemplates] = useState<ProposalTemplate[]>([]);
+    const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+    
+    // Nível de Preço (budget, standard, premium)
+    const [priceLevel, setPriceLevel] = useState<"budget" | "standard" | "premium">("standard");
+
+    // Modal de Envio em Lote (Batches)
+    const [showBatchModal, setShowBatchModal] = useState(false);
+    const [batchItems, setBatchItems] = useState<BatchReviewItem[]>([]);
+    const [batchTemplateRef, setBatchTemplateRef] = useState<string | null>(null);
+    const [isBatchGenerating, setIsBatchGenerating] = useState(false);
+    const [isSubmittingBatch, setIsSubmittingBatch] = useState(false);
+
+    // Drawer de Monitoramento de Lotes/Fila
+    const [showQueueDrawer, setShowQueueDrawer] = useState(false);
+    const [batches, setBatches] = useState<ProposalBatch[]>([]);
+    const [isLoadingBatches, setIsLoadingBatches] = useState(false);
+    const [selectedBatchDetail, setSelectedBatchDetail] = useState<ProposalBatch | null>(null);
+
+    useEffect(() => {
+        if (hasSearched || projects.length > 0) {
+            const stateToSave = { filters, projects, hasSearched, page, total };
+            sessionStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+        }
+    }, [filters, projects, hasSearched, page, total]);
+
+    // Carregar templates disponíveis
+    useEffect(() => {
+        const loadTemplates = async () => {
+            try {
+                const res = await api.getTemplates();
+                setTemplates(res);
+                const savedTemplate = sessionStorage.getItem("preferred_generation_template_id");
+                if (savedTemplate) {
+                    setSelectedTemplateId(savedTemplate);
+                } else {
+                    const defaultTemp = res.find((t) => t.is_default);
+                    if (defaultTemp) setSelectedTemplateId(defaultTemp.template_ref || String(defaultTemp.id));
+                }
+            } catch (err) {
+                console.error("Erro ao carregar templates", err);
+            }
+        };
+        loadTemplates();
+    }, []);
+
+    // Conversão de filtros para chamada de API
+    const toCatalogFilters = (f: SearchFilters) => ({
+        q: f.keywords.trim() || undefined,
+        category: f.category || undefined,
+        min_budget: f.min_budget ? Number(f.min_budget) : undefined,
+        max_budget: f.max_budget ? Number(f.max_budget) : undefined,
+        payment_verified: f.payment_verified ? true : undefined,
+        favorites_only: f.favorites_only ? true : undefined,
+        hidden_only: f.hidden_only ? true : undefined,
+    });
+
+    // Execução da busca
+    const executeSearch = async (targetPage = 1, forceReset = false, customFilters?: SearchFilters) => {
+        const activeFilters = customFilters || filters;
+        const signature = JSON.stringify({ ...activeFilters, targetPage });
+        if (activeFilterSignature.current === signature && !forceReset) return;
+        activeFilterSignature.current = signature;
+
+        setIsSearching(true);
+        try {
+            const catalogFilters = toCatalogFilters(activeFilters);
+            const res = await api.getCatalogProjects({
+                ...catalogFilters,
+                page: targetPage,
+                limit: activeFilters.pages_to_fetch,
+                sort: activeFilters.sort,
+            });
+
+            const mapped: Project[] = (res.projects || []).map((p) => ({
+                id: p.workana_id,
+                title: p.title,
+                description: p.description || "",
+                budget: p.budget_min && p.budget_max ? `R$ ${p.budget_min} - ${p.budget_max}` : (p.budget_min ? `R$ ${p.budget_min}` : null),
+                budget_min: p.budget_min,
+                budget_max: p.budget_max,
+                project_type: p.budget_type,
+                category: p.category,
+                subcategory: p.subcategory,
+                deadline: p.deadline,
+                details: (p.details as Record<string, string>) || {},
+                skills: p.skills || [],
+                client_name: p.client_name,
+                client_country: p.client_country,
+                client_rating: p.client_rating,
+                client_plan: p.client_plan,
+                client_projects_posted: p.client_projects_posted,
+                client_projects_paid: p.client_projects_paid,
+                client_member_since: p.client_member_since,
+                proposals_count: p.proposals_count ?? 0,
+                posted_at: p.posted_at || p.published_at || null,
+                published_at: p.published_at,
+                payment_verified: p.payment_verified,
+                last_client_activity: p.last_client_activity,
+                is_urgent: p.is_urgent,
+                is_featured: p.is_featured,
+                estimated_published_at: p.estimated_published_at,
+                proposals_delta: p.proposals_delta,
+                contract_type: p.contract_type,
+                url: p.url,
+                is_favorite: p.is_favorite,
+                is_hidden: p.is_hidden,
+                notes: p.notes,
+                analysis: p.analysis as AnalysisResult | null,
+                analyzed_at: p.analyzed_at,
+            }));
+
+            mapped.forEach((p) => knownProjects.current.set(p.id, p));
+            setProjects(mapped);
+            setTotal(res.total || 0);
+            setPage(targetPage);
+            setHasSearched(true);
+        } catch (err: any) {
+            toast.error(err?.message || "Erro ao buscar projetos.");
+        } finally {
+            setIsSearching(false);
+        }
     };
 
-    const formatDelta = (delta: number | null | undefined) => {
-        if (delta === null || delta === undefined || delta === 0) return null;
-        return delta > 0 ? `+${delta}` : `${delta}`;
+    useEffect(() => {
+        if (!hasSearched) {
+            executeSearch(1, true);
+        }
+    }, []);
+
+    const calculateMatch = (project: Project): number => {
+        if (project.analysis?.score) return Math.round(project.analysis.score);
+        let score = 50;
+        if (project.payment_verified) score += 15;
+        if (project.client_rating && project.client_rating >= 4.5) score += 15;
+        if (project.proposals_count !== null && project.proposals_count < 5) score += 10;
+        if (project.skills.length > 0) score += 10;
+        return Math.min(100, score);
     };
 
-    const openBidsHistory = async (project: Project) => {
+    const handleSelectProject = (project: any) => {
+        setSelectedProject(project);
+    };
+
+    const toggleProjectSelection = (projectId: string) => {
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(projectId)) next.delete(projectId);
+            else next.add(projectId);
+            return next;
+        });
+    };
+
+    const isProjectSelected = (projectId: string) => {
+        if (selectAllFiltered) return !excludedIds.has(projectId);
+        return selectedIds.has(projectId);
+    };
+
+    const selectedCount = selectAllFiltered
+        ? Math.max(0, total - excludedIds.size)
+        : selectedIds.size;
+
+    const clearSelection = () => {
+        setSelectedIds(new Set());
+        setSelectAllFiltered(false);
+        setExcludedIds(new Set());
+    };
+
+    const selectEveryFilteredProject = () => {
+        setSelectAllFiltered(true);
+        setExcludedIds(new Set());
+        setSelectedIds(new Set());
+        toast.info(`Todos os ${total} projetos do filtro selecionados.`);
+    };
+
+    // Histórico de Bids Modal
+    const openBidsHistory = async (project: any) => {
         setBidsProject(project);
         setBidsData(null);
         setBidsLoading(true);
@@ -183,363 +349,215 @@ export default function Projects() {
         }
     };
 
-    // Efeito para buscar automaticamente se houver filtros na URL
-    useEffect(() => {
-        const hasParams = Array.from(searchParams.keys()).length > 0;
-        if ((hasParams || !savedState) && !hasSearched) {
-            executeSearch(1, false);
-        }
-    }, [searchParams]);
+    // Geração e Gestão de Proposta IA
+    const [isSavingDraft, setIsSavingDraft] = useState(false);
 
-    // const PAGES_PER_BATCH = 10; // Removido em favor do filtro dinâmico
+    const handleOpenProposalModal = async (
+        projectId: string,
+        templateRef?: string | null,
+        level?: "budget" | "standard" | "premium",
+        autoGenerate = false
+    ) => {
+        setCurrentGeneratingProjectId(projectId);
+        if (templateRef !== undefined) setSelectedTemplateId(templateRef);
+        if (level) setPriceLevel(level);
 
-    // Função auxiliar para extrair valor numérico do orçamento
-    const parseBudget = (budgetStr: string | null): number => {
-        if (!budgetStr) return 0;
-        // Remove tudo que não é dígito, ponto ou vírgula
-        let cleanStr = budgetStr.replace(/[^0-9.,]/g, '');
-        
-        // Assumindo formato PT-BR (1.000,00) se tiver vírgula no final
-        // Se tiver apenas ponto e for xxx.xxx, removemos o ponto (milhar)
-        // Se for xxx.xx e parecer centavos (USD), mantemos.
-        // Simplificação: Workana PT geralmente usa 1.000 ou 500.
-        
-        // Remover pontos de milhar (ex: 1.000 -> 1000)
-        cleanStr = cleanStr.replace(/\./g, '');
-        // Trocar vírgula por ponto (ex: 50,00 -> 50.00)
-        cleanStr = cleanStr.replace(',', '.');
-        
-        // Pegar o primeiro número encontrado (mínimo do range)
-        const match = cleanStr.match(/(\d+(\.\d+)?)/);
-        return match ? parseFloat(match[0]) : 0;
-    };
-
-    // Função auxiliar para comparar datas relativas
-    const parseRelativeDate = (dateStr: string | null): number => {
-        if (!dateStr) return Infinity;
-        const str = dateStr.toLowerCase().trim();
-        
-        // Termos imediatos
-        if (str.includes("agora") || str.includes("segundo") || str.includes("second") || str.includes("new")) return 0;
-        if (str.includes("ontem")) return 1440; // 24h * 60
-
-        // Parse de números
-        const numberMatch = str.match(/\d+/);
-        const number = numberMatch ? parseInt(numberMatch[0]) : 1; 
-        // Se não achar número mas tiver "uma hora", assume 1.
-
-        let minutes = 0;
-        
-        if (str.includes("minuto") || str.includes("minute")) minutes = number;
-        else if (str.includes("hora") || str.includes("hour")) minutes = number * 60;
-        else if (str.includes("dia") || str.includes("day")) minutes = number * 1440;
-        else if (str.includes("semana") || str.includes("week")) minutes = number * 10080;
-        else if (str.includes("mês") || str.includes("mes") || str.includes("month")) minutes = number * 43200;
-        else {
-            // Tentar parsear data absoluta (ex: 28 de Dezembro)
-            // Se falhar, joga pro final
-            return 999999; 
-        }
-
-        return minutes;
-    };
-
-    const sortProjectsLocal = (currentProjects: Project[], sortOption: string) => {
-        const sorted = [...currentProjects];
-        
-        switch (sortOption) {
-            case "budget_desc":
-                sorted.sort((a, b) => parseBudget(b.budget) - parseBudget(a.budget));
-                break;
-            case "budget_asc":
-                sorted.sort((a, b) => {
-                    const valA = parseBudget(a.budget);
-                    const valB = parseBudget(b.budget);
-                    // Se um for 0 (sem budget), joga pro final ou inicio?
-                    // Geralmente quem quer menor valor quer ver os baratos, não os "sem valor defined".
-                    if (valA === 0) return 1;
-                    if (valB === 0) return -1;
-                    return valA - valB;
-                });
-                break;
-            case "created_at_desc": // Mais recentes (menor tempo relativo)
-                sorted.sort((a, b) => parseRelativeDate(a.posted_at) - parseRelativeDate(b.posted_at));
-                break;
-            case "created_at_asc": // Mais antigos (maior tempo relativo)
-                sorted.sort((a, b) => parseRelativeDate(b.posted_at) - parseRelativeDate(a.posted_at));
-                break;
-            case "bids_desc":
-                sorted.sort((a, b) => (Number(b.proposals_count) || 0) - (Number(a.proposals_count) || 0));
-                break;
-            case "bids_asc":
-                sorted.sort((a, b) => (Number(a.proposals_count) || 0) - (Number(b.proposals_count) || 0));
-                break;
-            case "ranking":
-                sorted.sort((a, b) => {
-                    const scoreA = a.analysis?.score ?? a.match_score ?? 0;
-                    const scoreB = b.analysis?.score ?? b.match_score ?? 0;
-                    return scoreB - scoreA;
-                });
-                break;
-            case "relevance":
-            default:
-                // Se temos match_score vindo do backend, usamos ele (maior é melhor)
-                // Se não, usamos o fallback local (menor é melhor)
-                if (sorted.length > 0 && sorted[0].match_score !== undefined && sorted[0].match_score !== null) {
-                    sorted.sort((a, b) => (b.match_score || 0) - (a.match_score || 0));
-                    break;
-                }
-                // Relevância customizada: Combina Recência + Baixa Concorrência
-                // Score = Minutos + (Propostas * 30)
-                // Quanto menor o score, melhor (mais recente e menos propostas)
-                sorted.sort((a, b) => {
-                    const timeA = parseRelativeDate(a.posted_at);
-                    const timeB = parseRelativeDate(b.posted_at);
-                    const propsA = a.proposals_count || 0;
-                    const propsB = b.proposals_count || 0;
-                    
-                    // Peso: 1 proposta equivale a 30 minutos de "velhice"
-                    const scoreA = timeA + (propsA * 30);
-                    const scoreB = timeB + (propsB * 30);
-                    
-                    return scoreA - scoreB;
-                });
-                break;
-        }
-        return sorted;
-    };
-
-    const toCatalogFilters = (source: SearchFilters) => ({
-        q: source.keywords || undefined,
-        category: source.category || undefined,
-        min_budget: source.min_budget ? Number(source.min_budget) : undefined,
-        max_budget: source.max_budget ? Number(source.max_budget) : undefined,
-        payment_verified: source.payment_verified || undefined,
-        favorites_only: source.favorites_only || undefined,
-        hidden_only: source.hidden_only || undefined,
-    });
-
-    const selectionSignature = (source: SearchFilters) => JSON.stringify(toCatalogFilters(source));
-
-    const mapCatalogProject = (project: CatalogProject): Project => ({
-        ...project,
-        id: project.workana_id,
-        description: project.description || "",
-        budget: project.budget_min || project.budget_max
-            ? `R$ ${project.budget_min || 0}${project.budget_max ? ` - R$ ${project.budget_max}` : ""}`
-            : null,
-        project_type: project.budget_type,
-        skills: project.skills || [],
-        proposals_count: project.proposals_count ?? null,
-        posted_at: project.posted_at ?? null,
-        details: project.details as Record<string, string> | undefined,
-        analysis: project.analysis ? (project.analysis as unknown as AnalysisResult) : null,
-        analyzed_at: project.analyzed_at ?? null,
-        estimated_published_at: project.estimated_published_at ?? null,
-        proposals_delta: project.proposals_delta ?? null,
-        contract_type: project.contract_type ?? null,
-    });
-
-    const clearSelection = () => {
-        setSelectedIds(new Set());
-        setSelectAllFiltered(false);
-        setExcludedIds(new Set());
-    };
-
-    const applyAnalysisResults = (results: AnalysisResult[]) => {
-        if (!results.length) return;
-
-        const analysisMap = new Map(results.map(result => [result.workana_id, result]));
-        setAnalysisById(previous => ({
-            ...previous,
-            ...Object.fromEntries(results.map(result => [result.workana_id, result])),
-        }));
-        setProjects(previous => previous.map(project => {
-            const analysis = analysisMap.get(project.id);
-            if (!analysis) return project;
-            const nextProject = {
-                ...project,
-                analysis,
-                analyzed_at: new Date().toISOString(),
-            };
-            knownProjects.current.set(project.id, nextProject);
-            return nextProject;
-        }));
-        setSelectedProject(previous => {
-            if (!previous) return previous;
-            const analysis = analysisMap.get(previous.id);
-            return analysis
-                ? { ...previous, analysis, analyzed_at: new Date().toISOString() }
-                : previous;
-        });
-    };
-
-    const executeSearch = async (pageNum: number, _append: boolean = false, sourceFilters: SearchFilters = filters) => {
-        setIsSearching(true);
+        setAiError(null);
+        setIsGeneratingAi(false);
 
         try {
-            const signature = selectionSignature(sourceFilters);
-            if (activeFilterSignature.current && activeFilterSignature.current !== signature) {
-                clearSelection();
+            const proposalRes = await api.getProjectProposal(projectId);
+            if (proposalRes.has_proposal && proposalRes.proposal) {
+                const versionsList = proposalRes.versions && proposalRes.versions.length > 0
+                    ? proposalRes.versions
+                    : [{
+                        id: proposalRes.id || 1,
+                        project_id: projectId,
+                        proposal: proposalRes.proposal,
+                        budget: proposalRes.budget,
+                        deadline_days: proposalRes.deadline_days,
+                        status: proposalRes.status,
+                        sent_at: proposalRes.sent_at,
+                        template_id: proposalRes.template_id,
+                        template_slug: proposalRes.template_slug,
+                    }];
+
+                setProposalVersions(versionsList);
+                const latest = versionsList[0];
+                setActiveVersionId(latest.id);
+                setAiProposal({
+                    id: latest.id,
+                    proposal: latest.proposal,
+                    suggested_price: latest.budget ? `R$ ${latest.budget.toFixed(2)}` : "—",
+                    justification: "Versão carregada do histórico salvo.",
+                    status: latest.status,
+                    sent_at: latest.sent_at,
+                    is_cached: true,
+                    template_id: latest.template_id,
+                    template_slug: latest.template_slug,
+                });
+                setModalBudget(latest.budget ? String(latest.budget) : "500");
+                setModalDeadline(latest.deadline_days ? String(latest.deadline_days) : "7");
+                setShowAiModal(true);
+                return;
             }
-            activeFilterSignature.current = signature;
+        } catch (e) {
+            console.log("No previous proposal found", e);
+        }
 
-            const result = await api.getCatalogProjects({
-                ...toCatalogFilters(sourceFilters),
-                page: pageNum,
-                limit: sourceFilters.pages_to_fetch,
-                sort: sourceFilters.sort,
-            });
+        setProposalVersions([]);
+        setActiveVersionId(null);
+        setAiProposal(null);
+        setModalBudget("500");
+        setModalDeadline("7");
+        setShowAiModal(true);
 
-            const mappedProjects = result.projects.map(mapCatalogProject);
-            mappedProjects.forEach(project => knownProjects.current.set(project.id, project));
-            setProjects(mappedProjects);
-            setTotal(result.total);
-            setPage(result.page);
-            setHasSearched(true);
-
-        } catch (error: any) {
-            console.error("Erro na busca:", error);
-            const message = error?.message || "Não foi possível buscar projetos agora.";
-            toast.error(message);
-
-            // Uma falha de rede/serviço não equivale a uma busca válida sem resultados.
-            setHasSearched(false);
-        } finally {
-            setIsSearching(false);
+        if (autoGenerate) {
+            handleGenerateAiProposal(projectId, templateRef, level, true);
         }
     };
 
-    const handleSearch = () => {
-        setHasSearched(true);
-        setPage(1);
-        executeSearch(1, false);
-    };
-
-    // Estado para Mega Proposta IA
-    const [showAiModal, setShowAiModal] = useState(false);
-    const [aiProposal, setAiProposal] = useState<{
-        proposal?: string;
-        suggested_price?: string;
-        justification?: string;
-    } | null>(null);
-    const [isGeneratingAi, setIsGeneratingAi] = useState(false);
-    const [aiError, setAiError] = useState<string | null>(null);
-    const [modalBudget, setModalBudget] = useState<string | number>("");
-    const [modalDeadline, setModalDeadline] = useState<string | number>("");
-
-    // Suporte a templates na geração manual
-    const [templates, setTemplates] = useState<any[]>([]);
-    const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
-    const [currentGeneratingProjectId, setCurrentGeneratingProjectId] = useState<string | null>(null);
-
-    useEffect(() => {
-        const loadTemplates = async () => {
-            try {
-                const res = await api.getTemplates();
-                setTemplates(res);
-                
-                const sessionTemplateId = sessionStorage.getItem("preferred_generation_template_id");
-                const defaultTpl = res.find((t: any) => t.is_default);
-                
-                if (sessionTemplateId) {
-                    const exists = res.some((t: any) => t.template_ref === sessionTemplateId);
-                    if (exists) {
-                        setSelectedTemplateId(sessionTemplateId);
-                    } else {
-                        sessionStorage.removeItem("preferred_generation_template_id");
-                        setSelectedTemplateId(defaultTpl?.template_ref || null);
-                    }
-                } else {
-                    setSelectedTemplateId(defaultTpl?.template_ref || null);
-                }
-            } catch (error) {
-                console.error("Erro ao carregar templates para geração:", error);
-            }
-        };
-        loadTemplates();
-    }, []);
-
-    const handleGenerateAiProposal = async (projectId: string, templateIdOverride?: string | null) => {
+    const handleGenerateAiProposal = async (
+        projectId: string,
+        templateRef?: string | null,
+        level?: "budget" | "standard" | "premium",
+        saveAsNewVersion = true
+    ) => {
+        setCurrentGeneratingProjectId(projectId);
         setShowAiModal(true);
         setIsGeneratingAi(true);
         setAiError(null);
-        setAiProposal(null);
-        setCurrentGeneratingProjectId(projectId);
+
+        const activeRef = templateRef !== undefined ? templateRef : selectedTemplateId;
+        const activeLevel = level || priceLevel;
 
         try {
-            const tId = templateIdOverride !== undefined ? templateIdOverride : selectedTemplateId;
-            const result = await api.generateProposal(projectId, tId);
-            if (result.success) {
-                setAiProposal({
-                    proposal: result.proposal,
-                    suggested_price: result.suggested_price,
-                    justification: result.justification
-                });
-                
-                // Aplicar default_budget e default_deadline_days com precedência
-                const currentTemplate = templates.find((t: any) => t.template_ref === tId);
-                let initialBudget = "";
-                if (currentTemplate && currentTemplate.default_budget && currentTemplate.default_budget > 0) {
-                    initialBudget = String(currentTemplate.default_budget);
-                } else if (result.suggested_price) {
-                    const priceClean = result.suggested_price.replace(/[^\d]/g, "");
-                    initialBudget = priceClean || "";
-                }
-                if (!initialBudget && selectedProject) {
-                    const projPriceClean = (selectedProject.budget || "").replace(/[^\d]/g, "");
-                    initialBudget = projPriceClean || "100";
-                }
-                setModalBudget(initialBudget);
+            const res = await api.generateProposal(
+                projectId,
+                activeRef || undefined,
+                true,
+                activeLevel,
+                saveAsNewVersion
+            );
 
-                let initialDeadline = "7";
-                if (currentTemplate && currentTemplate.default_deadline_days && currentTemplate.default_deadline_days > 0) {
-                    initialDeadline = String(currentTemplate.default_deadline_days);
+            if (res.success) {
+                setAiProposal(res);
+                if (res.versions && res.versions.length > 0) {
+                    setProposalVersions(res.versions);
+                    if (res.proposal_id) {
+                        setActiveVersionId(res.proposal_id);
+                    } else {
+                        setActiveVersionId(res.versions[0].id);
+                    }
                 }
-                setModalDeadline(initialDeadline);
+                const suggestedNum = res.suggested_price ? res.suggested_price.replace(/[^0-9]/g, "") : "";
+                setModalBudget(suggestedNum || "500");
+                setModalDeadline(res.suggested_deadline_days ? String(res.suggested_deadline_days) : "7");
+                toast.success("✨ Nova versão gerada com sucesso!");
             } else {
-                setAiError(result.error || "Erro ao gerar proposta com IA.");
+                setAiError(res.error || "Não foi possível gerar a proposta.");
             }
-        } catch (error: any) {
-            console.error("Erro ao gerar proposta IA:", error);
-            const errorMessage = error.message || "Erro desconhecido";
-            
-            if (errorMessage.includes("Failed to fetch") || errorMessage.includes("NetworkError")) {
-                setAiError("Não foi possível conectar ao servidor. Verifique se o backend está rodando e se as dependências (google-generativeai) estão instaladas.");
-            } else {
-                setAiError(errorMessage);
-            }
+        } catch (err: any) {
+            setAiError(err.message || "Erro de conexão ao gerar proposta.");
         } finally {
             setIsGeneratingAi(false);
         }
     };
 
-    const [isSubmittingProposal, setIsSubmittingProposal] = useState(false);
+    const handleSelectProposalVersion = (version: ProposalVersion) => {
+        setActiveVersionId(version.id);
+        setAiProposal({
+            id: version.id,
+            proposal: version.proposal,
+            suggested_price: version.budget ? `R$ ${version.budget.toFixed(2)}` : "—",
+            justification: "Versão carregada do histórico.",
+            status: version.status,
+            sent_at: version.sent_at,
+            is_cached: true,
+            template_id: version.template_id,
+            template_slug: version.template_slug,
+        });
+        setModalBudget(version.budget ? String(version.budget) : "500");
+        setModalDeadline(version.deadline_days ? String(version.deadline_days) : "7");
+        if (version.template_slug) {
+            setSelectedTemplateId(`system:${version.template_slug}`);
+        } else if (version.template_id) {
+            setSelectedTemplateId(String(version.template_id));
+        }
+    };
+
+    const handleDeleteProposalVersion = async (versionId: number) => {
+        if (!currentGeneratingProjectId) return;
+        try {
+            const res = await api.deleteProjectProposalVersion(currentGeneratingProjectId, versionId);
+            if (res.success) {
+                const nextVersions = res.versions || [];
+                setProposalVersions(nextVersions);
+                if (nextVersions.length > 0) {
+                    if (activeVersionId === versionId) {
+                        handleSelectProposalVersion(nextVersions[0]);
+                    }
+                } else {
+                    setAiProposal(null);
+                    setActiveVersionId(null);
+                }
+                toast.info("Versão excluída com sucesso.");
+            }
+        } catch (err: any) {
+            toast.error(err.message || "Erro ao excluir versão.");
+        }
+    };
+
+    const handleSaveProposalDraft = async () => {
+        if (!currentGeneratingProjectId || !aiProposal?.proposal) return;
+        setIsSavingDraft(true);
+        try {
+            const res = await api.saveProjectProposal(currentGeneratingProjectId, {
+                proposal_id: activeVersionId,
+                proposal_text: aiProposal.proposal,
+                budget: Number(modalBudget) || undefined,
+                deadline_days: Number(modalDeadline) || 7,
+                template_id: selectedTemplateId || undefined,
+                force_new_version: false,
+                add_to_batch: true,
+            });
+            if (res.success) {
+                toast.success("✨ Proposta salva com sucesso! Visível em Lotes / Batches.");
+                if (res.versions) setProposalVersions(res.versions);
+                if (res.proposal_id) setActiveVersionId(res.proposal_id);
+                setAiProposal((prev) => (prev ? { ...prev, is_cached: true } : null));
+            }
+        } catch (err: any) {
+            toast.error(err.message || "Erro ao salvar rascunho de proposta.");
+        } finally {
+            setIsSavingDraft(false);
+        }
+    };
 
     const handleSubmitProposal = async () => {
-        if (!selectedProject || !aiProposal?.proposal) return;
+        if (!currentGeneratingProjectId || !aiProposal?.proposal) return;
         setIsSubmittingProposal(true);
         try {
-            const budgetVal = Number(modalBudget) || 100;
-            const deadlineVal = Number(modalDeadline) || 7;
+            const investmentText = aiProposal.investment_breakdown?.breakdown_text || "";
+            const messageToSend = (investmentText && !aiProposal.proposal.includes(investmentText))
+                ? `${aiProposal.proposal}\n\n${investmentText}`
+                : aiProposal.proposal;
 
-            const response = await api.submitProposal(selectedProject.id, {
-                project_id: selectedProject.id,
-                template_id: selectedTemplateId,
-                custom_message: aiProposal.proposal,
-                budget: budgetVal,
-                deadline_days: deadlineVal
+            const res = await api.submitProposal(currentGeneratingProjectId, {
+                project_id: currentGeneratingProjectId,
+                custom_message: messageToSend,
+                budget: Number(modalBudget) || 500,
+                deadline_days: Number(modalDeadline) || 7,
+                template_id: selectedTemplateId || undefined,
             });
-
-            if (response.success) {
-                toast.success(response.message || "Proposta enviada com sucesso no Workana!");
+            if (res.success) {
+                toast.success("🚀 Proposta enviada com sucesso ao Workana! Status: Aguardando resposta");
                 setShowAiModal(false);
             } else {
-                toast.error("Erro ao enviar proposta: " + response.message);
+                toast.error(res.message || "Erro ao enviar proposta.");
             }
-        } catch (error: any) {
-            console.error("Erro ao submeter proposta:", error);
-            toast.error(error.message || "Erro de conexão ao enviar proposta.");
+        } catch (err: any) {
+            toast.error(err.message || "Erro ao enviar proposta.");
         } finally {
             setIsSubmittingProposal(false);
         }
@@ -547,346 +565,53 @@ export default function Projects() {
 
     const handleCopyProposal = () => {
         if (aiProposal?.proposal) {
-            navigator.clipboard.writeText(aiProposal.proposal);
-            toast.success("Proposta copiada para a área de transferência!", "Copiado!");
+            const investmentText = aiProposal.investment_breakdown?.breakdown_text || "";
+            const fullProposal = investmentText ? `${aiProposal.proposal}\n\n${investmentText}` : aiProposal.proposal;
+            navigator.clipboard.writeText(fullProposal);
+            toast.success("Proposta completa copiada para a área de transferência!");
         }
     };
 
-    const handleSaveFilter = async () => {
-        if (!newFilterName.trim()) return;
-
-        setIsSavingFilter(true);
+    // Ações em Lote (Bulk)
+    const runBulkAction = async (action: "favorite" | "unfavorite" | "hide" | "restore") => {
         try {
-            const cleanFilters: Record<string, any> = {};
-            if (filters.keywords) cleanFilters.keywords = filters.keywords;
-            if (filters.category) cleanFilters.category = filters.category;
-            if (filters.min_budget) cleanFilters.min_budget = Number(filters.min_budget);
-            if (filters.max_budget) cleanFilters.max_budget = Number(filters.max_budget);
-            if (filters.project_type && filters.project_type !== "any") cleanFilters.project_type = filters.project_type;
-            if (filters.sort && filters.sort !== "relevance") cleanFilters.sort = filters.sort;
-            if (filters.publication && filters.publication !== "any") cleanFilters.publication = filters.publication;
-            if (filters.language && filters.language !== "any") cleanFilters.language = filters.language;
-            if (filters.proposals && filters.proposals !== "any") cleanFilters.proposals = filters.proposals;
-            if (filters.payment_verified) cleanFilters.payment_verified = true;
-
-            await api.createFilter(newFilterName, cleanFilters);
-            toast.success("Filtro salvo com sucesso!");
-            setShowSaveModal(false);
-            setNewFilterName("");
-        } catch (error: any) {
-            console.error("Erro ao salvar filtro:", error);
-            toast.error("Erro ao salvar filtro.");
-        } finally {
-            setIsSavingFilter(false);
-        }
-    };
-
-    const handleResetFilters = () => {
-        // Clear session storage
-        sessionStorage.removeItem(STORAGE_KEY);
-        
-        setFilters({
-            keywords: "",
-            category: "",
-            min_budget: "",
-            max_budget: "",
-            project_type: "any",
-            sort: "relevance",
-            publication: "any",
-            language: "any",
-            proposals: "any",
-            payment_verified: false,
-            pages_to_fetch: 24,
-            favorites_only: false,
-            hidden_only: false,
-        });
-        clearSelection();
-    };
-
-    const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-
-    // Close panel when clicking outside/pressing escape would be handled by a global listener or overlay if strict modal behavior was desired,
-    // but for this "Dashboard" feel, clicking another project switches, and a close button exists.
-
-    const [showAdvanced, setShowAdvanced] = useState(false);
-
-    // Auxiliary function to calculate "Match Score"
-    const calculateMatch = (project: Project) => {
-        if (project.analysis?.score !== undefined && project.analysis?.score !== null) {
-            return Math.round(project.analysis.score);
-        }
-        if (analysisById[project.id]?.score !== undefined) {
-            return Math.round(analysisById[project.id].score);
-        }
-        if (project.match_score !== undefined && project.match_score !== null) {
-            return Math.round(project.match_score);
-        }
-        // Simple logic: fewer proposals && recent = higher match
-        let score = 100;
-        if (project.proposals_count) score -= (project.proposals_count * 2);
-        const minutes = parseRelativeDate(project.posted_at);
-        if (minutes > 60) score -= 10;
-        if (minutes > 1440) score -= 20;
-        return Math.max(10, Math.min(98, score)); // Clamp between 10 and 98
-    };
-
-    const isProjectSelected = (projectId: string) => selectAllFiltered
-        ? !excludedIds.has(projectId)
-        : selectedIds.has(projectId);
-
-    const toggleProjectSelection = (projectId: string) => {
-        if (selectAllFiltered) {
-            setExcludedIds(previous => {
-                const next = new Set(previous);
-                next.has(projectId) ? next.delete(projectId) : next.add(projectId);
-                return next;
-            });
-            return;
-        }
-        setSelectedIds(previous => {
-            const next = new Set(previous);
-            next.has(projectId) ? next.delete(projectId) : next.add(projectId);
-            return next;
-        });
-    };
-
-    const selectedOnPage = projects.filter(project => isProjectSelected(project.id)).length;
-    const selectedCount = selectAllFiltered
-        ? Math.max(0, total - excludedIds.size)
-        : selectedIds.size;
-    const allPageSelected = projects.length > 0 && selectedOnPage === projects.length;
-    const masterCheckbox = useRef<HTMLInputElement>(null);
-
-    useEffect(() => {
-        if (masterCheckbox.current) {
-            masterCheckbox.current.indeterminate = selectedOnPage > 0 && !allPageSelected;
-        }
-    }, [selectedOnPage, allPageSelected]);
-
-    const toggleCurrentPage = () => {
-        const pageIds = projects.map(project => project.id);
-        if (selectAllFiltered) {
-            setExcludedIds(previous => {
-                const next = new Set(previous);
-                pageIds.forEach(id => allPageSelected ? next.add(id) : next.delete(id));
-                return next;
-            });
-        } else {
-            setSelectedIds(previous => {
-                const next = new Set(previous);
-                pageIds.forEach(id => allPageSelected ? next.delete(id) : next.add(id));
-                return next;
-            });
-        }
-    };
-
-    const selectEveryFilteredProject = () => {
-        setSelectAllFiltered(true);
-        setSelectedIds(new Set());
-        setExcludedIds(new Set());
-    };
-
-    const runBulkAction = async (action: "favorite" | "hide" | "restore") => {
-        if (selectedCount === 0) return;
-        try {
-            const result = await api.bulkState(selectAllFiltered ? {
-                action,
-                filters: toCatalogFilters(filters),
-                exclude_ids: Array.from(excludedIds),
-            } : {
-                action,
-                project_ids: Array.from(selectedIds),
-            });
-            toast.success(`${result.updated} projeto(s) atualizado(s).`);
+            const body = selectAllFiltered
+                ? { action, filters: toCatalogFilters(filters), exclude_ids: Array.from(excludedIds) }
+                : { action, project_ids: Array.from(selectedIds) };
+            const res = await api.bulkState(body);
+            toast.success(`${res.updated} projeto(s) atualizado(s)!`);
             clearSelection();
-            await executeSearch(page, false);
-        } catch (error: any) {
-            toast.error(error?.message || "Não foi possível atualizar os projetos.");
+            executeSearch(page, true);
+        } catch (err: any) {
+            toast.error(err.message || "Erro na ação em lote.");
         }
     };
 
-    const runAnalysis = async () => {
-        if (selectedCount === 0) return;
+    const runBulkAnalysis = async () => {
         try {
-            const result = await api.analyzeProjects(selectAllFiltered ? {
-                filters: toCatalogFilters(filters),
-                exclude_ids: Array.from(excludedIds),
-            } : {
-                project_ids: Array.from(selectedIds),
+            const body = selectAllFiltered
+                ? { filters: toCatalogFilters(filters), exclude_ids: Array.from(excludedIds) }
+                : { project_ids: Array.from(selectedIds) };
+            const res = await api.analyzeProjects(body);
+            const map: Record<string, AnalysisResult> = {};
+            res.forEach((r) => {
+                map[r.workana_id] = r;
             });
-            applyAnalysisResults(result);
-            toast.success(`${result.length} projeto(s) analisado(s).`);
-        } catch (error: any) {
-            toast.error(error?.message || "Não foi possível analisar os projetos.");
-        }
-    };
-
-    const selectRecommendedProjects = () => {
-        const recommendedIds = Array.from(new Set([
-            ...projects
-                .filter(project => (project.analysis ?? analysisById[project.id])?.recommendation === "send")
-                .map(project => project.id),
-            ...Object.entries(analysisById)
-                .filter(([, analysis]) => analysis.recommendation === "send")
-                .map(([workanaId]) => workanaId),
-        ]));
-
-        if (!recommendedIds.length) {
-            toast.error("Nenhum projeto recomendado disponível.");
-            return;
-        }
-
-        setSelectAllFiltered(false);
-        setExcludedIds(new Set());
-        setSelectedIds(new Set(recommendedIds));
-    };
-
-    const shareSelectedProjects = async () => {
-        try {
-            let selectedProjects: Project[];
-            if (selectAllFiltered) {
-                const maximum = Math.min(total, 2000);
-                const pages = Math.ceil(maximum / 100);
-                const responses = await Promise.all(
-                    Array.from({ length: pages }, (_, index) => api.getCatalogProjects({
-                        ...toCatalogFilters(filters),
-                        page: index + 1,
-                        limit: 100,
-                        sort: filters.sort,
-                    })),
-                );
-                selectedProjects = responses
-                    .flatMap(response => response.projects)
-                    .filter(project => !excludedIds.has(project.workana_id))
-                    .map(mapCatalogProject);
-            } else {
-                selectedProjects = Array.from(selectedIds)
-                    .map(id => knownProjects.current.get(id))
-                    .filter((project): project is Project => Boolean(project));
-            }
-            if (!selectedProjects.length) {
-                toast.error("Nenhum projeto disponível para compartilhar.");
-                return;
-            }
-            const content = selectedProjects
-                .map(project => `${project.title}\n${project.url}`)
-                .join("\n\n");
-            await navigator.clipboard.writeText(content);
-            toast.success(`${selectedProjects.length} projeto(s) copiado(s).`);
-        } catch {
-            toast.error("Não foi possível copiar os projetos.");
-        }
-    };
-
-    // ==================== Estados de Envio em Lote (Batch & Queue) ====================
-    interface BatchItemState {
-        workana_id: string;
-        title: string;
-        url: string;
-        proposal_text: string;
-        budget: number;
-        deadline_days: number;
-        score: number;
-        selected: boolean;
-        status: "idle" | "generating" | "ready" | "error";
-        error?: string;
-    }
-
-    const [showBatchModal, setShowBatchModal] = useState(false);
-    const [isBatchGenerating, setIsBatchGenerating] = useState(false);
-    const [isSubmittingBatch, setIsSubmittingBatch] = useState(false);
-    const [batchItems, setBatchItems] = useState<BatchItemState[]>([]);
-    const [batchTemplateRef, setBatchTemplateRef] = useState<string | null>(null);
-
-    // Fila / Monitor de Lotes
-    const [showQueueDrawer, setShowQueueDrawer] = useState(false);
-    const [batches, setBatches] = useState<ProposalBatch[]>([]);
-    const [selectedBatchDetail, setSelectedBatchDetail] = useState<ProposalBatch | null>(null);
-    const [isLoadingBatches, setIsLoadingBatches] = useState(false);
-
-    // Carregar batches para o Drawer
-    const loadBatches = async () => {
-        setIsLoadingBatches(true);
-        try {
-            const res = await api.listProposalBatches(15, 0);
-            setBatches(res.batches || []);
-            if (res.batches && res.batches.length > 0 && !selectedBatchDetail) {
-                const detail = await api.getProposalBatch(res.batches[0].id);
-                setSelectedBatchDetail(detail);
-            }
-        } catch (err) {
-            console.error("Erro ao carregar lotes de propostas:", err);
-        } finally {
-            setIsLoadingBatches(false);
-        }
-    };
-
-    const loadBatchDetail = async (batchId: number) => {
-        try {
-            const detail = await api.getProposalBatch(batchId);
-            setSelectedBatchDetail(detail);
-        } catch (err) {
-            console.error("Erro ao carregar detalhes do lote:", err);
-        }
-    };
-
-    // Polling automático da fila quando o drawer estiver aberto
-    useEffect(() => {
-        if (!showQueueDrawer) return;
-        loadBatches();
-        const interval = setInterval(() => {
-            loadBatches();
-            if (selectedBatchDetail) {
-                loadBatchDetail(selectedBatchDetail.id);
-            }
-        }, 4000);
-        return () => clearInterval(interval);
-    }, [showQueueDrawer, selectedBatchDetail?.id]);
-
-    const handleCancelBatch = async (batchId: number) => {
-        try {
-            await api.cancelProposalBatch(batchId);
-            toast.success("Lote cancelado!");
-            await loadBatches();
-            if (selectedBatchDetail?.id === batchId) {
-                await loadBatchDetail(batchId);
-            }
+            setAnalysisById((prev) => ({ ...prev, ...map }));
+            toast.success(`${res.length} projetos analisados pela IA!`);
         } catch (err: any) {
-            toast.error(err?.message || "Erro ao cancelar lote.");
+            toast.error(err.message || "Erro na análise em lote.");
         }
     };
 
-    const handleRetryBatch = async (batchId: number) => {
-        try {
-            await api.retryProposalBatch(batchId);
-            toast.success("Lote reiniciado para processamento!");
-            await loadBatches();
-            if (selectedBatchDetail?.id === batchId) {
-                await loadBatchDetail(batchId);
-            }
-        } catch (err: any) {
-            toast.error(err?.message || "Erro ao reiniciar lote.");
-        }
-    };
-
-    // Seleção Rápida: Top 5 / Top 10 por score
-    const handleQuickSelectTop = (count: number) => {
-        const sorted = [...projects].sort((a, b) => calculateMatch(b) - calculateMatch(a));
-        const topIds = sorted.slice(0, count).map(p => p.id);
-        setSelectAllFiltered(false);
-        setExcludedIds(new Set());
-        setSelectedIds(new Set(topIds));
-        toast.success(`Top ${topIds.length} projetos selecionados por Score de Relevância!`);
-    };
-
-    // Abrir Modal de Revisão em Lote
+    // Lotes de Envio (Batches)
     const handleOpenBatchReviewModal = async () => {
         let targetProjects: Project[] = [];
         if (selectAllFiltered) {
-            targetProjects = projects.filter(p => !excludedIds.has(p.id));
+            targetProjects = projects.filter((p) => !excludedIds.has(p.id));
         } else {
             targetProjects = Array.from(selectedIds)
-                .map(id => knownProjects.current.get(id) || projects.find(p => p.id === id))
+                .map((id) => knownProjects.current.get(id) || projects.find((p) => p.id === id))
                 .filter((p): p is Project => Boolean(p));
         }
 
@@ -897,70 +622,63 @@ export default function Projects() {
 
         const limitedProjects = targetProjects.slice(0, 20);
         if (targetProjects.length > 20) {
-            toast.info("Limitando o lote aos 20 primeiros projetos selecionados por segurança.");
+            toast.info("Limitando o lote aos 20 primeiros projetos por segurança.");
         }
 
         const tId = selectedTemplateId || undefined;
         setBatchTemplateRef(tId || null);
 
-        const initialItems: BatchItemState[] = limitedProjects.map(proj => {
-            const minB = proj.budget_min || 0;
-            const maxB = proj.budget_max || 0;
-            const defaultB = maxB > 0 ? maxB : (minB > 0 ? minB : 150);
-            return {
-                workana_id: proj.id,
-                title: proj.title,
-                url: proj.url,
-                proposal_text: "",
-                budget: defaultB,
-                deadline_days: 7,
-                score: calculateMatch(proj),
-                selected: true,
-                status: "generating",
-            };
-        });
+        const initialItems: BatchReviewItem[] = limitedProjects.map((proj) => ({
+            workana_id: proj.id,
+            title: proj.title,
+            url: proj.url,
+            proposal_text: "",
+            budget: proj.budget_max || proj.budget_min || 150,
+            deadline_days: 7,
+            score: calculateMatch(proj),
+            selected: true,
+            status: "generating",
+        }));
 
         setBatchItems(initialItems);
         setShowBatchModal(true);
         setIsBatchGenerating(true);
 
         try {
-            const projectIds = limitedProjects.map(p => p.id);
+            const projectIds = limitedProjects.map((p) => p.id);
             const genRes = await api.bulkGenerateProposals(projectIds, tId);
-            
             if (genRes.success && genRes.results) {
-                const resultMap = new Map(genRes.results.map(r => [r.workana_id, r]));
-                setBatchItems(prev => prev.map(item => {
-                    const res = resultMap.get(item.workana_id);
-                    if (res && res.success) {
-                        return {
-                            ...item,
-                            proposal_text: res.proposal,
-                            budget: res.suggested_budget || item.budget,
-                            deadline_days: res.suggested_deadline_days || 7,
-                            status: "ready",
-                        };
-                    } else {
+                const resultMap = new Map(genRes.results.map((r) => [r.workana_id, r]));
+                setBatchItems((prev) =>
+                    prev.map((item) => {
+                        const res = resultMap.get(item.workana_id);
+                        if (res && res.success) {
+                            return {
+                                ...item,
+                                proposal_text: res.proposal,
+                                budget: res.suggested_budget || item.budget,
+                                deadline_days: res.suggested_deadline_days || 7,
+                                status: "ready",
+                            };
+                        }
                         return {
                             ...item,
                             status: "error",
                             error: res?.error || "Falha ao gerar proposta",
                         };
-                    }
-                }));
+                    })
+                );
                 toast.success(`${genRes.generated} de ${genRes.total} propostas geradas com sucesso!`);
             }
         } catch (err: any) {
             toast.error(err?.message || "Erro na geração em lote das propostas.");
-            setBatchItems(prev => prev.map(item => ({ ...item, status: "error", error: "Erro de conexão" })));
         } finally {
             setIsBatchGenerating(false);
         }
     };
 
-    // Submeter o Lote Aprovado para a Fila de Disparos
     const handleSubmitBatchToQueue = async () => {
-        const approvedItems = batchItems.filter(item => item.selected && item.proposal_text.trim().length > 0);
+        const approvedItems = batchItems.filter((i) => i.selected && i.proposal_text.trim().length > 0);
         if (!approvedItems.length) {
             toast.error("Nenhuma proposta com texto selecionada para envio.");
             return;
@@ -970,267 +688,175 @@ export default function Projects() {
         try {
             const payload: ProposalBatchCreate = {
                 template_ref: batchTemplateRef || undefined,
-                custom_proposals: approvedItems.map(item => ({
+                custom_proposals: approvedItems.map((item) => ({
                     workana_id: item.workana_id,
                     proposal_text: item.proposal_text,
                     budget: item.budget,
                     deadline_days: item.deadline_days,
                 })),
             };
-
             const res = await api.createProposalBatch(payload);
             if (res.success) {
-                toast.success(`Lote #${res.batch_id} criado com ${res.total} propostas! Envio em background iniciado.`);
+                toast.success(`Lote #${res.batch_id} criado com ${res.total} propostas! Envio iniciado.`);
                 setShowBatchModal(false);
                 clearSelection();
                 setShowQueueDrawer(true);
                 await loadBatches();
-                await loadBatchDetail(res.batch_id);
-            } else {
-                toast.error("Não foi possível criar o lote de propostas.");
             }
         } catch (err: any) {
-            toast.error(err?.message || "Erro ao enfileirar lote de propostas.");
+            toast.error(err?.message || "Erro ao enfileirar lote.");
         } finally {
             setIsSubmittingBatch(false);
         }
     };
 
-    // Enfileiramento 100% automático direto (sem passar pelo modal de rascunhos)
-    const handleDirectBatchEnqueue = async () => {
-        if (selectedCount === 0) return;
+    const loadBatches = async () => {
+        setIsLoadingBatches(true);
         try {
-            const payload: ProposalBatchCreate = selectAllFiltered ? {
-                filters: toCatalogFilters(filters),
-                exclude_ids: Array.from(excludedIds),
-                template_ref: selectedTemplateId || undefined,
-            } : {
-                project_ids: Array.from(selectedIds),
-                template_ref: selectedTemplateId || undefined,
-            };
-
-            const res = await api.createProposalBatch(payload);
-            if (res.success) {
-                toast.success(`Lote #${res.batch_id} com ${res.total} propostas enfileirado para envio automático!`);
-                clearSelection();
-                setShowQueueDrawer(true);
-                await loadBatches();
-                await loadBatchDetail(res.batch_id);
-            }
+            const res = await api.listProposalBatches(20);
+            setBatches(res.batches || []);
         } catch (err: any) {
-            toast.error(err?.message || "Erro ao enfileirar propostas.");
+            toast.error(err?.message || "Erro ao carregar fila de lotes.");
+        } finally {
+            setIsLoadingBatches(false);
         }
     };
 
-    const totalPages = Math.max(1, Math.ceil(total / filters.pages_to_fetch));
+    const loadBatchDetail = async (batchId: number) => {
+        try {
+            const res = await api.getProposalBatch(batchId);
+            setSelectedBatchDetail((prev) => (prev?.id === batchId ? null : res));
+        } catch (err: any) {
+            toast.error(err?.message || "Erro ao obter detalhes do lote.");
+        }
+    };
+
+    const handleCancelBatch = async (batchId: number) => {
+        try {
+            await api.cancelProposalBatch(batchId);
+            toast.success("Lote cancelado!");
+            await loadBatches();
+        } catch (err: any) {
+            toast.error(err?.message || "Erro ao cancelar lote.");
+        }
+    };
+
+    const handleRetryBatch = async (batchId: number) => {
+        try {
+            await api.retryProposalBatch(batchId);
+            toast.success("Lote reiniciado para processamento!");
+            await loadBatches();
+        } catch (err: any) {
+            toast.error(err?.message || "Erro ao reiniciar lote.");
+        }
+    };
+
+    const handleSaveFilter = async (name: string) => {
+        try {
+            await api.createFilter(name, toCatalogFilters(filters));
+            toast.success(`Filtro "${name}" salvo com sucesso!`);
+        } catch (err: any) {
+            toast.error(err?.message || "Erro ao salvar filtro.");
+        }
+    };
+
+    const totalPages = Math.max(1, Math.ceil(total / (filters.pages_to_fetch || 24)));
 
     return (
         <div className={styles.container}>
             {isSearching && <div className={styles.scanline}></div>}
-            
-            {/* Mission Header */}
-            <CyberHeader 
-                title="PROJECT INTERCEPT" 
+
+            <CyberHeader
+                title="PROJECT INTERCEPT"
                 subtitle="SYSTEM_READY // INITIATE_SEARCH"
                 description="Identifique e capture as melhores oportunidades do mercado. Protocolo de caça ativado."
             />
 
-            {/* Control Deck (Filters) */}
-            <div className={styles.controlDeck}>
-                <div className={styles.searchRow}>
-                    <div style={{ flex: 1, position: 'relative' }}>
-                        <svg 
-                            width="20" 
-                            height="20" 
-                            viewBox="0 0 24 24" 
-                            fill="none" 
-                            stroke="currentColor" 
-                            strokeWidth="2" 
-                            style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }}
-                        >
-                            <circle cx="11" cy="11" r="8"></circle>
-                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                        </svg>
-                        <input
-                            type="text"
-                            className={styles.controlInput}
-                            style={{ paddingLeft: '48px' }}
-                            placeholder="Buscar palavras-chave (ex: React, Python)..."
-                            value={filters.keywords}
-                            onChange={(e) => setFilters({ ...filters, keywords: e.target.value })}
-                            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                        />
-                    </div>
-                    <button 
-                        className="btn btn-primary" 
-                        style={{ minWidth: '120px' }}
-                        onClick={handleSearch}
-                        disabled={isSearching}
-                    >
-                        {isSearching ? <span className="spinner spinner-sm"></span> : 'SCANEAR'}
-                    </button>
-                    <button 
-                        className={`btn ${showAdvanced ? 'btn-secondary' : 'btn-ghost'}`}
-                        onClick={() => setShowAdvanced(!showAdvanced)}
-                        style={{ border: '1px solid var(--color-border)' }}
-                    >
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '8px' }}>
-                            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
-                        </svg>
-                        {showAdvanced ? 'Ocultar Filtros' : 'Filtros Avançados'}
-                    </button>
-                </div>
+            <ProjectFiltersBar
+                filters={filters}
+                isSearching={isSearching}
+                isSyncing={isSyncing}
+                showAdvanced={showAdvanced}
+                onFiltersChange={(newF) => {
+                    setFilters(newF);
+                }}
+                onToggleAdvanced={() => setShowAdvanced(!showAdvanced)}
+                onSearch={() => executeSearch(1, true)}
+                onSyncLive={async () => {
+                    setIsSyncing(true);
+                    try {
+                        const pagesLabel = filters.pages_to_fetch >= 100 ? "todas as páginas" : `${filters.pages_to_fetch} página(s)`;
+                        toast.info(`Buscando no Workana e atualizando banco de dados (${pagesLabel})...`);
+                        const res = await api.refreshCatalog({
+                            keywords: filters.keywords || undefined,
+                            category: filters.category || undefined,
+                            min_budget: filters.min_budget ? Number(filters.min_budget) : undefined,
+                            max_budget: filters.max_budget ? Number(filters.max_budget) : undefined,
+                            project_type: filters.project_type !== "any" ? filters.project_type : undefined,
+                            language: filters.language !== "any" ? filters.language : undefined,
+                            publication: filters.publication !== "any" ? filters.publication : undefined,
+                            payment_verified: filters.payment_verified || undefined,
+                            pages_to_fetch: filters.pages_to_fetch,
+                        });
+                        toast.success(res.message || `Banco de dados atualizado: ${res.upserted || 0} novos projetos.`);
+                        executeSearch(1, true);
+                    } catch (err: any) {
+                        toast.error(err.message || "Erro ao scanear projetos no Workana.");
+                    } finally {
+                        setIsSyncing(false);
+                    }
+                }}
+            />
 
-                <div className={`${styles.filterGrid} ${showAdvanced ? styles.expanded : ''}`}>
-                    <div className="form-group">
-                        <label className="form-label">Categoria</label>
-                        <select className={styles.controlInput} value={filters.category} onChange={e => setFilters({...filters, category: e.target.value})}>
-                            {categories.map(cat => <option key={cat.value} value={cat.value}>{cat.label}</option>)}
-                        </select>
-                    </div>
-
-                    <div className="form-group">
-                        <label className="form-label">Orçamento (Mín - Máx)</label>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                            <input type="number" className={styles.controlInput} placeholder="Min" value={filters.min_budget} onChange={e => setFilters({...filters, min_budget: e.target.value})} />
-                            <input type="number" className={styles.controlInput} placeholder="Max" value={filters.max_budget} onChange={e => setFilters({...filters, max_budget: e.target.value})} />
-                        </div>
-                    </div>
-
-                    <div className="form-group">
-                        <label className="form-label">Publicação</label>
-                        <select className={styles.controlInput} value={filters.publication} onChange={e => setFilters({...filters, publication: e.target.value})}>
-                            <option value="any">Qualquer data</option>
-                            <option value="1d">Últimas 24h</option>
-                            <option value="3d">Últimos 3 dias</option>
-                            <option value="1w">Última semana</option>
-                        </select>
-                    </div>
-
-                    <div className="form-group">
-                        <label className="form-label">Idioma</label>
-                        <select className={styles.controlInput} value={filters.language} onChange={e => setFilters({...filters, language: e.target.value})}>
-                            <option value="any">Todas as línguas</option>
-                            <option value="pt">Português</option>
-                            <option value="en">Inglês</option>
-                            <option value="es">Espanhol</option>
-                        </select>
-                    </div>
-
-                    {/* Quick Filters Row */}
-                    <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '16px', alignItems: 'center', marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px' }}>
-                        <label className="checkbox-container" style={{ background: 'transparent', border: 'none', padding: 0 }}>
-                            <input type="checkbox" checked={filters.payment_verified} onChange={e => setFilters({...filters, payment_verified: e.target.checked})} />
-                            <span className="checkbox-label" style={{ color: 'var(--color-text-secondary)' }}>Pagamento Verificado</span>
-                        </label>
-                        <label className="checkbox-container" style={{ background: 'transparent', border: 'none', padding: 0 }}>
-                            <input type="checkbox" checked={filters.favorites_only} onChange={e => setFilters({...filters, favorites_only: e.target.checked})} />
-                            <span className="checkbox-label" style={{ color: 'var(--color-text-secondary)' }}>Favoritos</span>
-                        </label>
-                        <label className="checkbox-container" style={{ background: 'transparent', border: 'none', padding: 0 }}>
-                            <input type="checkbox" checked={filters.hidden_only} onChange={e => setFilters({...filters, hidden_only: e.target.checked})} />
-                            <span className="checkbox-label" style={{ color: 'var(--color-text-secondary)' }}>Ocultos</span>
-                        </label>
-
-                        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                             <span className="text-sm text-muted">Resultados por página:</span>
-                             <select 
-                                className={styles.controlInput} 
-                                style={{ width: '80px', padding: '4px 8px' }}
-                                value={filters.pages_to_fetch}
-                                onChange={e => setFilters({...filters, pages_to_fetch: Number(e.target.value)})}
-                             >
-                                <option value={12}>12</option>
-                                <option value={24}>24</option>
-                                <option value={48}>48</option>
-                                <option value={96}>96</option>
-                             </select>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {selectedCount > 0 && (
-                <div className={styles.bulkActionBar} role="region" aria-label="Ações dos projetos selecionados">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <strong style={{ color: '#c7d2fe' }}>{selectedCount} projeto(s) selecionado(s)</strong>
-                    </div>
-                    <div className={styles.bulkActions}>
-                        <button 
-                            className="btn btn-primary" 
-                            style={{ background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', boxShadow: '0 0 15px rgba(99, 102, 241, 0.4)' }}
-                            onClick={handleOpenBatchReviewModal}
-                            title="Abre o painel para gerar e revisar propostas de todos os selecionados com 1 clique"
-                        >
-                            ⚡ Gerar e Revisar em Lote
-                        </button>
-                        <button 
-                            className="btn btn-secondary" 
-                            onClick={handleDirectBatchEnqueue}
-                            title="Enfileira diretamente no background para envio sequencial seguro"
-                        >
-                            🚀 Enfileirar Direto
-                        </button>
-                        <button className="btn btn-secondary" onClick={runAnalysis}>Analisar IA</button>
-                        <button className="btn btn-secondary" onClick={() => runBulkAction("favorite")}>Salvar</button>
-                        <button className="btn btn-secondary" onClick={() => runBulkAction(filters.hidden_only ? "restore" : "hide")}>
-                            {filters.hidden_only ? "Restaurar" : "Ocultar"}
-                        </button>
-                        <button className="btn btn-secondary" onClick={shareSelectedProjects}>Compartilhar</button>
-                        <button className="btn btn-ghost" onClick={clearSelection}>Limpar</button>
-                    </div>
-                </div>
-            )}
-
-            {/* Results Grid & Side Panel Layout */}
+            {/* Main Content Layout */}
             <div className={styles.mainLayout}>
-                <div className={`${styles.gridContent} ${selectedProject ? styles.shrink : ''}`}>
+                <div className={`${styles.gridContent} ${selectedProject ? styles.shrink : ""}`}>
                     {isSearching && projects.length === 0 ? (
-                        <div style={{ padding: '40px' }}>
+                        <div style={{ padding: "40px" }}>
                             <Loader type="scanning" message="Interceptando sinais de projetos..." />
                         </div>
                     ) : hasSearched && projects.length === 0 ? (
                         <div className="empty-state">
-                            <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🛰️</div>
+                            <div style={{ fontSize: "4rem", marginBottom: "1rem" }}>🛰️</div>
                             <h3 className="empty-state-title">Nenhum sinal detectado</h3>
-                            <p className="empty-state-description">Ajuste os parâmetros dos sensores e tente novamente.</p>
+                            <p className="empty-state-description">
+                                Ajuste os parâmetros dos sensores e tente novamente.
+                            </p>
                         </div>
                     ) : (
                         <>
                             {projects.length > 0 && (
                                 <div className={styles.resultsToolbar}>
                                     <div className={styles.selectionControls}>
-                                        <label className="checkbox-container" style={{ background: 'transparent', border: 'none', padding: 0 }}>
-                                            <input
-                                                ref={masterCheckbox}
-                                                type="checkbox"
-                                                checked={allPageSelected}
-                                                onChange={toggleCurrentPage}
-                                                aria-label="Selecionar projetos desta página"
-                                            />
-                                            <span className="checkbox-label">Selecionar página</span>
-                                        </label>
-                                        <button type="button" className={styles.textAction} onClick={selectEveryFilteredProject}>
+                                        <button
+                                            type="button"
+                                            className={styles.textAction}
+                                            onClick={selectEveryFilteredProject}
+                                        >
                                             Selecionar todos os {total} resultados
                                         </button>
-                                        
-                                        {/* Quick Select Buttons */}
-                                        <button type="button" className={styles.quickSelectPill} onClick={() => handleQuickSelectTop(5)}>
-                                            ⚡ Top 5 Score
-                                        </button>
-                                        <button type="button" className={styles.quickSelectPill} onClick={() => handleQuickSelectTop(10)}>
-                                            ⚡ Top 10 Score
-                                        </button>
-                                        <button type="button" className={styles.quickSelectPill} onClick={selectRecommendedProjects}>
-                                            🎯 Recomendados
-                                        </button>
-                                        <button 
-                                            type="button" 
-                                            className={styles.quickSelectPill} 
-                                            style={{ background: 'rgba(16, 185, 129, 0.15)', borderColor: 'rgba(16, 185, 129, 0.4)', color: '#6ee7b7' }}
-                                            onClick={() => { setShowQueueDrawer(true); loadBatches(); }}
+                                        <button
+                                            type="button"
+                                            className={styles.quickSelectPill}
+                                            style={{
+                                                background: "rgba(16, 185, 129, 0.15)",
+                                                borderColor: "rgba(16, 185, 129, 0.4)",
+                                                color: "#6ee7b7",
+                                            }}
+                                            onClick={() => {
+                                                setShowQueueDrawer(true);
+                                                loadBatches();
+                                            }}
                                         >
                                             📊 Fila de Envios
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className={styles.quickSelectPill}
+                                            title="Salvar esta busca como preset"
+                                            onClick={() => setShowSaveModal(true)}
+                                        >
+                                            💾 Salvar Filtro
                                         </button>
                                         <button
                                             type="button"
@@ -1248,12 +874,12 @@ export default function Projects() {
                                             ⬇️ Exportar CSV
                                         </button>
                                     </div>
-                                    <select 
-                                        className={styles.controlInput} 
-                                        style={{ width: 'auto', padding: '6px 12px' }}
+                                    <select
+                                        className={styles.controlInput}
+                                        style={{ width: "auto", padding: "6px 12px" }}
                                         value={filters.sort}
-                                        onChange={e => {
-                                            const nextFilters = {...filters, sort: e.target.value};
+                                        onChange={(e) => {
+                                            const nextFilters = { ...filters, sort: e.target.value };
                                             setFilters(nextFilters);
                                             executeSearch(1, false, nextFilters);
                                         }}
@@ -1269,128 +895,29 @@ export default function Projects() {
                                 </div>
                             )}
 
-
                             <div className={`${styles.missionGrid} reveal-grid`}>
                                 {projects.map((project, index) => {
                                     const matchScore = calculateMatch(project);
-                                    const isNew = parseRelativeDate(project.posted_at) < 60;
+                                    const isNew = Boolean(project.posted_at && project.posted_at.includes("m"));
                                     const isSelected = selectedProject?.id === project.id;
                                     const isBatchSelected = isProjectSelected(project.id);
                                     const analysis = project.analysis ?? analysisById[project.id] ?? null;
-                                    const recommendation = analysis?.recommendation;
-                                    const badgeClass = recommendation === "send"
-                                        ? "badge-success"
-                                        : recommendation === "review"
-                                            ? "badge-warning"
-                                            : recommendation === "discard"
-                                                ? "badge-error"
-                                                : "badge-info";
 
                                     return (
-                                        <div 
-                                            key={project.id} 
-                                            className={`${styles.holoCard} ${isSelected ? styles.active : ''} ${isBatchSelected ? styles.batchSelected : ''} reveal-item`}
-                                            style={{ animationDelay: `${index * 0.05}s` }}
-                                        >
-                                            <div className={`${styles.cornerMarker} ${styles.cornerTL}`}></div>
-                                            <div className={`${styles.cornerMarker} ${styles.cornerTR}`}></div>
-                                            <div className={`${styles.cornerMarker} ${styles.cornerBL}`}></div>
-                                            <div className={`${styles.cornerMarker} ${styles.cornerBR}`}></div>
-
-                                            {isNew && <div className={styles.newBadge}>NOVO</div>}
-                                            
-                                            <div className={styles.cardHeader} onClick={() => setSelectedProject(project)}>
-                                                <label className="checkbox-container" style={{ background: 'transparent', border: 'none', padding: 0 }} onClick={e => e.stopPropagation()}>
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={isBatchSelected}
-                                                        onChange={() => toggleProjectSelection(project.id)}
-                                                        aria-label={`Selecionar ${project.title}`}
-                                                    />
-                                                </label>
-                                                <h3 className={styles.cardTitle} title="Clique para ver Detalhes">{project.title}</h3>
-                                                {analysis && (
-                                                    <span className={`badge ${badgeClass}`} title={analysis.justification}>
-                                                        {Math.round(analysis.score)} • {recommendation}
-                                                    </span>
-                                                )}
-                                                <div className={styles.rewardBadge}>
-                                                    {project.budget || 'A Combinar'}
-                                                </div>
-                                            </div>
-
-                                            <div className={styles.cardBody} onClick={() => setSelectedProject(project)}>
-                                                <div className={styles.techStack}>
-                                                    {project.skills.slice(0, 4).map(skill => (
-                                                        <span key={skill} className={styles.techTag}>{skill}</span>
-                                                    ))}
-                                                    {project.skills.length > 4 && (
-                                                        <span className={styles.techTag}>+{project.skills.length - 4}</span>
-                                                    )}
-                                                </div>
-                                                <p className={styles.description}>{project.description}</p>
-                                                
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px' }}>
-                                                    <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>Compatibilidade: {matchScore}%</span>
-                                                    <div className={styles.matchIndicator}>
-                                                        <div 
-                                                            className={styles.matchBar} 
-                                                            style={{ 
-                                                                width: `${matchScore}%`,
-                                                                background: matchScore > 80 ? 'var(--gradient-success)' : matchScore > 50 ? 'var(--color-warning)' : 'var(--color-error)'
-                                                            }}
-                                                        ></div>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            <div className={styles.cardFooter}>
-                                                <div className={styles.metaInfo}>
-                                                        {project.contract_type && (
-                                                            <span className={styles.contractBadge}>
-                                                                {CONTRACT_LABELS[project.contract_type] || project.contract_type}
-                                                            </span>
-                                                        )}
-                                                        <div className={styles.metaItem}>
-                                                            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                                                            {project.posted_at}
-                                                        </div>
-                                                    </div>
-                                                    <button
-                                                        type="button"
-                                                        className={styles.proposalCount}
-                                                        title="Ver histórico de propostas"
-                                                        onClick={(e) => { e.stopPropagation(); openBidsHistory(project); }}
-                                                    >
-                                                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                                                        <span>{project.proposals_count ?? 0} propostas</span>
-                                                        {formatDelta(project.proposals_delta) && (
-                                                            <span
-                                                                className={styles.deltaChip}
-                                                                style={{
-                                                                    color: (project.proposals_delta ?? 0) > 0 ? '#6ee7b7' : '#fca5a5',
-                                                                    background: (project.proposals_delta ?? 0) > 0 ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
-                                                                }}
-                                                            >
-                                                                {formatDelta(project.proposals_delta)}
-                                                            </span>
-                                                        )}
-                                                    </button>
-                                                </div>
-
-                                            {/* Quick Actions Toolbar (Slides up on Hover) */}
-                                            <div className={styles.quickActions}>
-                                                <button className={styles.actionBtn} onClick={(e) => { e.stopPropagation(); setSelectedProject(project); }}>
-                                                    <span>👁️</span> BRIEFING
-                                                </button>
-                                                <button className={`${styles.actionBtn} ${styles.primary}`} onClick={(e) => { e.stopPropagation(); handleGenerateAiProposal(project.id); }}>
-                                                    <span>⚡</span> IA STRATEGY
-                                                </button>
-                                                <a href={project.url} target="_blank" rel="noreferrer" className={styles.actionBtn} onClick={e => e.stopPropagation()}>
-                                                    <span>🔗</span> LINK
-                                                </a>
-                                            </div>
-                                        </div>
+                                        <ProjectCard
+                                            key={project.id}
+                                            project={project}
+                                            index={index}
+                                            isSelected={isSelected}
+                                            isBatchSelected={isBatchSelected}
+                                            matchScore={matchScore}
+                                            isNew={isNew}
+                                            analysis={analysis}
+                                            onSelectProject={handleSelectProject}
+                                            onToggleBatchSelection={toggleProjectSelection}
+                                            onOpenBidsHistory={openBidsHistory}
+                                            onGenerateAiProposal={(id) => handleOpenProposalModal(id)}
+                                        />
                                     );
                                 })}
                             </div>
@@ -1398,14 +925,18 @@ export default function Projects() {
                             {totalPages > 1 && (
                                 <div className={styles.pagination} aria-label="Paginação dos projetos">
                                     <button
+                                        type="button"
                                         className="btn btn-secondary"
                                         onClick={() => executeSearch(page - 1)}
                                         disabled={page <= 1 || isSearching}
                                     >
                                         Anterior
                                     </button>
-                                    <span>Página {page} de {totalPages}</span>
+                                    <span>
+                                        Página {page} de {totalPages}
+                                    </span>
                                     <button
+                                        type="button"
                                         className="btn btn-secondary"
                                         onClick={() => executeSearch(page + 1)}
                                         disabled={page >= totalPages || isSearching}
@@ -1417,665 +948,106 @@ export default function Projects() {
                         </>
                     )}
                 </div>
-
-                {/* Mission Dossier Modal (Replaces Side Panel) */}
-                {selectedProject && (
-                    <div className={styles.dossierOverlay} onClick={() => setSelectedProject(null)}>
-                        <div className={styles.dossierContainer} onClick={e => e.stopPropagation()}>
-                            <div className={styles.dossierHeader} style={{ display: 'block', position: 'relative', paddingRight: '60px' }}>
-                                <div style={{ textAlign: 'center', marginBottom: '16px' }}>
-                                    <span style={{ color: 'var(--color-primary)', fontSize: '0.85rem', letterSpacing: '4px', fontWeight: '600', textShadow: '0 0 10px rgba(99, 102, 241, 0.5)' }}>
-                                        TOP SECRET // MISSION FILE
-                                    </span>
-                                </div>
-                                
-                                <button 
-                                    className={styles.closeButton} 
-                                    onClick={() => setSelectedProject(null)} 
-                                    aria-label="Abort Mission"
-                                    style={{ position: 'absolute', top: '24px', right: '24px' }}
-                                >
-                                    ×
-                                </button>
-
-                                <div>
-                                    <h2 style={{ fontSize: '1.8rem', fontWeight: 'bold', lineHeight: '1.2', marginBottom: '8px' }}>{selectedProject.title}</h2>
-                                    <div style={{ fontSize: '1.1rem', color: '#34d399', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <span style={{ opacity: 0.7, fontSize: '0.9rem', fontWeight: 'normal', color: 'var(--color-text-muted)' }}>ORÇAMENTO DO PROJETO:</span>
-                                        {selectedProject.budget || 'NEGOCIÁVEL'}
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div className={styles.dossierBody} style={{ padding: 0, overflow: 'hidden' }}>
-                                <div className={styles.dossierContentGrid}>
-                                    <div className={styles.dossierMain} style={{ padding: '2rem' }}>
-                                        <h4 style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem', marginBottom: '1rem', textTransform: 'uppercase' }}>
-                                            &gt; Descrição da Missão (Decoded)
-                                        </h4>
-                                        <div className={styles.decryptText}>
-                                            {selectedProject.description}
-                                        </div>
-                                    </div>
-                                    
-                                    <div className={styles.dossierSidebar}>
-                                        <div>
-                                            <h4 style={{ color: 'var(--color-text-muted)', fontSize: '0.8rem', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                                                &gt; Arsenal (Skills)
-                                            </h4>
-                                            <div className={styles.techStack} style={{ flexWrap: 'wrap' }}>
-                                                {selectedProject.skills.map(skill => (
-                                                    <span key={skill} className={styles.techTag} style={{ marginBottom: '6px', fontSize: '0.75rem' }}>{skill}</span>
-                                                ))}
-                                            </div>
-                                        </div>
-
-                                        <div>
-                                            <h4 style={{ color: 'var(--color-text-muted)', fontSize: '0.8rem', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                                                &gt; Dados de Inteligência
-                                            </h4>
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                                                <div className="card p-3 bg-glass" style={{ border: '1px solid rgba(255,255,255,0.05)' }}>
-                                                    <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>DATA DE PUBLICAÇÃO</span>
-                                                    <span style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>{selectedProject.posted_at}</span>
-                                                </div>
-                                                <div className="card p-3 bg-glass" style={{ border: '1px solid rgba(255,255,255,0.05)' }}>
-                                                    <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>CONCORRÊNCIA</span>
-                                                    <span style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>{selectedProject.proposals_count} Candidatos</span>
-                                                </div>
-                                                <div className="card p-3 bg-glass" style={{ border: '1px solid rgba(255,255,255,0.05)' }}>
-                                                    <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>CLIENTE</span>
-                                                    <span style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
-                                                        {selectedProject.client_name || 'Não informado'}
-                                                        {selectedProject.client_country ? ` · ${selectedProject.client_country}` : ''}
-                                                    </span>
-                                                </div>
-                                                <div className="card p-3 bg-glass" style={{ border: '1px solid rgba(255,255,255,0.05)' }}>
-                                                    <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>CONFIABILIDADE</span>
-                                                    <span style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
-                                                        {selectedProject.payment_verified ? '✓ Pagamento verificado' : 'Pagamento não verificado'}
-                                                        {selectedProject.client_rating != null ? ` · ★ ${selectedProject.client_rating.toFixed(1)}` : ''}
-                                                    </span>
-                                                </div>
-                                                {(selectedProject.project_type || selectedProject.deadline) && (
-                                                    <div className="card p-3 bg-glass" style={{ border: '1px solid rgba(255,255,255,0.05)' }}>
-                                                        <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>CONTRATO</span>
-                                                        <span style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
-                                                            {selectedProject.project_type === 'hourly' ? 'Por hora' : 'Preço fixo'}
-                                                            {selectedProject.deadline ? ` · ${selectedProject.deadline}` : ''}
-                                                        </span>
-                                                    </div>
-                                                )}
-                                                {(selectedProject.client_projects_posted != null || selectedProject.client_projects_paid != null) && (
-                                                    <div className="card p-3 bg-glass" style={{ border: '1px solid rgba(255,255,255,0.05)' }}>
-                                                        <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>HISTÓRICO DO CLIENTE</span>
-                                                        <span style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
-                                                            {selectedProject.client_projects_posted ?? 0} publicados · {selectedProject.client_projects_paid ?? 0} pagos
-                                                        </span>
-                                                        {selectedProject.client_member_since && <small style={{ display: 'block' }}>Desde {selectedProject.client_member_since}</small>}
-                                                    </div>
-                                                )}
-                                                {selectedProject.details && Object.keys(selectedProject.details).length > 2 && (
-                                                    <div className="card p-3 bg-glass" style={{ border: '1px solid rgba(255,255,255,0.05)' }}>
-                                                        <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', marginBottom: '6px' }}>BRIEFING ESTRUTURADO</span>
-                                                        {Object.entries(selectedProject.details)
-                                                            .filter(([key]) => !['category', 'subcategory'].includes(key))
-                                                            .map(([key, value]) => <small key={key} style={{ display: 'block' }}><strong>{key.replace(/_/g, ' ')}:</strong> {value}</small>)}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                                            <button 
-                                                className="btn btn-primary w-full"
-                                                onClick={() => handleGenerateAiProposal(selectedProject.id)}
-                                                style={{ height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-                                            >
-                                                <span>⚡</span> Gerar Proposta
-                                            </button>
-                                            <a 
-                                                href={selectedProject.url} 
-                                                target="_blank" 
-                                                rel="noreferrer" 
-                                                className="btn btn-secondary w-full"
-                                                style={{ textAlign: 'center', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                            >
-                                                Abrir no Workana ↗
-                                            </a>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
             </div>
 
-            {/* Modais (Save Filter & AI Proposal) permanecem iguais */}
-            {showSaveModal && (
-                <div className="modal-overlay">
-                    <div className="modal-content">
-                        <div className="modal-header">
-                            <h3 className="modal-title">Salvar Configuração de Busca</h3>
-                            <button className="btn-close" onClick={() => setShowSaveModal(false)}>×</button>
-                        </div>
-                        <div className="modal-body">
-                            <div className="form-group">
-                                <label className="form-label">Nome do Perfil</label>
-                                <input
-                                    type="text"
-                                    className="form-input"
-                                    value={newFilterName}
-                                    onChange={(e) => setNewFilterName(e.target.value)}
-                                    placeholder="Ex: Hunter Python"
-                                    autoFocus
-                                />
-                            </div>
-                        </div>
-                        <div className="modal-footer">
-                            <button className="btn btn-ghost" onClick={() => setShowSaveModal(false)}>Cancelar</button>
-                            <button className="btn btn-primary" onClick={handleSaveFilter}>Salvar</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-            
-            {bidsProject && (
-                <div className="modal-overlay" onClick={() => setBidsProject(null)}>
-                    <div className="modal-content" style={{ maxWidth: '560px' }} onClick={e => e.stopPropagation()}>
-                        <div className="modal-header">
-                            <h3 className="modal-title">📈 Evolução de Propostas</h3>
-                            <button className="btn-close" onClick={() => setBidsProject(null)}>×</button>
-                        </div>
-                        <div className="modal-body">
-                            <p style={{ marginBottom: '0.75rem', color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>{bidsProject.title}</p>
-                            {bidsLoading ? (
-                                <p style={{ color: 'var(--color-text-muted)' }}>Carregando histórico...</p>
-                            ) : bidsData && bidsData.points.length > 0 ? (
-                                <>
-                                    <div style={{ display: 'flex', gap: '2px', alignItems: 'flex-end', height: '160px', marginBottom: '0.5rem' }}>
-                                        {[...bidsData.points].reverse().map((p, i) => {
-                                            const max = Math.max(...bidsData.points.map(x => x.proposals_count), 1);
-                                            const h = Math.max(6, Math.round((p.proposals_count / max) * 150));
-                                            return (
-                                                <div
-                                                    key={i}
-                                                    title={`${p.proposals_count} propostas em ${new Date(p.captured_at).toLocaleString('pt-BR')}`}
-                                                    style={{ flex: 1, background: 'linear-gradient(180deg, #22d3ee, #0ea5e9)', borderRadius: '3px 3px 0 0', height: `${h}px`, minWidth: '8px' }}
-                                                />
-                                            );
-                                        })}
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.25rem' }}>
-                                        {[...bidsData.points].reverse().map((p, i) => (
-                                            <span key={i} style={{ color: 'var(--color-text-muted)', fontSize: '0.7rem' }}>
-                                                {new Date(p.captured_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
-                                                <span style={{ marginLeft: 2, color: '#22d3ee' }}>{p.proposals_count}</span>
-                                            </span>
-                                        ))}
-                                    </div>
-                                </>
-                            ) : (
-                                <p style={{ color: 'var(--color-text-muted)' }}>Sem histórico de propostas para este projeto.</p>
-                            )}
-                        </div>
-                        <div className="modal-footer">
-                            <span style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>
-                                Atual: {bidsData?.current_count ?? "—"} propostas
-                            </span>
-                            <button className="btn btn-ghost" onClick={() => setBidsProject(null)}>Fechar</button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* Modais Extraídos */}
+            <ProjectDetailModal
+                project={selectedProject}
+                templates={templates}
+                selectedTemplateId={selectedTemplateId}
+                priceLevel={priceLevel}
+                onClose={() => setSelectedProject(null)}
+                onGenerateProposal={(id, tRef, pLevel) => handleOpenProposalModal(id, tRef, pLevel, false)}
+            />
 
-            {showAiModal && (
-                <div className="modal-overlay">
-                    <div className="modal-content" style={{ maxWidth: '800px' }}>
-                        <div className="modal-header">
-                            <h3 className="modal-title">✨ Mega Proposta IA</h3>
-                            <button className="btn-close" onClick={() => setShowAiModal(false)}>×</button>
-                        </div>
-                        <div className="modal-body">
-                            <div className="form-group mb-4">
-                                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-                                    <span style={{ fontWeight: 600 }}>Selecione o Template</span>
-                                    <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>(a escolha será lembrada nesta sessão)</span>
-                                </label>
-                                <select
-                                    className="form-input"
-                                    value={selectedTemplateId || ""}
-                                    onChange={(e) => {
-                                        const val = e.target.value || null;
-                                        setSelectedTemplateId(val);
-                                        if (val) {
-                                            sessionStorage.setItem("preferred_generation_template_id", val);
-                                        } else {
-                                            sessionStorage.removeItem("preferred_generation_template_id");
-                                        }
-                                        if (currentGeneratingProjectId) {
-                                            handleGenerateAiProposal(currentGeneratingProjectId, val);
-                                        }
-                                    }}
-                                    disabled={isGeneratingAi}
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.5rem',
-                                        borderRadius: 'var(--radius-md)',
-                                        border: '1px solid var(--color-border)',
-                                        backgroundColor: 'var(--color-bg-secondary)',
-                                        color: 'var(--color-text)',
-                                        outline: 'none'
-                                    }}
-                                >
-                                    <option value="">Prompt Padrão (Sem Template / Legacy)</option>
-                                    {templates.map((t) => (
-                                        <option key={t.template_ref} value={t.template_ref}>
-                                            {t.name} {t.is_system ? "🛡️ (Oficial)" : ""} {t.is_default ? "⭐ (Padrão)" : ""}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            
-                            {isGeneratingAi ? (
-                                <Loader type="scanning" message="Analisando missão e gerando estratégia..." />
-                            ) : aiError ? (
-                                <div className="alert alert-error">{aiError}</div>
-                            ) : (
-                                <div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-                                        <div className="card text-center p-4">
-                                            <div className="text-sm text-muted">Valor Sugerido</div>
-                                            <div className="text-xl font-bold text-primary">{aiProposal?.suggested_price}</div>
-                                        </div>
-                                        <div className="card p-4">
-                                            <div className="text-sm text-muted mb-2">Justificativa</div>
-                                            <div className="text-xs">{aiProposal?.justification}</div>
-                                        </div>
-                                    </div>
-                                    
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
-                                        <div className="form-group">
-                                            <label className="form-label" style={{ fontWeight: 600, marginBottom: '0.25rem' }}>Valor da Proposta (R$)</label>
-                                            <input 
-                                                type="number" 
-                                                className="form-input" 
-                                                value={modalBudget}
-                                                onChange={(e) => setModalBudget(e.target.value)}
-                                                placeholder="Ex: 500"
-                                                style={{
-                                                    width: '100%',
-                                                    padding: '0.5rem',
-                                                    borderRadius: 'var(--radius-md)',
-                                                    border: '1px solid var(--color-border)',
-                                                    backgroundColor: 'var(--color-bg-secondary)',
-                                                    color: 'var(--color-text)',
-                                                    outline: 'none'
-                                                }}
-                                            />
-                                        </div>
-                                        <div className="form-group">
-                                            <label className="form-label" style={{ fontWeight: 600, marginBottom: '0.25rem' }}>Prazo de Entrega (Dias)</label>
-                                            <input 
-                                                type="number" 
-                                                className="form-input" 
-                                                value={modalDeadline}
-                                                onChange={(e) => setModalDeadline(e.target.value)}
-                                                placeholder="Ex: 7"
-                                                style={{
-                                                    width: '100%',
-                                                    padding: '0.5rem',
-                                                    borderRadius: 'var(--radius-md)',
-                                                    border: '1px solid var(--color-border)',
-                                                    backgroundColor: 'var(--color-bg-secondary)',
-                                                    color: 'var(--color-text)',
-                                                    outline: 'none'
-                                                }}
-                                            />
-                                        </div>
-                                    </div>
+            <ProposalModal
+                isOpen={showAiModal}
+                templates={templates}
+                selectedTemplateId={selectedTemplateId}
+                priceLevel={priceLevel}
+                versions={proposalVersions}
+                activeVersionId={activeVersionId}
+                isGenerating={isGeneratingAi}
+                isSubmitting={isSubmittingProposal}
+                isSaving={isSavingDraft}
+                error={aiError}
+                proposalData={aiProposal}
+                budget={modalBudget}
+                deadline={modalDeadline}
+                onClose={() => setShowAiModal(false)}
+                onTemplateChange={(ref) => {
+                    setSelectedTemplateId(ref);
+                    if (ref) sessionStorage.setItem("preferred_generation_template_id", ref);
+                    else sessionStorage.removeItem("preferred_generation_template_id");
+                }}
+                onPriceLevelChange={(level) => {
+                    setPriceLevel(level);
+                }}
+                onSelectVersion={handleSelectProposalVersion}
+                onDeleteVersion={handleDeleteProposalVersion}
+                onGenerateNewVersion={() => {
+                    if (currentGeneratingProjectId) {
+                        handleGenerateAiProposal(currentGeneratingProjectId, selectedTemplateId, priceLevel, true);
+                    }
+                }}
+                onProposalChange={(text) => {
+                    setAiProposal((prev) => (prev ? { ...prev, proposal: text } : null));
+                }}
+                onBudgetChange={setModalBudget}
+                onDeadlineChange={setModalDeadline}
+                onCopy={handleCopyProposal}
+                onSaveDraft={handleSaveProposalDraft}
+                onSubmit={handleSubmitProposal}
+            />
 
-                                    <div className="form-group">
-                                        <label className="form-label">Proposta Gerada</label>
-                                        <textarea 
-                                            className="form-input" 
-                                            rows={10} 
-                                            value={aiProposal?.proposal} 
-                                            readOnly 
-                                        />
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
-                                        <button 
-                                            className="btn w-full" 
-                                            style={{ backgroundColor: 'var(--color-bg-tertiary)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }} 
-                                            onClick={handleCopyProposal}
-                                        >
-                                            Copiar Proposta
-                                        </button>
-                                        <button 
-                                            className="btn btn-primary w-full" 
-                                            onClick={handleSubmitProposal}
-                                            disabled={isSubmittingProposal}
-                                        >
-                                            {isSubmittingProposal ? "Enviando..." : "Enviar Proposta"}
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
+            <BatchCreateModal
+                isOpen={showBatchModal}
+                batchItems={batchItems}
+                templates={templates}
+                batchTemplateRef={batchTemplateRef}
+                isBatchGenerating={isBatchGenerating}
+                isSubmittingBatch={isSubmittingBatch}
+                onClose={() => setShowBatchModal(false)}
+                onTemplateChange={setBatchTemplateRef}
+                onRegenerateAll={handleOpenBatchReviewModal}
+                onItemToggle={(idx, val) =>
+                    setBatchItems((prev) => prev.map((it, i) => (i === idx ? { ...it, selected: val } : it)))
+                }
+                onItemTextChange={(idx, val) =>
+                    setBatchItems((prev) => prev.map((it, i) => (i === idx ? { ...it, proposal_text: val } : it)))
+                }
+                onItemBudgetChange={(idx, val) =>
+                    setBatchItems((prev) => prev.map((it, i) => (i === idx ? { ...it, budget: val } : it)))
+                }
+                onItemDeadlineChange={(idx, val) =>
+                    setBatchItems((prev) => prev.map((it, i) => (i === idx ? { ...it, deadline_days: val } : it)))
+                }
+                onSubmit={handleSubmitBatchToQueue}
+            />
 
-            {/* ==================== Modal de Revisão em Lote (Semi-Automático) ==================== */}
-            {showBatchModal && (
-                <div className={styles.batchModalOverlay} onClick={() => !isSubmittingBatch && setShowBatchModal(false)}>
-                    <div className={styles.batchModalContainer} onClick={e => e.stopPropagation()}>
-                        <div className={styles.batchModalHeader}>
-                            <div className={styles.batchModalTitle}>
-                                <h2>⚡ Envio de Propostas em Lote</h2>
-                                <span className={styles.batchModalBadge}>{batchItems.filter(i => i.selected).length} de {batchItems.length} selecionados</span>
-                            </div>
-                            <button className="btn-close" onClick={() => !isSubmittingBatch && setShowBatchModal(false)}>×</button>
-                        </div>
+            <BidsHistoryModal
+                data={bidsData}
+                isLoading={bidsLoading}
+                onClose={() => setBidsProject(null)}
+            />
 
-                        <div className={styles.batchModalToolbar}>
-                            <div className={styles.batchTemplateSelect}>
-                                <label>Template de IA:</label>
-                                <select 
-                                    value={batchTemplateRef || ""}
-                                    onChange={(e) => setBatchTemplateRef(e.target.value || null)}
-                                    disabled={isBatchGenerating || isSubmittingBatch}
-                                >
-                                    <option value="">Prompt Padrão (Sem Template)</option>
-                                    {templates.map(t => (
-                                        <option key={t.template_ref} value={t.template_ref}>
-                                            {t.name} {t.is_system ? "🛡️ (Oficial)" : ""} {t.is_default ? "⭐" : ""}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                                <button 
-                                    className="btn btn-secondary btn-sm"
-                                    disabled={isBatchGenerating || isSubmittingBatch}
-                                    onClick={() => handleOpenBatchReviewModal()}
-                                    title="Regera todas as propostas usando o template selecionado"
-                                >
-                                    {isBatchGenerating ? <span className="spinner spinner-sm"></span> : "✨ Regerar Todas com IA"}
-                                </button>
-                            </div>
-                        </div>
+            <SaveFilterModal
+                isOpen={showSaveModal}
+                currentFiltersCount={Object.keys(toCatalogFilters(filters)).length}
+                onClose={() => setShowSaveModal(false)}
+                onSave={handleSaveFilter}
+            />
 
-                        <div className={styles.batchModalBody}>
-                            {isBatchGenerating && batchItems.every(i => i.status === "generating") ? (
-                                <div style={{ padding: '60px 20px', textAlign: 'center' }}>
-                                    <Loader type="scanning" message="Gerando propostas hiper-personalizadas com IA para os projetos selecionados..." />
-                                </div>
-                            ) : (
-                                batchItems.map((item, idx) => {
-                                    const scoreClass = item.score >= 80 ? styles.batchScoreHigh : (item.score >= 60 ? styles.batchScoreMed : styles.batchScoreLow);
-                                    return (
-                                        <div key={item.workana_id} className={`${styles.batchProjectCard} ${!item.selected ? styles.batchProjectCardDisabled : ''}`}>
-                                            <div className={styles.batchCardTop}>
-                                                <div className={styles.batchCardTitleGroup}>
-                                                    <input 
-                                                        type="checkbox"
-                                                        checked={item.selected}
-                                                        onChange={(e) => {
-                                                            const val = e.target.checked;
-                                                            setBatchItems(prev => prev.map((it, i) => i === idx ? { ...it, selected: val } : it));
-                                                        }}
-                                                        disabled={isSubmittingBatch}
-                                                        style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: 'var(--color-primary)' }}
-                                                    />
-                                                    <div>
-                                                        <h4>{item.title}</h4>
-                                                        <div className={styles.batchCardMeta}>
-                                                            <span>Score de Match:</span>
-                                                            <span className={`${styles.batchScoreBadge} ${scoreClass}`}>{item.score}%</span>
-                                                            <a href={item.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-primary)', textDecoration: 'underline' }}>Ver no Workana ↗</a>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                {item.status === "generating" ? (
-                                                    <span className={`${styles.queueStatusBadge} ${styles.statusGenerating}`}>Gerando IA...</span>
-                                                ) : item.status === "error" ? (
-                                                    <span className={`${styles.queueStatusBadge} ${styles.statusFailed}`}>Erro IA</span>
-                                                ) : (
-                                                    <span className={`${styles.queueStatusBadge} ${styles.statusReady}`}>Pronta</span>
-                                                )}
-                                            </div>
-
-                                            {item.selected && (
-                                                <>
-                                                    <textarea 
-                                                        className={styles.batchProposalTextarea}
-                                                        value={item.proposal_text}
-                                                        placeholder="Texto da proposta personalizada..."
-                                                        onChange={(e) => {
-                                                            const text = e.target.value;
-                                                            setBatchItems(prev => prev.map((it, i) => i === idx ? { ...it, proposal_text: text } : it));
-                                                        }}
-                                                        disabled={isSubmittingBatch || item.status === "generating"}
-                                                    />
-                                                    <div className={styles.batchInputRow}>
-                                                        <div className={styles.batchInputGroup}>
-                                                            <label>Orçamento (R$):</label>
-                                                            <input 
-                                                                type="number"
-                                                                className={styles.batchSmallInput}
-                                                                value={item.budget}
-                                                                onChange={(e) => {
-                                                                    const val = Number(e.target.value);
-                                                                    setBatchItems(prev => prev.map((it, i) => i === idx ? { ...it, budget: val } : it));
-                                                                }}
-                                                                disabled={isSubmittingBatch}
-                                                            />
-                                                        </div>
-                                                        <div className={styles.batchInputGroup}>
-                                                            <label>Prazo (dias):</label>
-                                                            <input 
-                                                                type="number"
-                                                                className={styles.batchSmallInput}
-                                                                style={{ width: '80px' }}
-                                                                value={item.deadline_days}
-                                                                onChange={(e) => {
-                                                                    const val = Number(e.target.value);
-                                                                    setBatchItems(prev => prev.map((it, i) => i === idx ? { ...it, deadline_days: val } : it));
-                                                                }}
-                                                                disabled={isSubmittingBatch}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                </>
-                                            )}
-                                        </div>
-                                    );
-                                })
-                            )}
-                        </div>
-
-                        <div className={styles.batchModalFooter}>
-                            <div className={styles.batchFooterInfo}>
-                                <span>🛡️ O envio será executado sequencialmente com proteção anti-ban e delays inteligentes.</span>
-                            </div>
-                            <div style={{ display: 'flex', gap: '12px' }}>
-                                <button 
-                                    className="btn btn-ghost"
-                                    onClick={() => setShowBatchModal(false)}
-                                    disabled={isSubmittingBatch}
-                                >
-                                    Cancelar
-                                </button>
-                                <button 
-                                    className="btn btn-primary"
-                                    onClick={handleSubmitBatchToQueue}
-                                    disabled={isSubmittingBatch || isBatchGenerating || batchItems.filter(i => i.selected && i.proposal_text.trim()).length === 0}
-                                    style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', boxShadow: '0 0 15px rgba(16, 185, 129, 0.35)' }}
-                                >
-                                    {isSubmittingBatch ? <span className="spinner spinner-sm"></span> : `🚀 Iniciar Disparo em Fila (${batchItems.filter(i => i.selected && i.proposal_text.trim()).length})`}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* ==================== Drawer do Monitor de Fila (Batches & Queue) ==================== */}
-            {showQueueDrawer && (
-                <div className={styles.queueDrawerOverlay} onClick={() => setShowQueueDrawer(false)}>
-                    <div className={styles.queueDrawerContainer} onClick={e => e.stopPropagation()}>
-                        <div className={styles.queueDrawerHeader}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#f1f5f9' }}>📊 Fila de Envios & Lotes</h3>
-                            </div>
-                            <button className="btn-close" onClick={() => setShowQueueDrawer(false)}>×</button>
-                        </div>
-
-                        <div className={styles.queueDrawerBody}>
-                            {isLoadingBatches && batches.length === 0 ? (
-                                <div style={{ padding: '40px', textAlign: 'center' }}>
-                                    <Loader type="scanning" message="Consultando status da fila..." />
-                                </div>
-                            ) : batches.length === 0 ? (
-                                <div className="empty-state" style={{ padding: '40px 20px', textAlign: 'center' }}>
-                                    <div style={{ fontSize: '3rem', marginBottom: '12px' }}>📭</div>
-                                    <h4 style={{ color: '#94a3b8', margin: '0 0 8px' }}>Nenhum lote na fila</h4>
-                                    <p style={{ fontSize: '0.85rem', color: '#64748b' }}>Selecione projetos no catálogo e clique em "Gerar e Revisar em Lote" ou "Enfileirar Direto" para disparar propostas.</p>
-                                </div>
-                            ) : (
-                                batches.map(batch => {
-                                    const percent = batch.total > 0 ? Math.round(((batch.sent_count + batch.failed_count + batch.skipped_count) / batch.total) * 100) : 0;
-                                    const isSelected = selectedBatchDetail?.id === batch.id;
-                                    return (
-                                        <div 
-                                            key={batch.id} 
-                                            className={styles.queueBatchCard}
-                                            style={{ borderColor: isSelected ? 'var(--color-primary)' : 'rgba(255,255,255,0.08)' }}
-                                            onClick={() => loadBatchDetail(batch.id)}
-                                        >
-                                            <div className={styles.queueBatchTop}>
-                                                <div>
-                                                    <span className={styles.queueBatchTitle}>Lote #{batch.id}</span>
-                                                    <span style={{ fontSize: '0.75rem', color: '#64748b', marginLeft: '8px' }}>
-                                                        {batch.created_at ? new Date(batch.created_at).toLocaleTimeString() : ''}
-                                                    </span>
-                                                </div>
-                                                <span className={`${styles.queueStatusBadge} ${
-                                                    batch.status === "completed" ? styles.statusSent :
-                                                    batch.status === "running" ? styles.statusSending :
-                                                    batch.status === "cancelled" ? styles.statusCancelled :
-                                                    batch.status === "failed" ? styles.statusFailed : styles.statusQueued
-                                                }`}>
-                                                    {batch.status === "completed" ? "Concluído" :
-                                                     batch.status === "running" ? "Em Envio 🚀" :
-                                                     batch.status === "cancelled" ? "Cancelado" :
-                                                     batch.status === "failed" ? "Falhou" : "Na Fila"}
-                                                </span>
-                                            </div>
-
-                                            <div className={styles.queueProgressTrack}>
-                                                <div className={styles.queueProgressBar} style={{ width: `${percent}%` }}></div>
-                                            </div>
-
-                                            <div className={styles.queueStatsRow}>
-                                                <span>Progresso: {batch.sent_count}/{batch.total} enviadas</span>
-                                                <span>{percent}% concluído</span>
-                                            </div>
-
-                                            {batch.failed_count > 0 && (
-                                                <div style={{ fontSize: '0.78rem', color: '#f87171', marginTop: '6px' }}>
-                                                    ⚠️ {batch.failed_count} proposta(s) falharam
-                                                </div>
-                                            )}
-
-                                            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                                                {batch.status === "running" || batch.status === "queued" ? (
-                                                    <button 
-                                                        className="btn btn-ghost btn-sm"
-                                                        style={{ color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '4px 10px', fontSize: '0.75rem' }}
-                                                        onClick={(e) => { e.stopPropagation(); handleCancelBatch(batch.id); }}
-                                                    >
-                                                        🛑 Cancelar
-                                                    </button>
-                                                ) : null}
-
-                                                {batch.failed_count > 0 || batch.status === "cancelled" || batch.status === "failed" ? (
-                                                    <button 
-                                                        className="btn btn-secondary btn-sm"
-                                                        style={{ padding: '4px 10px', fontSize: '0.75rem' }}
-                                                        onClick={(e) => { e.stopPropagation(); handleRetryBatch(batch.id); }}
-                                                    >
-                                                        🔁 Reenviar Falhas
-                                                    </button>
-                                                ) : null}
-
-                                                <button 
-                                                    className="btn btn-ghost btn-sm"
-                                                    style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: '0.75rem' }}
-                                                    onClick={(e) => { e.stopPropagation(); loadBatchDetail(batch.id); }}
-                                                >
-                                                    {isSelected ? "Ocultar Detalhes" : "Ver Itens ▾"}
-                                                </button>
-                                            </div>
-
-                                            {/* Detalhe dos itens do lote */}
-                                            {isSelected && selectedBatchDetail?.items && (
-                                                <div style={{ marginTop: '14px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '10px' }}>
-                                                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#94a3b8', marginBottom: '8px' }}>
-                                                        Itens do Lote ({selectedBatchDetail.items.length}):
-                                                    </div>
-                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                                        {selectedBatchDetail.items.map(item => (
-                                                            <div key={item.id} className={styles.queueItemRow}>
-                                                                <div style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: '10px' }}>
-                                                                    <a 
-                                                                        href={item.project_url || `https://www.workana.com/job/${item.workana_id}`} 
-                                                                        target="_blank" 
-                                                                        rel="noopener noreferrer"
-                                                                        style={{ color: '#e2e8f0', textDecoration: 'none' }}
-                                                                    >
-                                                                        {item.project_title || item.workana_id}
-                                                                    </a>
-                                                                    {item.error && (
-                                                                        <div style={{ fontSize: '0.72rem', color: '#f87171', marginTop: '2px' }}>
-                                                                            {item.error}
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                                <span className={`${styles.queueStatusBadge} ${
-                                                                    item.status === "sent" ? styles.statusSent :
-                                                                    item.status === "sending" ? styles.statusSending :
-                                                                    item.status === "ready" ? styles.statusReady :
-                                                                    item.status === "generating" ? styles.statusGenerating :
-                                                                    item.status === "failed" ? styles.statusFailed :
-                                                                    item.status === "skipped" ? styles.statusSkipped :
-                                                                    item.status === "cancelled" ? styles.statusCancelled : styles.statusQueued
-                                                                }`}>
-                                                                    {item.status === "sent" ? "Enviada" :
-                                                                     item.status === "sending" ? "Enviando..." :
-                                                                     item.status === "ready" ? "Pronta" :
-                                                                     item.status === "generating" ? "Gerando IA" :
-                                                                     item.status === "failed" ? "Falhou" :
-                                                                     item.status === "skipped" ? "Ignorada" :
-                                                                     item.status === "cancelled" ? "Cancelada" : "Na Fila"}
-                                                                </span>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                })
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
+            <QueueDrawerModal
+                isOpen={showQueueDrawer}
+                batches={batches}
+                isLoading={isLoadingBatches}
+                selectedBatchDetail={selectedBatchDetail}
+                onClose={() => setShowQueueDrawer(false)}
+                onSelectBatch={loadBatchDetail}
+                onCancelBatch={handleCancelBatch}
+                onRetryBatch={handleRetryBatch}
+            />
         </div>
     );
 }
-

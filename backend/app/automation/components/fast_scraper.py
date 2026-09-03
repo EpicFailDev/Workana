@@ -10,7 +10,14 @@ import re
 
 from app.api.schemas import SearchFilters, Project
 from app.services.currency import CurrencyService
-from app.automation.components.project_parser import parse_project_json
+from app.automation.selectors import WorkanaSelectors
+from app.automation.components.project_parser import (
+    parse_project_json,
+    _extract_briefing_details,
+    _parse_client_history,
+    _parse_rating,
+    _plain_text,
+)
 
 class FastProjectScraper:
     """
@@ -54,23 +61,36 @@ class FastProjectScraper:
         
         logger.info(f"⚡ Fast Parallel Scraping: páginas {start_page} a {start_page + pages_to_fetch - 1}")
         
-        tasks = [
-            self._scrape_page_with_semaphore(filters, page_num, user_id)
-            for page_num in range(start_page, start_page + pages_to_fetch)
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
         all_projects: List[Project] = []
         seen_ids = set()
-        
-        for result in results:
-            if isinstance(result, list):
-                for p in result:
-                    if p.id not in seen_ids:
-                        seen_ids.add(p.id)
-                        all_projects.append(p)
-            elif isinstance(result, Exception):
-                logger.error(f"Erro em página Fast: {result}")
+        chunk_size = 5
+
+        for chunk_start in range(start_page, start_page + pages_to_fetch, chunk_size):
+            chunk_end = min(chunk_start + chunk_size, start_page + pages_to_fetch)
+            tasks = [
+                self._scrape_page_with_semaphore(filters, page_num, user_id)
+                for page_num in range(chunk_start, chunk_end)
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            chunk_projects_count = 0
+            has_empty_page = False
+            
+            for result in results:
+                if isinstance(result, list):
+                    if len(result) == 0:
+                        has_empty_page = True
+                    for p in result:
+                        if p.id not in seen_ids:
+                            seen_ids.add(p.id)
+                            all_projects.append(p)
+                            chunk_projects_count += 1
+                elif isinstance(result, Exception):
+                    logger.error(f"Erro em página Fast: {result}")
+
+            # Se uma página retornou 0 projetos no lote ou foi bloqueado, encerra a busca antecipadamente
+            if has_empty_page or chunk_projects_count == 0 or self.was_blocked:
+                break
 
         if filters.project_type.value != "any":
             all_projects = [
@@ -151,28 +171,49 @@ class FastProjectScraper:
                     logger.error(f"Status {response.status_code} na página {page_num}")
                     return []
                 
-                soup = BeautifulSoup(response.text, 'html.parser')
-                search_tag = soup.find('search')
-                
-                if not search_tag:
-                    return []
-                
-                results_attr = search_tag.get(':results-initials')
-                if not results_attr:
-                    return []
-                
-                decoded_json = html.unescape(results_attr)
-                data = json.loads(decoded_json)
-                
-                projects_data = data.get('results', [])
                 page_projects = []
+                content_type = response.headers.get("content-type", "")
+                text_content = response.text.strip()
                 
-                for p_dict in projects_data:
-                    p = await self._extract_project_from_json(p_dict)
-                    if p:
-                        page_projects.append(p)
+                # Tratar resposta JSON direta
+                if "application/json" in content_type or (text_content.startswith("{") and text_content.endswith("}")):
+                    try:
+                        data = response.json()
+                        results_container = data.get("results", {})
+                        projects_data = []
+                        if isinstance(results_container, dict):
+                            projects_data = results_container.get("results", [])
+                        elif isinstance(results_container, list):
+                            projects_data = results_container
+                        
+                        for p_dict in projects_data:
+                            p = await self._extract_project_from_json(p_dict)
+                            if p and p.id and p.id.strip():
+                                if not p.category and filters.category:
+                                    p.category = filters.category
+                                page_projects.append(p)
+                    except Exception as json_err:
+                        logger.warning(f"Erro ao processar JSON direto na página {page_num}: {json_err}")
                 
-                success = True
+                # Tratar resposta HTML com tag <search :results-initials="...">
+                if not page_projects:
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    search_tag = soup.find('search')
+                    if search_tag:
+                        results_attr = search_tag.get(':results-initials')
+                        if results_attr:
+                            decoded_json = html.unescape(results_attr)
+                            data = json.loads(decoded_json)
+                            projects_data = data.get('results', [])
+                            for p_dict in projects_data:
+                                p = await self._extract_project_from_json(p_dict)
+                                if p and p.id and p.id.strip():
+                                    if not p.category and filters.category:
+                                        p.category = filters.category
+                                    page_projects.append(p)
+                
+                if page_projects:
+                    success = True
                 return page_projects
                 
         except Exception as e:
@@ -307,32 +348,118 @@ class FastProjectScraper:
                 
                 soup = BeautifulSoup(response.text, 'html.parser')
                 
-                # No Workana, detalhes do projeto costumam estar em um objeto JSON num script
-                # ou podemos extrair do DOM. O Fast scraper prefere JSON se disponível.
-                # Mas para simplificar aqui, vamos extrair do DOM usando seletores básicos.
-                
-                title_el = soup.find('h1', class_='project-title') or soup.find('h1')
+                # 1. Título
+                title_el = (
+                    soup.select_one(WorkanaSelectors.DETAILS_TITLE)
+                    or soup.find('h1', class_='project-title')
+                    or soup.find('h1')
+                    or soup.select_one('h2.project-title')
+                )
                 title = title_el.get_text(strip=True) if title_el else "Sem título"
                 
-                desc_el = soup.find('div', class_='project-details') or soup.find('div', class_='description')
+                # 2. Descrição (multi-seletor + fallback para meta)
+                desc_el = (
+                    soup.select_one(WorkanaSelectors.DETAILS_DESCRIPTION)
+                    or soup.find('div', class_='project-details')
+                    or soup.find('div', class_='job-details')
+                    or soup.find('div', class_='job-description')
+                    or soup.find('div', class_='project-body')
+                    or soup.find('div', class_='description')
+                    or soup.find('div', class_='expander')
+                )
                 description = ""
                 if desc_el:
-                    description = desc_el.get_text(separator='\n', strip=True)
+                    desc_html = str(desc_el)
+                    desc_html = re.sub(r"<br\s*/?>", "\n", desc_html, flags=re.IGNORECASE)
+                    description = BeautifulSoup(desc_html, 'html.parser').get_text(separator='\n', strip=True)
                 
-                budget_el = soup.find('span', class_='budget') or soup.find('div', class_='budget')
-                budget = budget_el.get_text(strip=True) if budget_el else None
-                
-                # Nome do cliente - geralmente em um link dentro da seção do cliente
-                client_el = soup.select_one('.client-name a, .client-info h4, .project-author a')
+                if not description:
+                    meta_desc = soup.find('meta', attrs={'name': 'description'}) or soup.find('meta', attrs={'property': 'og:description'})
+                    if meta_desc and meta_desc.get('content'):
+                        description = meta_desc['content'].strip()
+
+                description = re.sub(r'\n{3,}', '\n\n', description).strip()
+
+                # 3. Metadados do Briefing
+                details = _extract_briefing_details(description)
+                category = details.get("category")
+                subcategory = details.get("subcategory")
+
+                # 4. Orçamento
+                budget_el = (
+                    soup.select_one(WorkanaSelectors.DETAILS_BUDGET)
+                    or soup.find('span', class_='budget')
+                    or soup.find('div', class_='budget')
+                    or soup.find('span', class_='values')
+                )
+                raw_budget = budget_el.get_text(strip=True) if budget_el else None
+                budget = await CurrencyService.convert_to_brl(raw_budget) if raw_budget else None
+                budget_min, budget_max = CurrencyService.parse_budget_string(budget) if budget else (None, None)
+
+                # 5. Skills
+                skills: List[str] = []
+                for s_el in soup.select(WorkanaSelectors.DETAILS_SKILLS):
+                    s_txt = s_el.get_text(strip=True)
+                    if s_txt and s_txt not in skills:
+                        skills.append(s_txt)
+
+                # 6. Cliente e Informações do Perfil
+                client_el = soup.select_one(WorkanaSelectors.DETAILS_CLIENT_NAME)
                 client_name = client_el.get_text(strip=True) if client_el else None
-                
+
+                country_el = soup.select_one(WorkanaSelectors.DETAILS_CLIENT_COUNTRY)
+                client_country = None
+                if country_el:
+                    c_txt = country_el.get_text(strip=True)
+                    if c_txt:
+                        client_country = c_txt
+                    else:
+                        c_cls = country_el.get('class', [])
+                        for c in c_cls:
+                            if c.startswith('flag-') and len(c) > 5:
+                                client_country = c[5:].upper()
+
+                rating_el = soup.select_one(WorkanaSelectors.DETAILS_RATING)
+                rating_raw = rating_el.get('title') if rating_el and rating_el.get('title') else (rating_el.get_text(strip=True) if rating_el else None)
+                client_rating = _parse_rating(rating_raw)
+
+                sidebar_el = soup.select_one(WorkanaSelectors.DETAILS_SIDEBAR)
+                posted = None
+                paid = None
+                since = None
+                if sidebar_el:
+                    posted, paid, since = _parse_client_history(sidebar_el.get_text(separator='\n', strip=True))
+
+                payment_el = soup.select_one('[title*="Pagamento verificado"], [title*="verified"], .payment-verified, .verified-payment')
+                payment_verified = payment_el is not None
+
+                is_hourly = False
+                if budget and ("/ hora" in budget.lower() or "/hr" in budget.lower() or "/hour" in budget.lower()):
+                    is_hourly = True
+
+                deadline = details.get("delivery_deadline") or details.get("duration")
+
                 success = True
                 return Project(
                     id=project_id,
                     title=title,
                     description=description,
                     budget=budget,
-                    skills=[],
+                    budget_min=budget_min,
+                    budget_max=budget_max,
+                    project_type="hourly" if is_hourly else "fixed",
+                    category=category,
+                    subcategory=subcategory,
+                    deadline=deadline,
+                    details=details,
+                    skills=skills,
+                    client_name=client_name,
+                    client_country=client_country,
+                    client_rating=client_rating,
+                    client_projects_posted=posted,
+                    client_projects_paid=paid,
+                    client_member_since=since,
+                    payment_verified=payment_verified,
                     url=url
                 )
         except Exception as e:

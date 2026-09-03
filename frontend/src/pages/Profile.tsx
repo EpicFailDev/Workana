@@ -1,29 +1,9 @@
 import { useState, useEffect } from "react";
 import styles from "./Profile.module.css";
-import { api } from "../services/api";
+import { api, type ProfileMetrics } from "../services/api";
 import Loader from "../components/Loader";
 import CyberHeader from "../components/CyberHeader";
 
-interface ProfileMetrics {
-    success: boolean;
-    profile_url: string | null;
-    username: string | null;
-    display_name: string | null;
-    projects_completed: number;
-    projects_in_progress: number;
-    hours_worked: number;
-    average_rating: number | null;
-    total_reviews: number;
-    member_since: string | null;
-    country: string | null;
-    hourly_rate: string | null;
-    skills: string[];
-    last_login: string | null;
-    profile_photo_url?: string | null;
-    last_sync: string | null;
-    is_configured: boolean;
-    error: string | null;
-}
 
 export default function Profile() {
     const [profileMetrics, setProfileMetrics] = useState<ProfileMetrics | null>(null);

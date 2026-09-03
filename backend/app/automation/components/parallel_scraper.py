@@ -11,21 +11,25 @@ import random
 from app.api.schemas import SearchFilters, Project
 from app.automation.selectors import WorkanaSelectors
 from app.services.currency import CurrencyService
-from app.automation.components.project_parser import parse_project_json
+from app.automation.components.project_parser import (
+    parse_project_json,
+    _extract_briefing_details,
+    _parse_client_history,
+    _parse_rating,
+)
 import json
 import html
 import re
 from bs4 import BeautifulSoup
 
 
-# Lista de User-Agents para rotação
+# Lista de User-Agents Chrome modernos para rotação
 USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
 ]
 
 # Resoluções de tela comuns
@@ -34,7 +38,6 @@ VIEWPORTS = [
     {'width': 1366, 'height': 768},
     {'width': 1536, 'height': 864},
     {'width': 1440, 'height': 900},
-    {'width': 1280, 'height': 720},
 ]
 
 
@@ -63,7 +66,7 @@ class AnonymousParallelScraper:
         for attempt in range(settings.max_retries):
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=settings.scraping_timeout)
-                await asyncio.sleep(2)  # Espera carregar JS
+                await asyncio.sleep(3)  # Espera carregar JS
                 
                 # Se detectou bloqueio por Captcha/Cloudflare, tenta resolver
                 if await solver.is_blocked(page):
@@ -90,10 +93,10 @@ class AnonymousParallelScraper:
         if filters.max_budget:
             params.append(f"budget_max={filters.max_budget}")
         # Novos filtros
-        if filters.publication:
+        if filters.publication and filters.publication != "any":
             params.append(f"publication={filters.publication}")
         
-        if filters.language:
+        if filters.language and filters.language != "any":
             params.append(f"language={filters.language}")
             
         if filters.proposals:
@@ -106,10 +109,6 @@ class AnonymousParallelScraper:
             params.append("client_history=1")
             
         if filters.skills:
-            # Workana usa 'skills=' repetido ou separado por vírgula? 
-            # Na inspeção vimos 'skills=slug'. Vamos assumir um se houver, ou tratar lista.
-            # Simples implementação pegando o primeiro ou juntando se descobrir o formato exato
-            # Observado: skills=react-js
             for skill in filters.skills:
                 params.append(f"skills={skill}")
 
@@ -122,228 +121,46 @@ class AnonymousParallelScraper:
         if page_num > 1:
             params.append(f"page={page_num}")
         
-        url = self.WORKANA_JOBS_URL
+        url = "/jobs"
         if params:
             url += "?" + "&".join(params)
         return url
-
-    async def _scrape_single_page(self, browser: Browser, url: str, page_num: int) -> dict:
-        """
-        Busca uma única página em um CONTEXTO ISOLADO (incógnito).
-        Cada aba tem seu próprio fingerprint aleatório.
-        """
-        context = None
-        try:
-            # User-Agent aleatório para esta aba
-            user_agent = random.choice(USER_AGENTS)
-            viewport = random.choice(VIEWPORTS)
-            
-            # Contexto TOTALMENTE ISOLADO (sem cookies compartilhados)
-            context = await browser.new_context(
-                viewport=viewport,
-                user_agent=user_agent,
-                locale='pt-BR',
-                timezone_id='America/Sao_Paulo',
-                geolocation={"latitude": -23.5505, "longitude": -46.6333},
-                permissions=["geolocation"],
-                extra_http_headers={
-                    "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
-                },
-                # Modo incógnito implícito - cada contexto é isolado
-                ignore_https_errors=True,
-            )
-            
-            # Bloqueio de recursos para carregar MAIS RÁPIDO
-            await context.route("**/*.{png,jpg,jpeg,gif,svg,webp,css,woff,woff2,ttf,otf,eot}", lambda route: route.abort())
-            
-            # Forçar cookie de moeda para BRL
-            await context.add_cookies([{
-                "name": "currency",
-                "value": "BRL",
-                "domain": ".workana.com",
-                "path": "/"
-            }])
-            
-            # Scripts anti-detecção
-            await context.add_init_script("""
-                // Remove webdriver flag
-                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-                
-                // Fake plugins
-                Object.defineProperty(navigator, 'plugins', { 
-                    get: () => [1, 2, 3, 4, 5].map(() => ({})) 
-                });
-                
-                // Fake languages
-                Object.defineProperty(navigator, 'languages', { 
-                    get: () => ['pt-BR', 'pt', 'en-US', 'en'] 
-                });
-                
-                // Fake chrome runtime
-                window.chrome = { runtime: {} };
-                
-                // Override permissions
-                const originalQuery = window.navigator.permissions.query;
-                window.navigator.permissions.query = (parameters) => (
-                    parameters.name === 'notifications' ?
-                        Promise.resolve({ state: 'denied' }) :
-                        originalQuery(parameters)
-                );
-            """)
-            
-            page = await context.new_page()
-            
-            # Delay aleatório MINÚSCULO para evitar detecção básica
-            await asyncio.sleep(random.uniform(0.1, 0.4))
-            
-            logger.info(f"[Aba {page_num}] Carregando...")
-            
-            await self._safe_goto(page, url)
-            
-            # Tempo reduzido para parecer humano mas ser rápido
-            await asyncio.sleep(random.uniform(0.5, 1.2))
-            
-            # Espera inteligente pelo conteúdo
-            try:
-                await page.wait_for_selector(WorkanaSelectors.PROJECT_CARD, timeout=10000)
-            except:
-                logger.warning(f"[Aba {page_num}] Timeout esperando projetos.")
-
-            # Extrai projetos via JSON (mais completo que o DOM)
-            projects = []
-            
-            # Tentar extrair do atributo :results-initials
-            search_tag = await page.query_selector('search')
-            if search_tag:
-                results_attr = await search_tag.get_attribute(':results-initials')
-                if results_attr:
-                    try:
-                        decoded_json = html.unescape(results_attr)
-                        data = json.loads(decoded_json)
-                        projects_data = data.get('results', [])
-                        
-                        for p_dict in projects_data:
-                            p = await self._extract_project_from_json(p_dict)
-                            if p:
-                                projects.append(p)
-                    except Exception as je:
-                        logger.warning(f"[Aba {page_num}] Erro ao parsear JSON: {je}")
-
-            # Fallback para extração DOM se JSON falhar
-            if not projects:
-                cards = await page.query_selector_all(WorkanaSelectors.PROJECT_CARD)
-                for card in cards:
-                    p = await self._extract_project(card)
-                    if p:
-                        projects.append(p)
-            
-            # Verifica próxima página
-            next_btn = await page.query_selector(WorkanaSelectors.PAGINATION_NEXT)
-            has_next = next_btn is not None
-            
-            logger.info(f"[Aba {page_num}] ✓ {len(projects)} projetos encontrados")
-            return {"page": page_num, "projects": projects, "has_next": has_next}
-            
-        except Exception as e:
-            logger.error(f"[Aba {page_num}] Erro: {e}")
-            return {"page": page_num, "projects": [], "has_next": False}
-        finally:
-            # SEMPRE fecha o contexto para não deixar rastros
-            if context:
-                await context.close()
 
     async def _extract_project_from_json(self, data: dict) -> Optional[Project]:
         """Extrai um projeto de um dicionário (JSON do Workana)."""
         return await parse_project_json(data, self.WORKANA_BASE_URL)
 
-        # Implementação legada mantida temporariamente abaixo para facilitar rollback.
+    async def _extract_project(self, card, default_category: Optional[str] = None) -> Optional[Project]:
+        """Extrai informações de um card de projeto via DOM de forma robusta."""
         try:
-            # Título: extrair texto do HTML
-            title_html = data.get('title', '')
-            title_soup = BeautifulSoup(title_html, 'html.parser')
-            title = title_soup.get_text(strip=True)
-            
-            slug = data.get('slug', '')
-            url = f"{self.WORKANA_BASE_URL}/job/{slug}" if slug else ""
-            
-            budget = data.get('budget', '')
-            if budget and "USD" in budget.upper():
-                budget = await CurrencyService.convert_to_brl(budget)
-            
-            skills = [s.get('anchorText') for s in data.get('skills', []) if s.get('anchorText')]
-            
-            # Propostas
-            proposals_text = data.get('totalBids', '0')
-            m = re.search(r'\d+', str(proposals_text))
-            proposals = int(m.group()) if m else 0
-
-            # Descrição: unescape e limpeza básica
-            desc = html.unescape(data.get('description', ''))
-            desc = re.sub(r'<br\s*/?>', '\n', desc, flags=re.IGNORECASE)
-            desc = BeautifulSoup(desc, 'html.parser').get_text(separator='\n')
-            
-            # Remover metadados que o Workana anexa ao final (mais robusto)
-            # Esses campos geralmente aparecem no final no formato "Categoria\n: ..." ou "Categoria : ..."
-            meta_pattern = r'\n+(?:Categoria|Subcategoria|Tamanho do projeto|Do que você precisa\?|Qual é o alcance|E-commerce|Isso é um projeto|Duração|Quantidade de pessoas)\b'
-            parts = re.split(meta_pattern, desc, flags=re.IGNORECASE)
-            if len(parts) > 1:
-                desc = parts[0]
-            
-            # Caso não tenha pego com \n no início (raro no JSON, mas possível no fallback)
-            meta_labels_fallback = [
-                r'Categoria:', r'Subcategoria:', r'Tamanho do projeto:', r'Do que você precisa\?:'
-            ]
-            for label in meta_labels_fallback:
-                parts = re.split(label, desc, flags=re.IGNORECASE)
-                if len(parts) > 1:
-                    desc = parts[0]
-            
-            # Limpar múltiplos saltos de linha para não ficar com muito espaço em branco
-            desc = re.sub(r'\n{3,}', '\n\n', desc).strip()
-
-            # Extração de país e pagamento verificado
-            country_html = data.get('country', '')
-            client_country = None
-            if country_html:
-                client_country = BeautifulSoup(country_html, 'html.parser').get_text(strip=True)
-                
-            payment_verified = bool(data.get('hasVerifiedPaymentMethod', False))
-
-            return Project(
-                id=slug,
-                title=title,
-                description=desc,
-                budget=budget,
-                skills=skills,
-                proposals_count=proposals,
-                posted_at=data.get('postedDate'),
-                url=url,
-                client_country=client_country,
-                payment_verified=payment_verified
-            )
-        except Exception as e:
-            logger.warning(f"Erro ao processar JSON de projeto: {e}")
-            return None
-
-    async def _extract_project(self, card) -> Optional[Project]:
-        """Extrai informações de um card de projeto."""
-        try:
-            # Título e Link
-            title_el = await card.query_selector(WorkanaSelectors.CARD_TITLE)
-            if not title_el:
+            # Link e ID do projeto (garantir que localiza a tag <a> do job)
+            a_el = await card.query_selector('a[href*="/job/"], a[href*="/jobs/"], .project-title a, h2.project-title a, h3.project-title a')
+            if not a_el:
                 return None
             
-            title = await title_el.text_content()
-            title = title.strip() if title else ""
-            
-            ref = await title_el.get_attribute("href")
-            if ref and not ref.startswith("http"):
+            ref = await a_el.get_attribute("href")
+            if not ref:
+                return None
+            if not ref.startswith("http"):
                 ref = self.WORKANA_BASE_URL + ref
             
-            pid = ref.split("/")[-1].split("?")[0] if ref else ""
+            pid = ref.split("/")[-1].split("?")[0].strip()
+            if not pid:
+                return None
             
-            # Descrição
-            desc_el = await card.query_selector(WorkanaSelectors.CARD_DESCRIPTION)
+            # Título (prioriza o atributo title do span ou texto do <a>)
+            span_title_el = await card.query_selector('.project-title span[title], a[href*="/job/"] span[title]')
+            title = None
+            if span_title_el:
+                title = await span_title_el.get_attribute("title")
+            if not title:
+                title = await a_el.text_content()
+            title = (title or "").strip()
+            if not title:
+                return None
+            
+            # Descrição (seletor específico para o container de texto da descrição)
+            desc_el = await card.query_selector('.project-body .html-desc, .html-desc, .project-details, .expander, [data-text-expand], .project-item-description, .project-description')
             desc = ""
             if desc_el:
                 desc = await desc_el.text_content()
@@ -352,16 +169,19 @@ class AnonymousParallelScraper:
             # Orçamento
             budget_el = await card.query_selector(WorkanaSelectors.CARD_BUDGET)
             budget = None
+            budget_min = None
+            budget_max = None
             if budget_el:
-                budget = await budget_el.text_content()
-                budget = budget.strip() if budget else None
-                if budget:
-                    logger.info(f"💰 DEBUG Original budget found: {budget}")
-                    # Converter para BRL se for USD
-                    if "USD" in budget.upper():
-                        old_budget = budget
-                        budget = await CurrencyService.convert_to_brl(budget)
-                        logger.info(f"🔄 Converted {old_budget} -> {budget}")
+                raw_budget = await budget_el.text_content()
+                raw_budget = raw_budget.strip() if raw_budget else None
+                if raw_budget:
+                    budget = await CurrencyService.convert_to_brl(raw_budget)
+                    budget_min, budget_max = CurrencyService.parse_budget_string(budget)
+            
+            # Tipo de projeto (hourly vs fixed)
+            is_hourly = False
+            if budget and ("/ hora" in budget.lower() or "/hr" in budget.lower() or "/hour" in budget.lower()):
+                is_hourly = True
             
             # Skills
             skills = []
@@ -369,7 +189,9 @@ class AnonymousParallelScraper:
             for s in skill_els:
                 txt = await s.text_content()
                 if txt:
-                    skills.append(txt.strip())
+                    clean_txt = txt.strip()
+                    if clean_txt and clean_txt != "+" and clean_txt not in skills:
+                        skills.append(clean_txt)
             
             # Propostas
             proposals = 0
@@ -377,7 +199,6 @@ class AnonymousParallelScraper:
             if p_el:
                 p_text = await p_el.text_content()
                 if p_text:
-                    import re
                     m = re.search(r'\d+', p_text)
                     if m:
                         proposals = int(m.group())
@@ -389,13 +210,11 @@ class AnonymousParallelScraper:
                 posted_at = await date_el.text_content()
                 if not posted_at:
                     posted_at = await date_el.get_attribute('title')
-                
-                # Limpar texto "Publicado: "
                 if posted_at:
                     posted_at = posted_at.replace("Publicado:", "").strip()
 
             # Extração de país do card DOM
-            country_el = await card.query_selector('.country-name a, .country-name')
+            country_el = await card.query_selector('.country-name a, .country-name, .location')
             client_country = await country_el.text_content() if country_el else None
             if client_country:
                 client_country = client_country.strip()
@@ -404,37 +223,41 @@ class AnonymousParallelScraper:
             payment_el = await card.query_selector('[title*="Pagamento verificado"], [title*="verified"], .payment-verified, .verified-payment')
             payment_verified = payment_el is not None
 
+            details = _extract_briefing_details(desc) if desc else {}
+            category = details.get("category") or default_category
+            subcategory = details.get("subcategory")
+
             return Project(
                 id=pid,
                 title=title,
                 description=desc,
                 budget=budget,
+                budget_min=budget_min,
+                budget_max=budget_max,
+                project_type="hourly" if is_hourly else "fixed",
+                category=category,
+                subcategory=subcategory,
                 skills=skills,
                 proposals_count=proposals,
                 posted_at=posted_at.strip() if posted_at else None,
-                url=ref or "",
+                url=ref or f"{self.WORKANA_BASE_URL}/job/{pid}",
                 client_country=client_country,
                 payment_verified=payment_verified
             )
         except Exception as e:
-            logger.warning(f"Erro ao extrair projeto: {e}")
+            logger.warning(f"Erro ao extrair projeto do card: {e}")
             return None
 
     async def search_projects_parallel(self, filters: SearchFilters) -> List[Project]:
         """
-        Busca projetos em múltiplas páginas SIMULTANEAMENTE.
-        
-        PROTEÇÕES ANTI-BAN:
-        - Cada busca cria um navegador NOVO
-        - Cada página usa contexto ISOLADO
-        - User-Agents e fingerprints ALEATÓRIOS
-        - Tudo é FECHADO após a busca (sem sessão persistente)
+        Busca projetos no Workana com sessão Playwright isolada anti-detecção
+        e extração híbrida direta (Fetch API interna autenticada + Fallback DOM).
         """
         playwright = None
         browser = None
+        context = None
         
         try:
-            # Criar navegador NOVO para esta busca (sem histórico)
             playwright = await async_playwright().start()
             browser = await playwright.chromium.launch(
                 headless=True,
@@ -444,54 +267,225 @@ class AnonymousParallelScraper:
                     '--no-sandbox',
                     '--disable-web-security',
                     '--disable-features=IsolateOrigins,site-per-process',
-                    '--incognito',  # Força modo incógnito
+                    '--incognito',
                 ]
             )
             
+            user_agent = random.choice(USER_AGENTS)
+            viewport = random.choice(VIEWPORTS)
+            
+            context = await browser.new_context(
+                viewport=viewport,
+                user_agent=user_agent,
+                locale='pt-BR',
+                timezone_id='America/Sao_Paulo',
+                geolocation={"latitude": -23.5505, "longitude": -46.6333},
+                permissions=["geolocation"],
+                extra_http_headers={
+                    "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
+                },
+                ignore_https_errors=True,
+            )
+            
+            # Forçar cookie de moeda para BRL
+            await context.add_cookies([{
+                "name": "currency",
+                "value": "BRL",
+                "domain": ".workana.com",
+                "path": "/"
+            }])
+            
+            # Scripts anti-detecção
+            await context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                Object.defineProperty(navigator, 'languages', { 
+                    get: () => ['pt-BR', 'pt', 'en-US', 'en'] 
+                });
+                window.chrome = { runtime: {} };
+            """)
+            
+            page = await context.new_page()
+            
             start_page = filters.page
             pages_to_fetch = filters.pages_to_fetch
+            end_page = start_page + pages_to_fetch - 1
             
-            logger.info(f"🔒 Busca ANÔNIMA: páginas {start_page} a {start_page + pages_to_fetch - 1}")
+            logger.info(f"🔒 Busca ANÔNIMA Playwright: páginas {start_page} a {end_page}")
             
-            # Criar URLs para todas as páginas
-            urls = [
-                (self._build_search_url(filters, page_num), page_num)
-                for page_num in range(start_page, start_page + pages_to_fetch)
+            # Navegar para a página inicial da busca para resolver Cloudflare
+            first_url_rel = self._build_search_url(filters, start_page)
+            initial_url = self.WORKANA_BASE_URL + first_url_rel
+            
+            await self._safe_goto(page, initial_url)
+            await asyncio.sleep(2.0)
+            
+            # Preparar as URLs relativas para todas as páginas solicitadas
+            urls_rel = [
+                self._build_search_url(filters, p_num)
+                for p_num in range(start_page, start_page + pages_to_fetch)
             ]
             
-            # Buscar TODAS as páginas simultaneamente
-            # O navegador é passado para cada tarefa, que criará seu próprio contexto isolado
-            tasks = [
-                self._scrape_single_page(browser, url, page_num)
-                for url, page_num in urls
-            ]
-            
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Processar resultados
             all_projects: List[Project] = []
             seen_ids = set()
             
-            valid_results = []
-            for result in results:
-                if isinstance(result, Exception):
-                    logger.error(f"Erro em busca: {result}")
-                    continue
-                valid_results.append(result)
+            # 1. Tentar extração rápida e completa via Fetch API dentro da sessão validada do navegador
+            try:
+                raw_results = await page.evaluate("""async (targetUrls) => {
+                    const pagesData = [];
+                    const decodeHtml = (htmlStr) => {
+                        if (!htmlStr) return '';
+                        const txt = document.createElement('textarea');
+                        txt.innerHTML = htmlStr;
+                        return txt.value;
+                    };
+
+                    for (let i = 0; i < targetUrls.length; i++) {
+                        const u = targetUrls[i];
+                        try {
+                            if (i > 0) {
+                                await new Promise(r => setTimeout(r, 200 + Math.floor(Math.random() * 200)));
+                            }
+
+                            const res = await fetch(u, {
+                                headers: {
+                                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                                    'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+                                    'x-requested-with': 'XMLHttpRequest'
+                                },
+                                credentials: 'same-origin'
+                            });
+
+                            if (!res.ok) {
+                                pagesData.push({ url: u, ok: false, status: res.status });
+                                break;
+                            }
+
+                            const text = await res.text();
+                            let items = [];
+
+                            // 1. Tentar parsear JSON direto
+                            const trimmed = text.trim();
+                            if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+                                try {
+                                    const json = JSON.parse(trimmed);
+                                    const container = json.results || json;
+                                    items = Array.isArray(container) ? container : (container.results || []);
+                                } catch (e) {}
+                            }
+
+                            // 2. Extrair JSON do atributo :results-initials da tag <search>
+                            if (!items || items.length === 0) {
+                                const match = text.match(/:results-initials="([^"]+)"/) || text.match(/:results-initials='([^']+)'/);
+                                if (match && match[1]) {
+                                    try {
+                                        const decoded = decodeHtml(match[1]);
+                                        const parsed = JSON.parse(decoded);
+                                        const container = parsed.results || parsed;
+                                        items = Array.isArray(container) ? container : (container.results || []);
+                                    } catch (jsonErr) {
+                                        console.warn('Erro ao parsear :results-initials:', jsonErr);
+                                    }
+                                }
+                            }
+
+                            // 3. Fallback via DOMParser para encontrar a tag <search>
+                            if (!items || items.length === 0) {
+                                try {
+                                    const parser = new DOMParser();
+                                    const doc = parser.parseFromString(text, 'text/html');
+                                    const searchTag = doc.querySelector('search');
+                                    if (searchTag) {
+                                        const attr = searchTag.getAttribute(':results-initials');
+                                        if (attr) {
+                                            const decoded = decodeHtml(attr);
+                                            const parsed = JSON.parse(decoded);
+                                            const container = parsed.results || parsed;
+                                            items = Array.isArray(container) ? container : (container.results || []);
+                                        }
+                                    }
+                                } catch (domErr) {}
+                            }
+
+                            if (items && items.length > 0) {
+                                pagesData.push({ url: u, data: { results: items }, ok: true, count: items.length });
+                            } else {
+                                // Fim dos resultados disponíveis
+                                pagesData.push({ url: u, data: { results: [] }, ok: true, count: 0 });
+                                break;
+                            }
+                        } catch (err) {
+                            pagesData.push({ url: u, ok: false, error: String(err) });
+                            break;
+                        }
+                    }
+                    return pagesData;
+                }""", urls_rel)
+                
+                for item in (raw_results or []):
+                    if not item.get("ok"):
+                        continue
+                    data = item.get("data")
+                    if not isinstance(data, dict):
+                        continue
+                    
+                    results_container = data.get("results", {})
+                    results_list = []
+                    if isinstance(results_container, dict):
+                        results_list = results_container.get("results", [])
+                    elif isinstance(results_container, list):
+                        results_list = results_container
+                    
+                    for p_dict in results_list:
+                        proj = await self._extract_project_from_json(p_dict)
+                        if proj and proj.id and proj.id.strip() and proj.id not in seen_ids:
+                            if not proj.category and filters.category:
+                                proj.category = filters.category
+                            seen_ids.add(proj.id)
+                            all_projects.append(proj)
+                            
+            except Exception as fe:
+                logger.warning(f"Extração via fetch no browser falhou: {fe}")
             
-            valid_results.sort(key=lambda x: x["page"])
+            # 2. Se a extração via Fetch não retornou nenhum projeto, faz fallback para DOM parsing multi-página
+            if not all_projects:
+                logger.info("Executando fallback para parsing DOM dos cards (multi-página)...")
+                for p_num in range(start_page, start_page + min(pages_to_fetch, 10)):
+                    current_url_rel = self._build_search_url(filters, p_num)
+                    page_url = self.WORKANA_BASE_URL + current_url_rel
+                    if p_num > start_page:
+                        try:
+                            await self._safe_goto(page, page_url)
+                            await asyncio.sleep(1.5)
+                        except Exception as nav_err:
+                            logger.warning(f"Fallback DOM falhou na página {p_num}: {nav_err}")
+                            break
+
+                    try:
+                        await page.wait_for_selector(WorkanaSelectors.PROJECT_CARD, timeout=6000)
+                    except Exception:
+                        pass
+                    
+                    cards = await page.query_selector_all(WorkanaSelectors.PROJECT_CARD)
+                    if not cards:
+                        break
+                    
+                    page_extracted = 0
+                    for card in cards:
+                        proj = await self._extract_project(card, default_category=filters.category)
+                        if proj and proj.id and proj.id.strip() and proj.id not in seen_ids:
+                            seen_ids.add(proj.id)
+                            all_projects.append(proj)
+                            page_extracted += 1
+
+                    if page_extracted == 0:
+                        break
             
-            for result in valid_results:
-                for project in result["projects"]:
-                    if project.id not in seen_ids:
-                        seen_ids.add(project.id)
-                        all_projects.append(project)
-            
-            logger.success(f"✅ {len(all_projects)} projetos únicos de {len(urls)} páginas (anônimo)")
+            logger.success(f"✅ {len(all_projects)} projetos únicos obtidos de {len(urls_rel)} páginas (anônimo)")
             return all_projects
             
         finally:
-            # SEMPRE fecha TUDO - não deixa rastros
+            if context:
+                await context.close()
             if browser:
                 await browser.close()
             if playwright:
@@ -506,13 +500,29 @@ class AnonymousParallelScraper:
         
         try:
             playwright = await async_playwright().start()
-            browser = await playwright.chromium.launch(headless=True)
+            browser = await playwright.chromium.launch(
+                headless=True,
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-dev-shm-usage',
+                    '--no-sandbox',
+                    '--disable-web-security',
+                    '--incognito',
+                ]
+            )
             context = await browser.new_context(
                 user_agent=random.choice(USER_AGENTS),
                 viewport=random.choice(VIEWPORTS),
                 locale="pt-BR",
                 timezone_id="America/Sao_Paulo",
             )
+            await context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                Object.defineProperty(navigator, 'languages', { 
+                    get: () => ['pt-BR', 'pt', 'en-US', 'en'] 
+                });
+                window.chrome = { runtime: {} };
+            """)
             
             page = await context.new_page()
             url = f"{self.WORKANA_BASE_URL}/job/{project_id}"
@@ -521,20 +531,112 @@ class AnonymousParallelScraper:
             await asyncio.sleep(2)
             
             title_el = await page.query_selector(WorkanaSelectors.DETAILS_TITLE)
-            title = await title_el.text_content() if title_el else "Sem título"
+            title = (await title_el.text_content()).strip() if title_el else "Sem título"
             
             desc_el = await page.query_selector(WorkanaSelectors.DETAILS_DESCRIPTION)
-            description = await desc_el.text_content() if desc_el else ""
+            description = ""
+            if desc_el:
+                description = (await desc_el.inner_text()).strip()
             
+            if not description:
+                content = await page.content()
+                soup = BeautifulSoup(content, 'html.parser')
+                soup_desc = (
+                    soup.select_one(WorkanaSelectors.DETAILS_DESCRIPTION)
+                    or soup.find('div', class_='project-details')
+                    or soup.find('div', class_='job-details')
+                    or soup.find('div', class_='job-description')
+                    or soup.find('div', class_='description')
+                )
+                if soup_desc:
+                    description = soup_desc.get_text(separator='\n', strip=True)
+
+            description = re.sub(r'\n{3,}', '\n\n', description).strip()
+
+            # Metadados do Briefing
+            details = _extract_briefing_details(description)
+            category = details.get("category")
+            subcategory = details.get("subcategory")
+
+            # Orçamento
             budget_el = await page.query_selector(WorkanaSelectors.DETAILS_BUDGET)
-            budget = await budget_el.text_content() if budget_el else None
-            
+            raw_budget = (await budget_el.text_content()).strip() if budget_el else None
+            budget = await CurrencyService.convert_to_brl(raw_budget) if raw_budget else None
+            budget_min, budget_max = CurrencyService.parse_budget_string(budget) if budget else (None, None)
+
+            # Skills
+            skills: List[str] = []
+            for s_el in await page.query_selector_all(WorkanaSelectors.DETAILS_SKILLS):
+                s_txt = (await s_el.text_content()).strip()
+                if s_txt and s_txt not in skills:
+                    skills.append(s_txt)
+
+            # Cliente e Informações
+            client_el = await page.query_selector(WorkanaSelectors.DETAILS_CLIENT_NAME)
+            client_name = (await client_el.text_content()).strip() if client_el else None
+
+            country_el = await page.query_selector(WorkanaSelectors.DETAILS_CLIENT_COUNTRY)
+            client_country = None
+            if country_el:
+                c_txt = (await country_el.text_content()).strip()
+                if c_txt:
+                    client_country = c_txt
+                else:
+                    cls_attr = (await country_el.get_attribute("class")) or ""
+                    for c in cls_attr.split():
+                        if c.startswith("flag-") and len(c) > 5:
+                            client_country = c[5:].upper()
+
+            client_rating = None
+            try:
+                rating_el = await page.query_selector(WorkanaSelectors.DETAILS_RATING)
+                if rating_el:
+                    r_title = await rating_el.get_attribute("title")
+                    r_txt = await rating_el.text_content()
+                    client_rating = _parse_rating(r_title or r_txt)
+            except Exception:
+                pass
+
+            posted = None
+            paid = None
+            since = None
+            try:
+                sidebar_el = await page.query_selector(WorkanaSelectors.DETAILS_SIDEBAR)
+                if sidebar_el:
+                    sidebar_text = await sidebar_el.inner_text()
+                    posted, paid, since = _parse_client_history(sidebar_text)
+            except Exception:
+                pass
+
+            payment_el = await page.query_selector('[title*="Pagamento verificado"], [title*="verified"], .payment-verified, .verified-payment')
+            payment_verified = payment_el is not None
+
+            is_hourly = False
+            if budget and ("/ hora" in budget.lower() or "/hr" in budget.lower() or "/hour" in budget.lower()):
+                is_hourly = True
+
+            deadline = details.get("delivery_deadline") or details.get("duration")
+
             return Project(
                 id=project_id,
-                title=title.strip() if title else "",
-                description=description.strip() if description else "",
-                budget=budget.strip() if budget else None,
-                skills=[],
+                title=title,
+                description=description,
+                budget=budget,
+                budget_min=budget_min,
+                budget_max=budget_max,
+                project_type="hourly" if is_hourly else "fixed",
+                category=category,
+                subcategory=subcategory,
+                deadline=deadline,
+                details=details,
+                skills=skills,
+                client_name=client_name,
+                client_country=client_country,
+                client_rating=client_rating,
+                client_projects_posted=posted,
+                client_projects_paid=paid,
+                client_member_since=since,
+                payment_verified=payment_verified,
                 url=url
             )
         except Exception as e:

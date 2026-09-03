@@ -36,9 +36,9 @@ def test_build_prompt_with_blueprint():
     
     assert "React Frontend" in prompt
     assert "Alice" in prompt
-    assert "PEÇA 1: ABERTURA (MODO LITERAL" in prompt
+    assert "DIRETRIZ 1 [ABERTURA] (MODO LITERAL" in prompt
     assert "Texto Literal de abertura" in prompt
-    assert "PEÇA 2: SOLUCAO (MODO INSTRUÇÃO" in prompt
+    assert "DIRETRIZ 2 [SOLUCAO] (MODO ESTRATÉGICO" in prompt
     assert "Instrução de solução" in prompt
 
 @pytest.mark.asyncio
@@ -46,6 +46,7 @@ def test_build_prompt_with_blueprint():
 async def test_create_template_compiles_blueprint(mock_session_ctx):
     # Mock session
     mock_session = AsyncMock()
+    mock_session.add = MagicMock()
     mock_session_ctx.return_value.__aenter__.return_value = mock_session
     
     template_in = ProposalTemplateCreate(
@@ -171,7 +172,7 @@ def test_variable_substitution():
     literal_text = "Olá {nome_cliente}, farei o {titulo_projeto} por {valor} em {prazo}. Assinado: {nome_usuario}."
     resolved = ProposalPromptBuilder.resolve_variables(literal_text, project, "Guilherme")
     
-    assert "Antônio Silva" in resolved
+    assert "Antônio" in resolved
     assert "Desenvolvimento SPA React" in resolved
     assert "R$ 5000" in resolved
     assert "15 dias" in resolved
@@ -291,3 +292,53 @@ def test_api_duplicate_system_template(mock_get_active_system_template, mock_cre
     data = response.json()
     assert data["id"] == 99
     assert data["name"] == "Proposta Consultiva de Alta Conversão (Cópia)"
+
+
+def test_build_prompt_default_structure():
+    project = {
+        "title": "Marketplace de Serviços em Tempo Real",
+        "description": "App para conectar provedores a técnicos com geolocalização e split de pagamentos estilo Uber.",
+        "skills": ["Flutter", "Node.js", "PostgreSQL"],
+        "budget": "R$ 4.500",
+        "client_name": "Andreza"
+    }
+    prompt = ProposalPromptBuilder.build(project, "Guilherme")
+    
+    assert "Olá, Andreza, tudo bem?" in prompt
+    assert "🧠 Visão do Projeto" in prompt
+    assert "📱 Arquitetura da Solução" in prompt
+    assert "📋 Escopo de Desenvolvimento" in prompt
+    assert "💰 Detalhamento do Investimento" in prompt
+    assert "💵 Investimento Total do Projeto" in prompt
+    assert "🔄 Condições" in prompt
+    assert "🎯 Considerações Finais" in prompt
+    assert "Atenciosamente,\nGuilherme" in prompt
+
+
+def test_build_prompt_initials_client():
+    project = {
+        "title": "Desenvolvimento de Jogo Android: Pet Virtual",
+        "description": "Pet virtual em Unity 3D com mini-jogos",
+        "skills": ["Unity 3D", "C#"],
+        "budget": "R$ 4.500",
+        "client_name": "G. D. F. D."
+    }
+    prompt = ProposalPromptBuilder.build(project, "Guilherme")
+    
+    assert "Olá, tudo bem?" in prompt
+    assert "G. D. F. D." not in prompt
+    assert "🧠 Visão do Projeto" in prompt
+    assert "💰 Detalhamento do Investimento" in prompt
+    assert "💵 Investimento Total do Projeto" in prompt
+
+
+def test_clean_client_greeting_helper():
+    assert ProposalPromptBuilder.clean_client_greeting("Andreza") == "Olá, Andreza, tudo bem?"
+    assert ProposalPromptBuilder.clean_client_greeting("carlos eduardo") == "Olá, Carlos, tudo bem?"
+    assert ProposalPromptBuilder.clean_client_greeting("G. D. F. D.") == "Olá, tudo bem?"
+    assert ProposalPromptBuilder.clean_client_greeting("A. B.") == "Olá, tudo bem?"
+    assert ProposalPromptBuilder.clean_client_greeting("Cliente") == "Olá, tudo bem?"
+    assert ProposalPromptBuilder.clean_client_greeting("") == "Olá, tudo bem?"
+    assert ProposalPromptBuilder.clean_client_greeting(None) == "Olá, tudo bem?"
+
+

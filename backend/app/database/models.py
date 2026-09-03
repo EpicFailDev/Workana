@@ -119,6 +119,18 @@ class Credentials(Base):
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class WorkanaSession(Base):
+    """Sessão (storage_state do Playwright) do Workana para contas com login Google OAuth."""
+    __tablename__ = "workana_sessions"
+
+    id = Column(BIGINT_PK, primary_key=True, autoincrement=True)
+    user_id = Column(Uuid(as_uuid=True), nullable=False, unique=True, index=True)
+    session_json = Column(Text, nullable=False)
+    account_email = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class SavedFilter(Base):
     """Filtros de busca salvos."""
     __tablename__ = "saved_filters"

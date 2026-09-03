@@ -1,7 +1,10 @@
 
+import warnings
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
-from fastapi.testclient import TestClient
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    from fastapi.testclient import TestClient
 from app.main import app
 from app.api.schemas import Project
 

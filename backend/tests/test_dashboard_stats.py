@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import MagicMock
 from uuid import uuid4
 from datetime import datetime, timezone, timedelta
 from app.database.models import (
@@ -11,70 +12,50 @@ from app.database.crud import get_dashboard_stats
 
 
 @pytest.mark.asyncio
-async def test_get_dashboard_stats_correct_mapping():
+async def test_get_dashboard_stats_correct_mapping(monkeypatch):
     # 1. Crie um user_id único de teste
     user_id = uuid4()
+    now = datetime.now(timezone.utc)
     
-    async with async_session() as session:
-        # 2. Insira dados de propostas de teste (algumas de hoje, algumas mais antigas, algumas aceitas)
-        now = datetime.now(timezone.utc)
-        
-        # Proposta enviada hoje, status = accepted
-        p1 = ProposalHistoryModel(
-            user_id=user_id,
-            project_id="p1",
-            project_title="Proj 1",
-            budget=100.0,
-            deadline_days=5,
-            message="Msg 1",
-            status="accepted",
-            sent_at=now
-        )
-        # Proposta enviada hoje, status = sent
-        p2 = ProposalHistoryModel(
-            user_id=user_id,
-            project_id="p2",
-            project_title="Proj 2",
-            budget=200.0,
-            deadline_days=10,
-            message="Msg 2",
-            status="sent",
-            sent_at=now
-        )
-        # Proposta enviada 10 dias atrás (dentro do mês, fora da semana), status = sent
-        p3 = ProposalHistoryModel(
-            user_id=user_id,
-            project_id="p3",
-            project_title="Proj 3",
-            budget=150.0,
-            deadline_days=3,
-            message="Msg 3",
-            status="sent",
-            sent_at=now - timedelta(days=10)
-        )
-        
-        # Log de atividade do usuário
-        log = ActivityLogModel(
-            user_id=user_id,
-            action_type="test",
-            action_description="Test activity",
-            created_at=now
-        )
-        
-        # Projeto do usuário
-        proj = ProjectModel(
-            user_id=user_id,
-            workana_id="workana_test_p1",
-            title="Some scraped project",
-            description="Scraped desc",
-            budget_min=100.0,
-            budget_max=200.0,
-            url="http://example.com",
-            is_favorite=True
-        )
-        
-        session.add_all([p1, p2, p3, log, proj])
-        await session.commit()
+    # Sequence of 9 queries in get_dashboard_stats:
+    # 1. stats_today (DailyStatisticsModel) -> None
+    # 2. total_projects (ProjectModel count) -> 1
+    # 3. proposals_week (ProposalHistory count week) -> 2
+    # 4. proposals_month (ProposalHistory count month) -> 3
+    # 5. saved_projects (ProjectModel favorites count) -> 1
+    # 6. accepted (ProposalHistory count accepted) -> 1
+    # 7. total_proposals (ProposalHistory count total) -> 3
+    # 8. proposals_today (ProposalHistory count today) -> 2
+    # 9. last_activity (ActivityLog created_at) -> now
+    
+    mock_responses = [
+        MagicMock(scalar_one_or_none=MagicMock(return_value=None), scalar=MagicMock(return_value=None)), # 1. stats_today
+        MagicMock(scalar=MagicMock(return_value=1)), # 2. total_projects
+        MagicMock(scalar=MagicMock(return_value=2)), # 3. proposals_week
+        MagicMock(scalar=MagicMock(return_value=3)), # 4. proposals_month
+        MagicMock(scalar=MagicMock(return_value=1)), # 5. saved_projects
+        MagicMock(scalar=MagicMock(return_value=1)), # 6. accepted
+        MagicMock(scalar=MagicMock(return_value=3)), # 7. total_proposals
+        MagicMock(scalar=MagicMock(return_value=2)), # 8. proposals_today
+        MagicMock(scalar_one_or_none=MagicMock(return_value=now)), # 9. last_activity
+    ]
+    query_call = [0]
+
+    class FakeSession:
+        async def execute(self, stmt):
+            idx = query_call[0]
+            query_call[0] += 1
+            if idx < len(mock_responses):
+                return mock_responses[idx]
+            return MagicMock(scalar=MagicMock(return_value=0), scalar_one_or_none=MagicMock(return_value=None))
+
+    class FakeSessionCtx:
+        async def __aenter__(self):
+            return FakeSession()
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+    monkeypatch.setattr("app.database.crud.async_session", FakeSessionCtx)
 
     # 3. Obtenha as estatísticas do dashboard
     stats = await get_dashboard_stats(user_id)

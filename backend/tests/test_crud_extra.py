@@ -1,12 +1,49 @@
 import pytest
+from unittest.mock import MagicMock
 from uuid import uuid4
 from datetime import datetime, timezone
-from app.database.models import async_session
 from app.database import crud
+from app.database.models import Project as ProjectModel
 
 @pytest.mark.asyncio
-async def test_crud_save_and_retrieve_project_extra_fields():
+async def test_crud_save_and_retrieve_project_extra_fields(monkeypatch):
     user_id = uuid4()
+    
+    storage = {}
+    next_id = [1]
+
+    class FakeSession:
+        def add(self, obj):
+            if not getattr(obj, "id", None):
+                obj.id = next_id[0]
+                next_id[0] += 1
+            storage[obj.id] = obj
+
+        async def commit(self):
+            pass
+
+        async def refresh(self, obj):
+            pass
+
+        async def execute(self, stmt):
+            stmt_str = str(stmt)
+            res = MagicMock()
+            if "projects.workana_id ==" in stmt_str or "projects.workana_id =" in stmt_str:
+                res.scalar_one_or_none.return_value = None
+            elif "projects.id ==" in stmt_str or "projects.id =" in stmt_str:
+                obj = list(storage.values())[0] if storage else None
+                res.scalar_one_or_none.return_value = obj
+            else:
+                res.scalars.return_value.all.return_value = list(storage.values())
+            return res
+
+    class FakeSessionCtx:
+        async def __aenter__(self):
+            return FakeSession()
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+    monkeypatch.setattr("app.database.crud.async_session", FakeSessionCtx)
     
     # Mock de projeto contendo os novos campos de mercado
     project_data = {

@@ -37,24 +37,50 @@ def _extract_metadata(description: str, label: str) -> Optional[str]:
 
 def _extract_briefing_details(description: str) -> Dict[str, str]:
     labels = {
+        # Português
         "Categoria": "category",
         "Subcategoria": "subcategory",
         "Tamanho do projeto": "project_size",
         "Do que você precisa?": "need",
+        "Do que você precisa": "need",
         "Qual é o alcance do projeto?": "scope",
+        "Qual é o alcance do projeto": "scope",
         "Isso é um projeto ou uma posição de trabalho?": "engagement",
         "Tenho, atualmente": "current_state",
         "Disponibilidade requerida": "availability",
         "Funções necessárias": "required_roles",
         "Duração do projeto": "duration",
         "Prazo de Entrega": "delivery_deadline",
+        "Prazo de entrega": "delivery_deadline",
         "E-commerce": "ecommerce",
         "Quantidade de pessoas": "team_size",
+        "Experiência nesse tipo de projeto": "experience_level",
+        # Espanhol
+        "Categoría": "category",
+        "Subcategoría": "subcategory",
+        "Tamaño del proyecto": "project_size",
+        "¿Qué necesitas?": "need",
+        "¿Cuál es el alcance del proyecto?": "scope",
+        "¿Es un proyecto o una posición?": "engagement",
+        "Tengo, actualmente": "current_state",
+        "Disponibilidad requerida": "availability",
+        "Roles necesarios": "required_roles",
+        "Duración del proyecto": "duration",
+        "Plazo de Entrega": "delivery_deadline",
+        "Plazo de entrega": "delivery_deadline",
+        "Cantidad de personas": "team_size",
+        # Inglês
+        "Category": "category",
+        "Subcategory": "subcategory",
+        "Project size": "project_size",
+        "Project Scope": "scope",
+        "Delivery Deadline": "delivery_deadline",
+        "Duration": "duration",
     }
     details: Dict[str, str] = {}
     for label, key in labels.items():
         value = _extract_metadata(description, label)
-        if value:
+        if value and key not in details:
             details[key] = value
     return details
 
@@ -95,16 +121,23 @@ async def parse_project_json(data: dict, base_url: str) -> Optional[Project]:
     )
 
     metadata_start = re.search(
-        r"(?:^|\n)\s*(?:Categoria|Subcategoria|Tamanho do projeto|Do que você precisa\?|"
-        r"Qual é o alcance|E-commerce|Isso é um projeto|Duração|Quantidade de pessoas)\s*:?",
+        r"(?:^|\n)\s*(?:Categoria|Categoría|Category|Subcategoria|Subcategoría|Subcategory|"
+        r"Tamanho do projeto|Tamaño del proyecto|Project size|"
+        r"Do que você precisa\??|¿Qué necesitas\??|"
+        r"Qual é o alcance(?: do projeto)?\??|¿Cuál es el alcance(?: del proyecto)?\??|Project Scope|"
+        r"E-commerce|Isso é um projeto|¿Es un projeto|Duração|Duración|Duration|Quantidade de pessoas)\s*:?",
         description_with_metadata,
         flags=re.IGNORECASE,
     )
-    description = (
-        description_with_metadata[:metadata_start.start()]
-        if metadata_start
-        else description_with_metadata
-    )
+    if metadata_start and metadata_start.start() > 0:
+        extracted_desc = description_with_metadata[:metadata_start.start()].strip()
+        if len(extracted_desc) >= 10:
+            description = extracted_desc
+        else:
+            description = description_with_metadata.strip()
+    else:
+        description = description_with_metadata.strip()
+
     description = re.sub(r"\n{3,}", "\n\n", description).strip()
 
     skills = []

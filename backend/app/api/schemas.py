@@ -189,6 +189,31 @@ class ProposalTemplateCreate(BaseModel):
 class ProposalGenerateRequest(BaseModel):
     """Corpo opcional para requisição de geração de proposta."""
     template_id: Optional[Any] = Field(None, description="ID ou referência do template a usar")
+    force_regenerate: bool = Field(default=False, description="Forçar nova geração mesmo se já existir uma proposta salva")
+    price_level: Optional[Literal["budget", "standard", "premium"]] = Field(
+        default="standard",
+        description="Nível de preço: budget (barato), standard (médio), premium (caro)"
+    )
+    save_as_new_version: bool = Field(default=True, description="Se deve salvar como uma nova versão no histórico")
+
+
+class ProposalSaveRequest(BaseModel):
+    """Requisição para salvar ou atualizar um rascunho de proposta."""
+    proposal_id: Optional[int] = Field(None, description="ID da proposta para atualizar versão existente")
+    proposal_text: str = Field(..., description="Texto da proposta")
+    budget: Optional[float] = Field(None, ge=0, description="Valor da proposta")
+    deadline_days: Optional[int] = Field(7, ge=1, description="Prazo em dias")
+    template_id: Optional[Any] = None
+    force_new_version: bool = Field(default=False, description="Criar nova versão ao salvar")
+    add_to_batch: bool = Field(default=True, description="Se deve adicionar ao lote de rascunhos")
+
+
+class BatchItemUpdateRequest(BaseModel):
+    """Requisição para atualizar um item individual do lote."""
+    generated_message: Optional[str] = None
+    budget: Optional[float] = None
+    deadline_days: Optional[int] = None
+    status: Optional[str] = None
 
 
 class BlueprintTestRequest(BaseModel):
@@ -213,6 +238,7 @@ class ProposalSubmit(BaseModel):
     custom_message: Optional[str] = Field(None, description="Mensagem personalizada")
     budget: float = Field(..., gt=0, description="Valor da proposta")
     deadline_days: int = Field(..., ge=1, description="Prazo em dias")
+    attachment_path: Optional[str] = Field(None, description="Caminho do arquivo para anexar à proposta (portfólio/preview)")
 
 
 class ProposalResult(BaseModel):
@@ -223,13 +249,38 @@ class ProposalResult(BaseModel):
     proposal_id: Optional[str] = None
 
 
+class InvestmentStage(BaseModel):
+    """Etapa do investimento."""
+    title: str
+    description: str
+    percentage: float
+    amount: float
+    amount_formatted: str
+
+
+class InvestmentBreakdown(BaseModel):
+    """Breakdown do investimento."""
+    total_value: float
+    total_formatted: str
+    price_level: str
+    price_level_label: str
+    price_level_description: str
+    stages: List[InvestmentStage]
+    breakdown_text: str
+
+
 class ProposalGenerationResult(BaseModel):
     """Resultado da geração de proposta por IA."""
     success: bool
     proposal: Optional[str] = None
     suggested_price: Optional[str] = None
+    suggested_deadline_days: Optional[int] = None
     justification: Optional[str] = None
     error: Optional[str] = None
+    template_id_used: Optional[Any] = None
+    investment_breakdown: Optional[InvestmentBreakdown] = None
+    proposal_id: Optional[int] = None
+    versions: Optional[List[Dict[str, Any]]] = None
 
 
 # ==================== Histórico ====================

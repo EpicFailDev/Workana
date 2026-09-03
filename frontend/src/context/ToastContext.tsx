@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode } from 'react';
 import Toast, { ToastType } from '../components/Toast/Toast';
 import styles from '../components/Toast/Toast.module.css';
 
@@ -36,15 +36,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         setToasts((prev) => [...prev, { id, type, title, message, duration }]);
     }, []);
 
-    const toastHelpers = {
-        success: (message: string, title?: string) => addToast({ type: 'success', title, message }),
-        error: (message: string, title?: string) => addToast({ type: 'error', title, message }),
-        warning: (message: string, title?: string) => addToast({ type: 'warning', title, message }),
-        info: (message: string, title?: string) => addToast({ type: 'info', title, message }),
-    };
+    const toast = useMemo(
+        () => ({
+            success: (message: string, title?: string) => addToast({ type: 'success', title, message }),
+            error: (message: string, title?: string) => addToast({ type: 'error', title, message }),
+            warning: (message: string, title?: string) => addToast({ type: 'warning', title, message }),
+            info: (message: string, title?: string) => addToast({ type: 'info', title, message }),
+        }),
+        [addToast]
+    );
 
     return (
-        <ToastContext.Provider value={{ addToast, removeToast, toast: toastHelpers }}>
+        <ToastContext.Provider value={{ addToast, removeToast, toast }}>
             {children}
             <div className={styles.toastContainer}>
                 {toasts.map((toast) => (

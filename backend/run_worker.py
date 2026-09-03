@@ -28,6 +28,7 @@ from app.config import settings
 from app.database.models import async_session
 from sqlalchemy import text
 from app.services.scheduler import scheduler_instance
+from app.services.realtime_pusher import pusher_realtime_instance
 from app.observability.heartbeat import heartbeat_loop
 
 
@@ -53,7 +54,13 @@ async def main():
         f"Scheduler de busca iniciado no worker (frequência={settings.max_proposals_per_day}/dia)."
     )
 
-    # 3. Heartbeat para o healthcheck do Docker (detecta event loop travado).
+    # 3. Start Pusher WebSocket Realtime Listener
+    pusher_realtime_instance.start()
+    logger.bind(event="worker.pusher.started").info(
+        "Pusher Realtime WebSocket Listener ativado para streaming de projetos em tempo real."
+    )
+
+    # 4. Heartbeat para o healthcheck do Docker (detecta event loop travado).
     heartbeat_task = asyncio.create_task(heartbeat_loop(interval_seconds=10.0))
 
     # Event to flag shutdown
@@ -76,14 +83,15 @@ async def main():
     # Wait for shutdown signal
     await stop_event.wait()
 
-    # 4. Shutdown: para o heartbeat e o scheduler
+    # 5. Shutdown: para o heartbeat, scheduler e pusher
     heartbeat_task.cancel()
     try:
         await heartbeat_task
     except asyncio.CancelledError:
         pass
 
-    logger.bind(event="worker.stopping").info("Desligando o scheduler...")
+    logger.bind(event="worker.stopping").info("Desligando o scheduler e streaming em tempo real...")
+    pusher_realtime_instance.stop()
     scheduler_instance.stop()
     logger.bind(event="worker.stopped").info("Worker finalizado com sucesso.")
 

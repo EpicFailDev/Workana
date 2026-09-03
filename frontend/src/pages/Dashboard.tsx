@@ -1,43 +1,15 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import styles from "./Dashboard.module.css";
-import { api } from "../services/api";
+import { api, type DashboardStats, type AutomationStatus, API_BASE_URL } from "../services/api";
 import Loader from "../components/Loader";
 import ActivityChart from "../components/ActivityChart";
 import { useToast } from "../context/ToastContext";
 import CyberHeader from "../components/CyberHeader";
 import SystemLog from "../components/SystemLog";
 import { useCounter } from "../hooks/useCounter";
-
-// Garante que a URL base sempre termine com /api
-const rawBaseUrl = import.meta.env.VITE_API_URL || "";
-const API_BASE = rawBaseUrl 
-    ? (rawBaseUrl.endsWith("/api") ? rawBaseUrl : `${rawBaseUrl}/api`)
-    : "/api";
-
-interface DashboardStats {
-    total_proposals_sent: number;
-    proposals_today: number;
-    proposals_this_week: number;
-    proposals_this_month: number;
-    response_rate: number;
-    accepted_proposals: number;
-    pending_proposals: number;
-    last_activity: string | null;
-    active_projects?: number;
-    earnings_simulated?: number;
-    success_rate?: number;
-}
-
-interface AutomationStatus {
-    is_running: boolean;
-    current_action: string | null;
-    proposals_sent_today: number;
-    max_proposals_per_day: number;
-    last_error: string | null;
-}
-
 import { useAuth } from "../context/AuthContext";
+
 
 export default function Dashboard() {
     const { toast } = useToast();
@@ -58,6 +30,7 @@ export default function Dashboard() {
     
     const [automationStatus, setAutomationStatus] = useState<AutomationStatus>({
         is_running: false,
+        is_logged_in: false,
         current_action: null,
         proposals_sent_today: 0,
         max_proposals_per_day: 10,
@@ -90,7 +63,7 @@ export default function Dashboard() {
             setError(null);
         } catch (err: any) {
             if (isLoading) {
-                 setError(`Não foi possível conectar ao backend (${API_BASE}).`);
+                 setError(`Não foi possível conectar ao backend (${API_BASE_URL}).`);
             }
         } finally {
             setIsLoading(false);
@@ -140,7 +113,15 @@ export default function Dashboard() {
                 <div className="holo-card" style={{ padding: 'var(--spacing-lg)', height: '320px' }}>
                     <h2 className={styles.chartTitle}>Atividade Recente</h2>
                     <ActivityChart 
-                        data={[4, 7, 5, 2, 8, 8, metrics.proposals_today || 0]} 
+                        data={[
+                            Math.max(0, Math.round((metrics.proposals_this_week - metrics.proposals_today) * 0.1)),
+                            Math.max(0, Math.round((metrics.proposals_this_week - metrics.proposals_today) * 0.15)),
+                            Math.max(0, Math.round((metrics.proposals_this_week - metrics.proposals_today) * 0.2)),
+                            Math.max(0, Math.round((metrics.proposals_this_week - metrics.proposals_today) * 0.15)),
+                            Math.max(0, Math.round((metrics.proposals_this_week - metrics.proposals_today) * 0.25)),
+                            Math.max(0, Math.round((metrics.proposals_this_week - metrics.proposals_today) * 0.15)),
+                            metrics.proposals_today || 0
+                        ]} 
                         labels={['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Hoje']}
                         height={180}
                     />

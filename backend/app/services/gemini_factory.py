@@ -1,6 +1,9 @@
 
+import warnings
 try:
-    import google.generativeai as genai
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=FutureWarning)
+        import google.generativeai as genai
     HAS_GENAI = True
 except ImportError:
     genai = None
@@ -8,9 +11,9 @@ except ImportError:
 
 class GeminiFactory:
     @staticmethod
-    def create(api_key: str):
+    def create(api_key: str, model_name: str = "gemini-3.6-flash"):
         if not HAS_GENAI:
             raise ImportError("Biblioteca 'google-generativeai' não está instalada.")
         
         genai.configure(api_key=api_key)
-        return genai.GenerativeModel("gemini-2.5-flash")
+        return genai.GenerativeModel(model_name)

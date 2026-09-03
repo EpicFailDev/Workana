@@ -27,7 +27,7 @@ class BrowserDriver:
     def context(self) -> Optional[BrowserContext]:
         return self._context
 
-    async def init_browser(self, use_session: bool = True, session_loader=None, headless: bool = None) -> Page:
+    async def init_browser(self, use_session: bool = True, session_loader=None, headless: bool = None, storage_state=None) -> Page:
         """
         Inicializa o navegador.
         
@@ -35,6 +35,8 @@ class BrowserDriver:
             use_session: Se True, tenta carregar sessão (via callback).
             session_loader: Função assíncrona para carregar cookies no contexto.
             headless: Override para configuração de headless (se None, usa settings).
+            storage_state: Dict ou caminho de arquivo do storage_state do Playwright
+                           para restaurar cookies/localStorage no novo contexto.
         """
         if self._browser is None:
             logger.info("Inicializando navegador Playwright (Componente)...")
@@ -62,6 +64,9 @@ class BrowserDriver:
             context_options = self._antiban.get_browser_context_options()
             if not is_headless:
                 context_options['viewport'] = None # Usar tamanho da janela
+
+            if storage_state:
+                context_options['storage_state'] = storage_state
 
             self._context = await self._browser.new_context(**context_options)
             

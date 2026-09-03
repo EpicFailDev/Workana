@@ -1,96 +1,191 @@
+"""
+Builder para prompts de proposta de alta conversão.
+Padrão Master MVP / Fechamento Comercial de Elite no Workana.
+"""
+import re
+from datetime import datetime
+from typing import Optional, List, Dict, Any
 
-"""
-Builder para prompts de proposta.
-"""
 
 class ProposalPromptBuilder:
     @staticmethod
+    def clean_client_greeting(client_name: Optional[str]) -> str:
+        """
+        Formata a saudação ao cliente de forma natural, calorosa e executiva.
+        - Se o nome for sigla/iniciais (ex: 'G. D. F. D.', 'G.D.F.D', 'A B C D', 'J. S.'), retorna 'Olá, tudo bem?'.
+        - Se for vazio ou genérico ('cliente', 'user', 'anônimo'), retorna 'Olá, tudo bem?'.
+        - Se for um nome real (ex: 'Andreza', 'Carlos Eduardo', 'Fernanda'), retorna 'Olá, Andreza, tudo bem?'.
+        """
+        if not client_name:
+            return "Olá, tudo bem?"
+        
+        raw = client_name.strip()
+        cleaned = re.sub(r'[\.\s\-_/]+', '', raw)
+        if len(cleaned) <= 1:
+            return "Olá, tudo bem?"
+            
+        # Detectar se são apenas iniciais (tokens de 1 letra, como 'G. D. F. D.')
+        tokens = [t.strip('. ') for t in re.split(r'[\s\.]+', raw) if t.strip('. ')]
+        if tokens and all(len(t) == 1 for t in tokens):
+            return "Olá, tudo bem?"
+            
+        first_token = tokens[0].lower() if tokens else ""
+        blacklist = {
+            'cliente', 'desconhecido', 'none', 'null', 'user', 'usuario', 
+            'usuário', 'anônimo', 'anonimo', 'admin', 'profile', 'client',
+            'empresa', 'recrutador', 'vaga', 'projeto', 'g. d. f. d.'
+        }
+        if first_token in blacklist:
+            return "Olá, tudo bem?"
+            
+        # Extrair primeiro nome com inicial maiúscula
+        first_name = tokens[0].capitalize()
+        return f"Olá, {first_name}, tudo bem?"
+
+    @staticmethod
+    def clean_user_name(user_name: Optional[str]) -> str:
+        """
+        Trata o nome do profissional/usuário que assina a proposta.
+        """
+        if not user_name:
+            return "Guilherme"
+        name = user_name.strip()
+        if not name or name in ['[Seu Nome]', 'Especialista', 'Desenvolvedor', 'Profissional', 'None', 'null']:
+            return "Guilherme"
+        return name
+
+    @staticmethod
     def build(project: dict, user_name: str) -> str:
-        import random
-        greetings = [
-            "Olá! Tudo bem?",
-            "Olá! Espero que esteja tendo um ótimo dia.",
-            "Olá! Analisei com bastante atenção os detalhes do seu projeto.",
-            "Oi, tudo bem? Li seu briefing e achei a proposta excelente.",
-            "Olá! Muito prazer. Analisei os requisitos técnicos do seu projeto."
-        ]
-        chosen_greeting = random.choice(greetings)
+        clean_name = ProposalPromptBuilder.clean_user_name(user_name)
+        greeting = ProposalPromptBuilder.clean_client_greeting(project.get('client_name'))
+        signature = f"Atenciosamente,\n{clean_name}"
         
-        bullet_styles = [
-            ("🔹", "✔️"),
-            ("▪️", "✅"),
-            ("🚀", "⭐"),
-            ("📌", "✨")
-        ]
-        feature_bullet, diff_bullet = random.choice(bullet_styles)
-        
-        closings = [
-            "Estou à disposição no chat para alinharmos os detalhes e tirarmos dúvidas. Um abraço!",
-            "Podemos agendar uma breve conversa para combinarmos o início do projeto. Até breve!",
-            "Se fizer sentido para você, me mande uma mensagem no chat para definirmos o pontapé inicial!",
-            "Fico no aguardo do seu contato para colocarmos este projeto em produção. Atenciosamente!"
-        ]
-        chosen_closing = random.choice(closings)
+        skills_str = ', '.join(project.get('skills', [])) if isinstance(project.get('skills'), list) else str(project.get('skills') or '')
+        budget_str = str(project.get('budget') or 'A combinar')
+        title_str = str(project.get('title') or 'Projeto')
+        desc_str = str(project.get('description') or '')
 
         return f"""
-        Você é um Arquiteto de Software e Consultor de Negócios Sênior.
-        Seu objetivo é escrever uma proposta TÉCNICA e ESTRATÉGICA para um projeto no Workana.
-        NÃO aja como um vendedor agressivo. Aja como um parceiro de negócios que entende de tecnologia.
+Você é um Arquiteto de Software e Consultor Técnico Sênior de Elite no Workana.
+Seu objetivo é redigir uma proposta comercial técnica IRRECUSÁVEL, PROFUNDAMENTE PERSONALIZADA, ESTRUTURADA E DE ALTA CONVERSÃO para o projeto abaixo, com foco em fechar o negócio com autoridade, clareza executiva e total segurança.
 
-        === INFORMAÇÕES DO PROJETO ===
-        Título: {project.get('title')}
-        Descrição: {project.get('description')}
-        Skills: {', '.join(project.get('skills', [])) if isinstance(project.get('skills'), list) else project.get('skills', '')}
-        Orçamento: {project.get('budget')}
-        Cliente: {project.get('client_name') or 'Não disponível'}
+=== DADOS DO PROJETO ===
+Título: {title_str}
+Descrição: {desc_str}
+Habilidades Solicitadas: {skills_str}
+Orçamento Informado: {budget_str}
+Saudação Inicial Obrigatória: {greeting}
+Assinatura Obrigatória: {signature}
 
-        === SEU PERFIL ===
-        Nome: {user_name}
+=== ESTRUTURA VISUAL E NARRATIVA OBRIGATÓRIA (PADRÃO MASTER MVP / HIGH-TICKET) ===
+A proposta DEVE seguir estritamente o layout visual abaixo, com quebras de linha duplas (\\n\\n) entre parágrafos, seções e blocos, mantendo uma apresentação executiva, limpa e espaçada:
 
-        === ESTRUTURA DA PROPOSTA (MUITO IMPORTANTE) ===
-        A proposta deve ser em TEXTO PURO (Plain Text), sem sintaxe Markdown (não use **negrito** e não use * para listas).
-        Use EMOJIS e CAIXA ALTA para destacar títulos e pontos importantes.
+1. ABERTURA & DIAGNÓSTICO (Conexão Imediata em 2 parágrafos com quebra dupla):
+{greeting}
 
-        Siga EXATAMENTE esta estrutura visual e natural:
+Analisei cuidadosamente o escopo do projeto e os requisitos técnicos apresentados. Estamos falando da construção de um [tipo específico do projeto, ex: marketplace de serviços em tempo real / jogo mobile interativo com mini-jogos e progressão / plataforma SaaS escalável / aplicativo mobile multiplataforma / e-commerce de alta conversão], com funcionalidades críticas como [listar de 3 a 4 funcionalidades essenciais e específicas contextualizadas da descrição do projeto] — um projeto com clara inspiração em modelos como [referências consagradas de mercado se aplicável, ex: Uber e iFood / Pou e Tamagotchi / Steam / Shopify / Mercado Livre, ou padrões modernos da indústria].
 
-        1. INTRODUÇÃO ESTRATÉGICA
-           - Comece direto (sem o título "Introdução").
-           - Comece com: "{chosen_greeting}"
-           - Demonstre entendimento direto do problema do cliente.
+O foco desta proposta é entregar um MVP funcional, validável e escalável, pronto para testar o modelo de negócio no mercado e evoluir com segurança.
 
-        2. A SOLUÇÃO (VISÃO GERAL)
-           - Explique a entrega técnica e a estratégia em 1 ou 2 parágrafos curtos e objetivos.
+2. 🧠 Visão do Projeto:
+🧠 Visão do Projeto
 
-        3. 🎯 VISÃO DO PRODUTO
-           - Descreva o resultado final e o impacto positivo para o cliente.
+Desenvolver um [aplicativo / jogo / sistema / software / plataforma] que:
 
-        4. 🧩 FUNCIONALIDADES PRINCIPAIS
-           - Agrupe por módulos ou temas em CAIXA ALTA (ex: 📁 GESTÃO, 💰 FINANCEIRO, ⚡ INTEGRAÇÃO).
-           - Use o marcador {feature_bullet} para cada funcionalidade.
+[Item 1: Conecte / Entregue a proposta central de valor do projeto]
 
-        5. 🧠 DIFERENCIAIS DA MINHA ENTREGA
-           - Liste 3 ou 4 diferenciais práticos com o marcador {diff_bullet}.
+[Item 2: Trabalhe com recurso chave, ex: geolocalização em tempo real / sistema de necessidades e progressão / integração de pagamentos / persistência de dados]
 
-        6. 📌 ENCERRAMENTO
-           - Fechamento consultivo: "{chosen_closing}"
+[Item 3: Possua fluxo intuitivo no estilo [referência consagrada ou padrão de UI/UX moderno]]
 
-        === REGRAS VISUAIS CRÍTICAS ===
-        - NÃO USE asteriscos (*) em lugar nenhum.
-        - NÃO USE hashtags (#) para títulos.
-        - Para dar destaque, USE LETRA MAIÚSCULA.
-        - Mantenha espaçamento duplo entre seções para ótima legibilidade.
-        - O visual deve ser "Clean, Autêntico e Profissional" (evite clichês de IA).
+[Item 4: Seja seguro, performático e escalável]
 
-        === PREÇO E PRAZO ===
-        - Sugira valor justo alinhado ao orçamento informado ou à complexidade do escopo.
+[Item 5: Sirva como base sólida para crescimento futuro]
 
-        Retorne EXATAMENTE neste formato JSON:
-        {{
-            "proposal": "texto completo formatado com quebras de linha \\n",
-            "suggested_price": "R$ valor",
-            "justification": "breve justificativa técnica do preço"
-        }}
-        """
+3. 📱 Arquitetura da Solução (ou 🎮 Arquitetura da Solução se jogo / ⚙️ Arquitetura Técnica se sistema/web):
+[Título da seção com emoji apropriado: 📱 Arquitetura da Solução ou 🎮 Arquitetura da Solução ou ⚙️ Arquitetura Técnica]
+
+[Camada 1: ex. Aplicativo Mobile Multiplataforma / Client & Game Engine / Frontend Web]
+
+[Decisão técnica 1: ex. Código único com Flutter ou React Native / Unity 3D em C# desacoplado / React e Next.js com TypeScript]
+
+[Decisão técnica 2: ex. Compatível com Android e iOS / Otimizado para Mobile com 60 FPS / UI responsiva e moderna]
+
+[Camada 2: ex. Backend & API / Core Loop & Módulos / Banco de Dados & Infra]
+
+[Decisão técnica 1: ex. Estrutura preparada para múltiplos usuários e requisições / Arquitetura modular desacoplada baseada em componentes]
+
+[Decisão técnica 2: ex. Comunicação em tempo real entre app e servidor / Sistema de persistência e eventos]
+
+4. 📋 Escopo de Desenvolvimento:
+📋 Escopo de Desenvolvimento
+
+[Para cada módulo (3 a 5 módulos práticos com ícones representativos, ex: 📍 Geolocalização & Mapa, 🔧 Sistema de Chamados, 💬 Chat Interno, 💳 Pagamentos com Split, 👤 Gestão de Usuários, 🎮 Core Loop & Progressão, 🕹️ Pacote de Mini-jogos, 🎨 Customização & Inventário, ⚡ Otimização & Build):]
+
+[Emoji + Nome do Módulo]
+
+• [Funcionalidade concreta 1]
+• [Funcionalidade concreta 2]
+• [Funcionalidade concreta 3]
+• [Funcionalidade concreta 4]
+
+(Inserir quebra de linha dupla entre cada módulo).
+
+5. 💰 Detalhamento do Investimento (Fatiamento lógico em 4 etapas + Investimento Total):
+💰 Detalhamento do Investimento
+
+Planejamento & Arquitetura do MVP (ou da Solução)
+Definição de fluxos, estrutura técnica e regras de negócio
+Investimento: R$ [valor da etapa 1]
+
+Desenvolvimento do App Mobile (Frontend) / Core Engine / Telas
+Implementação multiplataforma, UI/UX e fluxos principais
+Investimento: R$ [valor da etapa 2]
+
+Backend, APIs e Integrações / Módulos & Sistemas
+[Descrição das integrações e módulos principais do projeto]
+Investimento: R$ [valor da etapa 3]
+
+Testes, Ajustes e Entrega do MVP
+Testes de fluxo, estabilidade e publicação de build [APK/AAB ou deploy]
+Investimento: R$ [valor da etapa 4]
+
+💵 Investimento Total do Projeto
+
+R$ [SOMA EXATA das 4 etapas no formato moeda brasileira, ex: R$ 4.500,00]
+
+6. 🔄 Condições (Padrão de segurança):
+🔄 Condições
+
+• MVP focado em validação de mercado
+• Até 2 rodadas de ajustes inclusas
+• Comunicação constante durante o desenvolvimento
+• Código preparado para evolução futura
+• Suporte inicial pós-entrega
+
+7. 🎯 Considerações Finais:
+🎯 Considerações Finais
+
+Esta proposta foi pensada para entregar um MVP realista, funcional e tecnicamente sólido, capaz de testar o modelo de negócio com segurança e permitir evolução rápida após a validação.
+
+Fico à disposição para alinharmos detalhes técnicos, prazos e próximos passos.
+
+{signature}
+
+=== REGRAS MANDATÓRIAS DE VALOR E FORMATO ===
+- A soma das 4 etapas de investimento DEVE bater EXATAMENTE com o valor numérico informado no campo "suggested_price" e com a linha "💵 Investimento Total do Projeto".
+- O valor de suggested_price deve ser um float coerente com o orçamento informado (ex: se o orçamento for "R$ 4.000 - 8.000", sugira 4500.0 ou 5000.0; se for "R$ 500", sugira 500.0).
+- Nunca use placeholders como [Seu Nome], [Nome], [Data].
+- Mantenha espaçamento duplo (\\n\\n) entre todas as seções e blocos de texto conforme demonstrado acima.
+
+Retorne EXATAMENTE no formato JSON:
+{{
+    "proposal": "texto completo e estruturado da proposta formatado com quebras de linha \\n\\n",
+    "suggested_price": 4500.0,
+    "suggested_deadline_days": 20,
+    "justification": "breve justificativa técnica do valor e prazo sugeridos"
+}}
+"""
 
     @staticmethod
     def compile_blueprint_to_content(blueprint: list) -> str:
@@ -121,12 +216,18 @@ class ProposalPromptBuilder:
         if not text_content:
             return text_content
             
-        from datetime import datetime
-        import re
+        client_name_raw = project.get('client_name') or ''
+        client_greeting = ProposalPromptBuilder.clean_client_greeting(client_name_raw)
         
-        client_name = project.get('client_name') or 'Cliente'
+        # Extrair nome simples do cliente para substituição se for válido
+        if "Olá, " in client_greeting and client_greeting != "Olá, tudo bem?":
+            clean_client_name = client_greeting.replace("Olá, ", "").replace(", tudo bem?", "").strip()
+        else:
+            clean_client_name = ""
+
         project_title = project.get('title') or 'projeto'
         budget = project.get('budget') or 'A combinar'
+        clean_user = ProposalPromptBuilder.clean_user_name(user_name)
         
         deadline = project.get('deadline') or project.get('deadline_days') or project.get('prazo')
         if deadline:
@@ -138,16 +239,22 @@ class ProposalPromptBuilder:
             
         resolved = text_content
         
-        # Substituições case-insensitive
         def ireplace(pattern, replacement, string):
             return re.sub(re.escape(pattern), lambda m: replacement, string, flags=re.IGNORECASE)
             
-        resolved = ireplace("{nome_cliente}", client_name, resolved)
+        if clean_client_name:
+            resolved = ireplace("{nome_cliente}", clean_client_name, resolved)
+        else:
+            # Substituir saudações com {nome_cliente} por cumprimento natural
+            resolved = re.sub(r'Olá\s*\{nome_cliente\}[\,\!]?', 'Olá, tudo bem?', resolved, flags=re.IGNORECASE)
+            resolved = ireplace("{nome_cliente}", 'Cliente', resolved)
+            
         resolved = ireplace("{titulo_projeto}", project_title, resolved)
+        resolved = ireplace("{descricao_projeto}", project.get('description') or '', resolved)
         resolved = ireplace("{valor}", str(budget), resolved)
         resolved = ireplace("{prazo}", str(deadline_str), resolved)
-        resolved = ireplace("{nome_usuario}", user_name, resolved)
-        resolved = ireplace("{user_name}", user_name, resolved)
+        resolved = ireplace("{nome_usuario}", clean_user, resolved)
+        resolved = ireplace("{user_name}", clean_user, resolved)
         resolved = ireplace("{anos_experiencia}", "vários", resolved)
         resolved = ireplace("{data_atual}", datetime.now().strftime("%d/%m/%Y"), resolved)
         
@@ -156,76 +263,110 @@ class ProposalPromptBuilder:
     @staticmethod
     def build_with_blueprint(project: dict, user_name: str, blueprint: list) -> str:
         """
-        Gera o prompt para o Gemini baseado nas peças do blueprint do template.
+        Gera o prompt para o Gemini integrando harmoniosamente as peças do blueprint
+        com o Padrão Master MVP de Alta Conversão.
         """
         enabled_blocks = [b for b in blueprint if b.get("enabled", True)]
         
-        # Se não houver blocos válidos, faz fallback para o prompt padrão
         if not enabled_blocks:
             return ProposalPromptBuilder.build(project, user_name)
             
+        clean_name = ProposalPromptBuilder.clean_user_name(user_name)
+        greeting = ProposalPromptBuilder.clean_client_greeting(project.get('client_name'))
+        signature = f"Atenciosamente,\n{clean_name}"
+        
         pieces_instructions = []
+        
         for i, block in enumerate(enabled_blocks, 1):
             b_type = block.get("type", "instrucao_personalizada")
             b_mode = block.get("mode", "instruction")
             b_content = block.get("content") or ""
             
-            # Resolver variáveis no conteúdo do bloco
             b_content_resolved = ProposalPromptBuilder.resolve_variables(b_content, project, user_name)
-            
             type_label = b_type.replace("_", " ").upper()
             
             if b_mode == "literal":
                 pieces_instructions.append(
-                    f"PEÇA {i}: {type_label} (MODO LITERAL - VOCÊ DEVE INCLUIR ESTE TEXTO EXATAMENTE COMO ESTÁ NA SUA PROPOSTA, SEM NENHUMA ALTERAÇÃO OU REESCRITA):\n"
+                    f"DIRETRIZ {i} [{type_label}] (MODO LITERAL - Inclua este trecho no local apropriado):\n"
                     f"\"\"\"\n{b_content_resolved}\n\"\"\""
                 )
             else:
                 pieces_instructions.append(
-                    f"PEÇA {i}: {type_label} (MODO INSTRUÇÃO - SIGA ESTA DIRETRIZ PARA ESCREVER ESTA PARTE DA PROPOSTA):\n"
+                    f"DIRETRIZ {i} [{type_label}] (MODO ESTRATÉGICO - Siga esta diretriz):\n"
                     f"\"\"\"\n{b_content_resolved}\n\"\"\""
                 )
                 
         pieces_str = "\n\n".join(pieces_instructions)
-        
+        skills_str = ', '.join(project.get('skills', [])) if isinstance(project.get('skills'), list) else str(project.get('skills') or '')
+        budget_str = str(project.get('budget') or 'A combinar')
+        title_str = str(project.get('title') or 'Projeto')
+        desc_str = str(project.get('description') or '')
+
+
+
         return f"""
-        Você é um Arquiteto de Software e Consultor de Negócios Sênior.
-        Seu objetivo é escrever uma proposta TÉCNICA e ESTRATÉGICA para um projeto no Workana.
-        NÃO aja como um vendedor agressivo. Aja como um parceiro de negócios que entende de tecnologia.
+Você é um Arquiteto de Software e Consultor Técnico Sênior de Elite no Workana.
+Seu objetivo é escrever uma proposta comercial técnica IRRECUSÁVEL, PERSUASIVA, TÉCNICA, ALTAMENTE PERSONALIZADA e ESTRUTURADA para o projeto abaixo, integrando harmoniosamente as diretrizes estratégicas no Padrão Master MVP.
 
-        === INFORMAÇÕES DO PROJETO ===
-        Título: {project.get('title')}
-        Descrição: {project.get('description')}
-        Skills: {', '.join(project.get('skills', [])) if isinstance(project.get('skills'), list) else project.get('skills', '')}
-        Orçamento: {project.get('budget')}
-        Cliente: {project.get('client_name') or 'Não disponível'}
+=== DADOS DO PROJETO ===
+Título: {title_str}
+Descrição: {desc_str}
+Habilidades Solicitadas: {skills_str}
+Orçamento Informado: {budget_str}
+Saudação Inicial Obrigatória: {greeting}
+Assinatura Obrigatória: {signature}
 
-        === SEU PERFIL ===
-        Nome: {user_name}
+=== PADRÃO DE ESTRUTURA VISUAL MASTER MVP ===
+A proposta DEVE seguir estritamente as seções com quebras de linha duplas (\\n\\n) entre blocos:
+1. Abertura & Diagnóstico:
+   - Inicie exatamente com: "{greeting}"
+   - Parágrafo 1: "Analisei cuidadosamente o escopo do projeto e os requisitos técnicos apresentados. Estamos falando da construção de um [tipo da solução contextualizado], com funcionalidades críticas como [3 a 4 recursos essenciais do projeto] — um projeto com clara inspiração em modelos [referências consagradas de mercado]."
+   - Parágrafo 2: "O foco desta proposta é entregar um MVP funcional, validável e escalável, pronto para testar o modelo de negócio no mercado e evoluir com segurança."
 
-        === REGRAS VISUAIS CRÍTICAS ===
-        - A proposta deve ser em TEXTO PURO (Plain Text), sem sintaxe Markdown (não use **negrito** e não use * para listas).
-        - Use EMOJIS e CAIXA ALTA para destacar títulos e pontos importantes.
-        - Mantenha espaçamento duplo entre seções para boa leitura.
-        - O visual deve ser "Clean e Profissional".
-        - Tom de voz: Consultivo, Especialista, Parceiro.
+2. 🧠 Visão do Projeto:
+   - "🧠 Visão do Projeto"
+   - "Desenvolver um [aplicativo/sistema/jogo/software] que:"
+   - 4 a 5 itens objetivos espaçados descrevendo a proposta de valor, recursos em tempo real, usabilidade, performance e base de crescimento.
 
-        === ESTRUTURA DA PROPOSTA (DEFINIDA PELO BLUEPRINT) ===
-        Você deve montar a proposta combinando e executando as seguintes peças na ordem exata apresentada abaixo:
+3. 📱 Arquitetura da Solução (ou 🎮 Arquitetura da Solução / ⚙️ Arquitetura Técnica):
+   - Detalhar as camadas técnicas principais (Frontend / Mobile / Client / Engine e Backend / API / Módulos & Persistência).
 
-        {pieces_str}
+4. 📋 Escopo de Desenvolvimento:
+   - Decomposto em 3 a 5 módulos práticos com ícones representativos (ex: 📍 Geolocalização, 🔧 Regras de Negócio, 💬 Chat, 💳 Pagamentos / Split, 👤 Usuários, 🎮 Core Loop, 🕹️ Mini-jogos, 🎨 Customização).
+   - Sob cada módulo, de 2 a 4 bullets ("• ").
 
-        === DIRETRIZES FINAIS DE COMPILAÇÃO ===
-        1. Para as peças marcadas como 'MODO LITERAL', copie e cole o texto exato fornecido nas peças sem reescrever ou alterar suas palavras.
-        2. Para as peças marcadas como 'MODO INSTRUÇÃO', gere conteúdo novo e adequado ao projeto seguindo estritamente a instrução dada.
-        3. Não adicione cabeçalhos ou divisores adicionais entre as peças além das quebras de linha duplas para espaçamento.
-        4. O texto compilado final deve fluir de maneira natural e ser totalmente profissional.
+5. 🔄 Condições:
+   - "🔄 Condições"
+   - • MVP focado em validação de mercado
+   - • Até 2 rodadas de ajustes inclusas
+   - • Comunicação constante durante o desenvolvimento
+   - • Código preparado para evolução futura
+   - • Suporte inicial pós-entrega
 
-        Retorne EXATAMENTE neste formato JSON:
-        {{
-            "proposal": "texto completo compilado da proposta com quebras de linha \\n",
-            "suggested_price": "preço sugerido para o projeto (R$ valor ou o orçamento do projeto)",
-            "justification": "breve justificativa técnica do preço"
-        }}
-        """
+6. 🎯 Considerações Finais:
+   - "🎯 Considerações Finais"
+   - "Esta proposta foi pensada para entregar um MVP realista, funcional e tecnicamente sólido, capaz de testar o modelo de negócio com segurança e permitir evolução rápida após a validação."
+   - "Fico à disposição para alinharmos detalhes técnicos, prazos e próximos passos."
+   - "{signature}"
+
+IMPORTANTE: NÃO inclua a seção de investimento/valores. O sistema irá calculá-la automaticamente.
+
+=== DIRETRIZES ESTRATÉGICAS PERSONALIZADAS A INTEGRAR ===
+{pieces_str}
+
+=== REGRAS DE PREÇO E PRAZO ===
+- suggested_price: Retorne um float justo (ex: 4500.0) baseado na complexidade do projeto, escopo e orçamento informado.
+- suggested_deadline_days: Retorne um inteiro realista em dias (ex: 15, 20, 30).
+- NUNCA use placeholders como [Seu Nome], [Nome], [Data].
+- NÃO gere a seção de investimento se o blueprint já tiver uma diretriz de investimento (será calculado automaticamente pelo sistema).
+
+Retorne EXATAMENTE no formato JSON:
+{{
+    "proposal": "texto completo, natural e estruturado da proposta com quebras de linha \\n\\n",
+    "suggested_price": 4500.0,
+    "suggested_deadline_days": 20,
+    "justification": "breve justificativa técnica do valor e prazo"
+}}
+"""
+
 
