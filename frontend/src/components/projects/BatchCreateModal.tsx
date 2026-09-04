@@ -2,6 +2,7 @@ import React from 'react';
 import Loader from '../Loader';
 import { ProposalTemplate } from '../../services/api';
 import styles from '../../pages/Projects.module.css';
+import { MaterialIcon } from '../ui/MaterialIcon';
 
 export interface BatchReviewItem {
   workana_id: string;
@@ -58,7 +59,10 @@ export const BatchCreateModal: React.FC<BatchCreateModalProps> = ({
       <div className={styles.batchModalContainer} onClick={(e) => e.stopPropagation()}>
         <div className={styles.batchModalHeader}>
           <div className={styles.batchModalTitle}>
-            <h2>⚡ Envio de Propostas em Lote</h2>
+            <h2>
+              <MaterialIcon name="bolt" size={22} style={{ marginRight: '6px' }} />
+              Envio de Propostas em Lote
+            </h2>
             <span className={styles.batchModalBadge}>
               {batchItems.filter((i) => i.selected).length} de {batchItems.length} selecionados
             </span>
@@ -83,7 +87,7 @@ export const BatchCreateModal: React.FC<BatchCreateModalProps> = ({
               <option value="">Prompt Padrão (Sem Template)</option>
               {templates.map((t) => (
                 <option key={t.template_ref || t.id} value={t.template_ref || String(t.id)}>
-                  {t.name} {t.is_system ? '🛡️ (Oficial)' : ''} {t.is_default ? '⭐' : ''}
+                  {t.name} {t.is_system ? '• Oficial' : ''} {t.is_default ? '• Padrão' : ''}
                 </option>
               ))}
             </select>
@@ -99,7 +103,10 @@ export const BatchCreateModal: React.FC<BatchCreateModalProps> = ({
               {isBatchGenerating ? (
                 <span className="spinner spinner-sm"></span>
               ) : (
-                '✨ Regerar Todas com IA'
+                <>
+                  <MaterialIcon name="auto_awesome" size={16} style={{ marginRight: '4px' }} />
+                  Regerar Todas com IA
+                </>
               )}
             </button>
           </div>
@@ -215,8 +222,9 @@ export const BatchCreateModal: React.FC<BatchCreateModalProps> = ({
 
         <div className={styles.batchModalFooter}>
           <div className={styles.batchFooterInfo}>
-            <span>
-              🛡️ O envio será executado sequencialmente com proteção anti-ban e delays inteligentes.
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+              <MaterialIcon name="shield" size={16} />O envio será executado sequencialmente com
+              proteção anti-ban e delays inteligentes.
             </span>
           </div>
           <div style={{ display: 'flex', gap: '12px' }}>
@@ -241,7 +249,10 @@ export const BatchCreateModal: React.FC<BatchCreateModalProps> = ({
               {isSubmittingBatch ? (
                 <span className="spinner spinner-sm"></span>
               ) : (
-                `🚀 Iniciar Disparo em Fila (${selectedReadyCount})`
+                <>
+                  <MaterialIcon name="rocket_launch" size={18} style={{ marginRight: '6px' }} />
+                  Iniciar Disparo em Fila ({selectedReadyCount})
+                </>
               )}
             </button>
           </div>

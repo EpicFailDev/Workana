@@ -500,3 +500,177 @@
     transform: translateY(0) scale(1);
   }
 }
+
+/* ==================== Estilos de Integração com a Extensão Oficial ==================== */
+
+.extensionActiveCard {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(99, 102, 241, 0.04) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.extensionBadgeRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.extensionBadgeIcon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(16, 185, 129, 0.18);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #34d399;
+  flex-shrink: 0;
+}
+
+.extensionBadgeText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.extensionBadgeTitle {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #34d399;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.extensionBadgeSub {
+  font-size: 0.7rem;
+  color: var(--color-text-muted, #94a3b8);
+}
+
+.extensionActionsGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.syncExtensionPrimaryBtn {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+}
+
+.syncExtensionPrimaryBtn:hover:not(:disabled) {
+  opacity: 0.95;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
+}
+
+.syncExtensionPrimaryBtn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.openWorkanaBtn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--color-text-primary, #f8fafc);
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.openWorkanaBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.contingencyRow {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 2px;
+}
+
+.contingencyLink {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted, #64748b);
+  font-size: 0.7rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 0.2s;
+}
+
+.contingencyLink:hover {
+  color: var(--color-text-secondary, #94a3b8);
+  text-decoration: underline;
+}
+
+.extensionInactiveCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.extensionNotice {
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.extensionNoticeHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--color-primary-light, #818cf8);
+}
+
+.extensionNoticeText {
+  margin: 4px 0 0;
+  font-size: 0.71rem;
+  color: var(--color-text-muted, #94a3b8);
+  line-height: 1.4;
+}
+
+.contingencyAlert {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 0.76rem;
+  color: #34d399;
+  line-height: 1.45;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}

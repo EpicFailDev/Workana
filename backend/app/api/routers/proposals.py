@@ -158,43 +158,65 @@ async def save_project_proposal(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/projects/{project_id}/generate-proposal", response_model=ProposalGenerationResult)
-async def generate_proposal(
-    project_id: str,
-    payload: Optional[ProposalGenerateRequest] = None,
-    template_id: Optional[Any] = None,
-    user: dict = Depends(get_current_user),
-):
-    """Gera uma proposta personalizada usando IA ou recupera proposta salva se já gerada."""
-    try:
-        force_regenerate = payload.force_regenerate if payload else False
-        actual_template_id = template_id
-        if payload and payload.template_id:
-            actual_template_id = payload.template_id
+async def _execute_proposal_generation(
+    project_id: Optional[str],
+    payload: Optional[ProposalGenerateRequest],
+    template_id: Optional[Any],
+    user: dict,
+) -> ProposalGenerationResult:
+    """Núcleo de geração de proposta reutilizado por múltiplos endpoints."""
+    effective_project_id = (
+        project_id or (payload.project_id if payload else None) or "projeto-workana"
+    )
+    force_regenerate = payload.force_regenerate if payload else False
+    actual_template_id = template_id
+    if payload and payload.template_id:
+        actual_template_id = payload.template_id
 
-        if not force_regenerate:
-            existing = await crud.get_latest_project_proposal(user["user_id"], project_id)
-            if existing and existing.get("proposal"):
-                versions = await crud.get_project_proposal_versions(user["user_id"], project_id)
-                return ProposalGenerationResult(
-                    success=True,
-                    proposal=existing.get("proposal"),
-                    suggested_price=f"R$ {existing.get('budget', 0):.2f}"
-                    if existing.get("budget")
-                    else None,
-                    suggested_deadline_days=existing.get("deadline_days", 7),
-                    justification="Proposta carregada do histórico salvo.",
-                    template_id_used=existing.get("template_id") or existing.get("template_slug"),
-                    proposal_id=existing.get("id"),
-                    versions=versions,
-                )
+    # Se não forçar nova geração e não for payload direto com título/descrição novos
+    has_direct_payload = bool(payload and payload.title and payload.description)
+    if not force_regenerate and not has_direct_payload:
+        existing = await crud.get_latest_project_proposal(user["user_id"], effective_project_id)
+        if existing and existing.get("proposal"):
+            versions = await crud.get_project_proposal_versions(
+                user["user_id"], effective_project_id
+            )
+            return ProposalGenerationResult(
+                success=True,
+                proposal=existing.get("proposal"),
+                suggested_price=f"R$ {existing.get('budget', 0):.2f}"
+                if existing.get("budget")
+                else None,
+                suggested_price_numeric=existing.get("budget"),
+                suggested_deadline_days=existing.get("deadline_days", 7),
+                justification="Proposta carregada do histórico salvo.",
+                template_id_used=existing.get("template_id") or existing.get("template_slug"),
+                proposal_id=existing.get("id"),
+                versions=versions,
+            )
 
-        project = await automation.get_project_details(project_id, user_id=user["user_id"])
+    # Obter dados do projeto: ou do payload direto (extensão) ou do banco/scraper
+    project_title = f"Projeto {effective_project_id}"
+    project_url = f"https://www.workana.com/job/{effective_project_id}"
+
+    if has_direct_payload and payload:
+        project_dict = {
+            "title": payload.title,
+            "description": payload.description,
+            "skills": payload.skills or [],
+            "budget": payload.budget,
+            "client_name": payload.client_name,
+            "deadline": payload.deadline,
+        }
+        project_title = payload.title or project_title
+    else:
+        project = await automation.get_project_details(
+            effective_project_id, user_id=user["user_id"]
+        )
         if not project:
             raise HTTPException(
                 status_code=404, detail="Projeto não encontrado para gerar proposta"
             )
-
         project_dict = {
             "title": project.title,
             "description": project.description,
@@ -203,56 +225,93 @@ async def generate_proposal(
             "client_name": project.client_name,
             "deadline": project.deadline,
         }
+        project_title = project.title
+        project_url = project.url
 
-        price_level = payload.price_level if payload and payload.price_level else "standard"
-        result = await proposal_agent_instance.generate_proposal(
-            user["user_id"], project_dict, template_id=actual_template_id, price_level=price_level
-        )
+    price_level = payload.price_level if payload and payload.price_level else "standard"
+    tone = payload.tone if payload and payload.tone else "consultivo"
 
-        if not result.get("success") and result.get("error_code") == 404:
-            raise HTTPException(status_code=404, detail=result.get("error"))
+    result = await proposal_agent_instance.generate_proposal(
+        user["user_id"],
+        project_dict,
+        template_id=actual_template_id,
+        price_level=price_level,
+        tone=tone,
+    )
 
-        proposal_id_created = None
-        if result.get("success"):
-            try:
-                save_new = payload.save_as_new_version if payload else True
-                proposal_id_created = await crud.save_ai_proposal(
-                    user_id=user["user_id"],
-                    project_id=project_id,
-                    project_title=project.title,
-                    project_url=project.url,
-                    proposal_text=result.get("proposal", ""),
-                    suggested_price=result.get("suggested_price", "R$ 0"),
-                    template_id=result.get("template_id_used"),
-                    deadline_days=result.get("suggested_deadline_days") or 7,
-                    status="generated",
-                    force_new_version=save_new,
-                )
+    if not result.get("success") and result.get("error_code") == 404:
+        raise HTTPException(status_code=404, detail=result.get("error"))
 
-                await crud.save_project_to_draft_batch(
-                    user_id=user["user_id"],
-                    project_id=project_id,
-                    proposal_text=result.get("proposal", ""),
-                    deadline_days=result.get("suggested_deadline_days") or 7,
-                    template_ref=str(result.get("template_id_used"))
-                    if result.get("template_id_used")
-                    else None,
-                )
-                logger.info(
-                    f"Proposta salva no histórico e lotes para o usuário {user['user_id']}, projeto: {project_id}"
-                )
-            except Exception as e:
-                logger.warning(f"Erro ao salvar proposta no histórico: {e}")
+    proposal_id_created = None
+    if result.get("success"):
+        try:
+            save_new = payload.save_as_new_version if payload else True
+            proposal_id_created = await crud.save_ai_proposal(
+                user_id=user["user_id"],
+                project_id=effective_project_id,
+                project_title=project_title,
+                project_url=project_url,
+                proposal_text=result.get("proposal", ""),
+                suggested_price=result.get("suggested_price", "R$ 0"),
+                template_id=result.get("template_id_used"),
+                deadline_days=result.get("suggested_deadline_days") or 7,
+                status="generated",
+                force_new_version=save_new,
+            )
 
-        versions = await crud.get_project_proposal_versions(user["user_id"], project_id)
-        result["proposal_id"] = proposal_id_created
-        result["versions"] = versions
-        return result
+            await crud.save_project_to_draft_batch(
+                user_id=user["user_id"],
+                project_id=effective_project_id,
+                proposal_text=result.get("proposal", ""),
+                deadline_days=result.get("suggested_deadline_days") or 7,
+                template_ref=str(result.get("template_id_used"))
+                if result.get("template_id_used")
+                else None,
+            )
+            logger.info(
+                f"Proposta salva no histórico e lotes para usuário {user['user_id']}, projeto: {effective_project_id}"
+            )
+        except Exception as e:
+            logger.warning(f"Erro ao salvar proposta no histórico: {e}")
 
+    versions = await crud.get_project_proposal_versions(user["user_id"], effective_project_id)
+    result["proposal_id"] = proposal_id_created
+    result["versions"] = versions
+    return ProposalGenerationResult(**result)
+
+
+@router.post("/projects/{project_id}/generate-proposal", response_model=ProposalGenerationResult)
+async def generate_proposal(
+    project_id: str,
+    payload: Optional[ProposalGenerateRequest] = None,
+    template_id: Optional[Any] = None,
+    user: dict = Depends(get_current_user),
+):
+    """Gera proposta personalizada para um projeto identificado na URL."""
+    try:
+        return await _execute_proposal_generation(project_id, payload, template_id, user)
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Erro ao gerar proposta: {e}")
+        logger.error(f"Erro ao gerar proposta para {project_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/projects/generate-proposal", response_model=ProposalGenerationResult)
+@router.post("/proposals/generate-quick", response_model=ProposalGenerationResult)
+async def generate_proposal_quick(
+    payload: ProposalGenerateRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Gera proposta sob demanda via Extensão ou Frontend com payload dinâmico."""
+    try:
+        return await _execute_proposal_generation(
+            payload.project_id, payload, payload.template_id, user
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro na geração rápida de proposta: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -264,6 +323,38 @@ async def submit_proposal(
     try:
         if proposal.project_id != project_id:
             proposal.project_id = project_id
+
+        # Modo Extensão Prioritário Anti-Ban (0% Risco)
+        from app.api.routers.extension import extension_manager
+        from app.api.schemas import ExtensionTaskCreate
+
+        dispatch_mode = (getattr(proposal, "dispatch_mode", None) or "auto").lower()
+        use_extension = False
+
+        if dispatch_mode == "extension":
+            use_extension = True
+        elif dispatch_mode == "auto":
+            # Se a extensão estiver conectada nos últimos 2 minutos, prioriza a extensão
+            use_extension = extension_manager.is_connected(user["user_id"])
+
+        if use_extension:
+            task = extension_manager.enqueue_task(
+                user["user_id"],
+                ExtensionTaskCreate(
+                    project_id=project_id,
+                    budget=proposal.budget,
+                    custom_message=proposal.custom_message or "",
+                    deadline_days=proposal.deadline_days,
+                    template_id=proposal.template_id,
+                    attachment_path=proposal.attachment_path,
+                ),
+            )
+            return ProposalResult(
+                success=True,
+                message="Proposta enfileirada com sucesso na extensão (Modo Seguro Anti-Ban).",
+                project_id=project_id,
+                proposal_id=task["task_id"],
+            )
 
         result = await automation.submit_proposal(user["user_id"], proposal)
         return result

@@ -31,6 +31,7 @@ class ProposalAgent:
         template_id: Optional[Any] = None,
         blueprint: Optional[list] = None,
         price_level: Literal["budget", "standard", "premium"] = "standard",
+        tone: Literal["consultivo", "persuasivo", "direto", "tecnico"] = "consultivo",
     ) -> dict:
         """
         Gera uma proposta irrecusável e um valor estipulado para o projeto.
@@ -41,6 +42,7 @@ class ProposalAgent:
             template_id: ID ou referência do template
             blueprint: Blueprint do template
             price_level: Nível de preço (budget, standard, premium)
+            tone: Tom da comunicação (consultivo, persuasivo, direto, tecnico)
         """
         if not HAS_GENAI:
             return {
@@ -157,10 +159,12 @@ class ProposalAgent:
 
         if blueprint:
             prompt = ProposalPromptBuilder.build_with_blueprint(
-                project=project_details, user_name=user_name, blueprint=blueprint
+                project=project_details, user_name=user_name, blueprint=blueprint, tone=tone
             )
         else:
-            prompt = ProposalPromptBuilder.build(project=project_details, user_name=user_name)
+            prompt = ProposalPromptBuilder.build(
+                project=project_details, user_name=user_name, tone=tone
+            )
 
         try:
             response = model.generate_content(prompt)
@@ -217,10 +221,12 @@ class ProposalAgent:
                 "success": True,
                 "proposal": proposal_text,
                 "suggested_price": suggested_price_str,
+                "suggested_price_numeric": suggested_price_numeric,
                 "suggested_deadline_days": deadline_days_val,
                 "justification": result.get("justification"),
                 "template_id_used": template_id_used,
                 "investment_breakdown": investment_breakdown,
+                "tone_used": tone,
             }
         except Exception as e:
             logger.error(f"Erro ao gerar proposta com AI: {e}")

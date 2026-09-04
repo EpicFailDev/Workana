@@ -3,6 +3,7 @@ import styles from './Profile.module.css';
 import { api, type ProfileMetrics } from '../services/api';
 import Loader from '../components/Loader';
 import CyberHeader from '../components/CyberHeader';
+import { MaterialIcon } from '../components/ui/MaterialIcon';
 
 export default function Profile() {
   const [profileMetrics, setProfileMetrics] = useState<ProfileMetrics | null>(null);
@@ -323,13 +324,24 @@ export default function Profile() {
               <h2>{profileMetrics.display_name}</h2>
               <div className={styles.badges}>
                 {profileMetrics.hourly_rate && (
-                  <span className={styles.hourlyRateBadge}>💰 {profileMetrics.hourly_rate}</span>
+                  <span className={styles.hourlyRateBadge}>
+                    <MaterialIcon name="payments" size={16} style={{ marginRight: '4px' }} />
+                    {profileMetrics.hourly_rate}
+                  </span>
                 )}
               </div>
               <div className={styles.locationGroup}>
-                {profileMetrics.country && <span>📍 {profileMetrics.country}</span>}
+                {profileMetrics.country && (
+                  <span>
+                    <MaterialIcon name="location_on" size={16} style={{ marginRight: '4px' }} />
+                    {profileMetrics.country}
+                  </span>
+                )}
                 {profileMetrics.member_since && (
-                  <span>🕒 Membro {profileMetrics.member_since}</span>
+                  <span>
+                    <MaterialIcon name="schedule" size={16} style={{ marginRight: '4px' }} />
+                    Membro {profileMetrics.member_since}
+                  </span>
                 )}
               </div>
               {profileMetrics.profile_url && (
@@ -368,24 +380,32 @@ export default function Profile() {
         <div className={styles.mainContent}>
           <div className={styles.statsGrid}>
             <div className={`m3-card ${styles.statBox}`}>
-              <span className={styles.statIcon}>⭐</span>
+              <span className={styles.statIcon}>
+                <MaterialIcon name="star" fill size={22} style={{ color: '#fbbf24' }} />
+              </span>
               <span className={styles.statLarge}>
                 {profileMetrics.average_rating?.toFixed(2) || '0.00'}
               </span>
               <span className={styles.statLabel}>{profileMetrics.total_reviews} Avaliações</span>
             </div>
             <div className={`m3-card ${styles.statBox}`}>
-              <span className={styles.statIcon}>✅</span>
+              <span className={styles.statIcon}>
+                <MaterialIcon name="check_circle" size={22} style={{ color: '#10b981' }} />
+              </span>
               <span className={styles.statLarge}>{profileMetrics.projects_completed}</span>
               <span className={styles.statLabel}>Projetos Realizados</span>
             </div>
             <div className={`m3-card ${styles.statBox}`}>
-              <span className={styles.statIcon}>🔄</span>
+              <span className={styles.statIcon}>
+                <MaterialIcon name="sync" size={22} style={{ color: '#6366f1' }} />
+              </span>
               <span className={styles.statLarge}>{profileMetrics.projects_in_progress}</span>
               <span className={styles.statLabel}>Em Andamento</span>
             </div>
             <div className={`m3-card ${styles.statBox}`}>
-              <span className={styles.statIcon}>⏱️</span>
+              <span className={styles.statIcon}>
+                <MaterialIcon name="timer" size={22} style={{ color: '#f59e0b' }} />
+              </span>
               <span className={styles.statLarge}>{profileMetrics.hours_worked}</span>
               <span className={styles.statLabel}>Horas Trabalhadas</span>
             </div>

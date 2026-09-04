@@ -3,7 +3,7 @@ Schemas Pydantic para validação de dados da API.
 """
 
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, List, Dict, Literal, Any
+from typing import Optional, List, Dict, Literal, Any, Union
 from datetime import datetime
 from enum import Enum
 
@@ -217,8 +217,15 @@ class ProposalTemplateCreate(BaseModel):
 
 
 class ProposalGenerateRequest(BaseModel):
-    """Corpo opcional para requisição de geração de proposta."""
+    """Corpo para requisição de geração de proposta."""
 
+    project_id: Optional[str] = Field(None, description="ID ou slug do projeto no Workana")
+    title: Optional[str] = Field(None, description="Título do projeto")
+    description: Optional[str] = Field(None, description="Descrição detalhada do projeto")
+    skills: Optional[List[str]] = Field(default=None, description="Lista de habilidades ou tags")
+    budget: Optional[Union[str, float]] = Field(None, description="Orçamento informado")
+    client_name: Optional[str] = Field(None, description="Nome ou iniciais do cliente")
+    deadline: Optional[str] = Field(None, description="Prazo desejado pelo cliente")
     template_id: Optional[Any] = Field(None, description="ID ou referência do template a usar")
     force_regenerate: bool = Field(
         default=False, description="Forçar nova geração mesmo se já existir uma proposta salva"
@@ -226,6 +233,10 @@ class ProposalGenerateRequest(BaseModel):
     price_level: Optional[Literal["budget", "standard", "premium"]] = Field(
         default="standard",
         description="Nível de preço: budget (barato), standard (médio), premium (caro)",
+    )
+    tone: Optional[Literal["consultivo", "persuasivo", "direto", "tecnico"]] = Field(
+        default="consultivo",
+        description="Tom da proposta: consultivo, persuasivo, direto, tecnico",
     )
     save_as_new_version: bool = Field(
         default=True, description="Se deve salvar como uma nova versão no histórico"
@@ -282,6 +293,70 @@ class ProposalSubmit(BaseModel):
     attachment_path: Optional[str] = Field(
         None, description="Caminho do arquivo para anexar à proposta (portfólio/preview)"
     )
+    dispatch_mode: Optional[str] = Field(
+        "auto", description="Modo de envio: extension, playwright ou auto"
+    )
+
+
+class ExtensionHeartbeatRequest(BaseModel):
+    """Heartbeat enviado pela extensão do navegador."""
+
+    version: str = Field(..., description="Versão da extensão")
+    active: bool = Field(True, description="Se a extensão está ativa")
+    workana_logged_in: Optional[bool] = Field(
+        None, description="Se o usuário está logado no Workana"
+    )
+    bids_remaining: Optional[int] = Field(
+        None, description="Saldo de conexões disponíveis no Workana"
+    )
+
+
+class ExtensionTaskCreate(BaseModel):
+    """Criação de tarefa de envio de proposta para a extensão."""
+
+    project_id: str = Field(..., description="ID ou slug do projeto")
+    budget: float = Field(..., gt=0, description="Valor da proposta")
+    custom_message: str = Field(..., description="Texto da proposta")
+    deadline_days: int = Field(7, ge=1, description="Prazo em dias")
+    template_id: Optional[Any] = Field(None, description="ID ou referência do template")
+    attachment_path: Optional[str] = Field(None, description="Caminho de anexo")
+
+
+class ExtensionTaskResponse(BaseModel):
+    """Resposta de tarefa da extensão."""
+
+    task_id: str
+    project_id: str
+    budget: float
+    custom_message: str
+    deadline_days: int
+    template_id: Optional[Any] = None
+    attachment_path: Optional[str] = None
+    status: str = "pending"
+    created_at: str
+
+
+class ExtensionTaskCompleteRequest(BaseModel):
+    """Relatório de conclusão de tarefa enviado pela extensão."""
+
+    success: bool = Field(..., description="Se a proposta foi submetida com sucesso")
+    message: str = Field(..., description="Mensagem de status ou erro")
+    project_id: Optional[str] = Field(None, description="ID do projeto")
+    redirect_url: Optional[str] = Field(None, description="URL de redirecionamento do Workana")
+    duration_ms: Optional[int] = Field(None, description="Duração do envio em milissegundos")
+    error_details: Optional[str] = Field(None, description="Detalhes técnicos em caso de erro")
+
+
+class ExtensionStatusResponse(BaseModel):
+    """Status da integração da extensão com o Accelerator."""
+
+    is_connected: bool
+    version: Optional[str] = None
+    last_heartbeat: Optional[str] = None
+    pending_tasks: int = 0
+    completed_today: int = 0
+    workana_logged_in: Optional[bool] = None
+    bids_remaining: Optional[int] = None
 
 
 class ProposalResult(BaseModel):
@@ -321,8 +396,10 @@ class ProposalGenerationResult(BaseModel):
     success: bool
     proposal: Optional[str] = None
     suggested_price: Optional[str] = None
+    suggested_price_numeric: Optional[float] = None
     suggested_deadline_days: Optional[int] = None
     justification: Optional[str] = None
+    tone_used: Optional[str] = None
     error: Optional[str] = None
     template_id_used: Optional[Any] = None
     investment_breakdown: Optional[InvestmentBreakdown] = None

@@ -16,6 +16,7 @@ import CyberHeader from '../components/CyberHeader';
 import SystemLog from '../components/SystemLog';
 import { useCounter } from '../hooks/useCounter';
 import { useAuth } from '../context/AuthContext';
+import { MaterialIcon } from '../components/ui/MaterialIcon';
 import {
   Shield,
   KeyRound,
@@ -149,25 +150,33 @@ export default function Dashboard() {
       {/* Metrics Grid */}
       <div className={styles.grid}>
         <div className={`${styles.card} holo-card`}>
-          <div className={styles.cardIcon}>📊</div>
+          <div className={styles.cardIcon}>
+            <MaterialIcon name="analytics" size={28} />
+          </div>
           <div className="stat-value-big">{animatedTotalProposals}</div>
           <div className={styles.cardLabel}>Propostas Enviadas</div>
         </div>
 
         <div className={`${styles.card} holo-card`}>
-          <div className={styles.cardIcon}>⚡</div>
+          <div className={styles.cardIcon}>
+            <MaterialIcon name="task_alt" size={28} />
+          </div>
           <div className="stat-value-big">{animatedActiveProjects}</div>
           <div className={styles.cardLabel}>Propostas Aceitas</div>
         </div>
 
         <div className={`${styles.card} holo-card`}>
-          <div className={styles.cardIcon}>🎯</div>
+          <div className={styles.cardIcon}>
+            <MaterialIcon name="target" size={28} />
+          </div>
           <div className="stat-value-big">{animatedResponseRate}%</div>
           <div className={styles.cardLabel}>Taxa de Resposta</div>
         </div>
 
         <div className={`${styles.card} holo-card`}>
-          <div className={styles.cardIcon}>💰</div>
+          <div className={styles.cardIcon}>
+            <MaterialIcon name="payments" size={28} />
+          </div>
           <div className="stat-value-big">R$ {animatedEarnings}</div>
           <div className={styles.cardLabel}>Ganhos Estimados</div>
         </div>
@@ -436,8 +445,12 @@ export default function Dashboard() {
         {error && (
           <div className={styles.errorBanner}>
             <span>{error}</span>
-            <button onClick={() => setError(null)} className="btn btn-ghost btn-sm">
-              ✕
+            <button
+              onClick={() => setError(null)}
+              className="btn btn-ghost btn-sm"
+              aria-label="Fechar erro"
+            >
+              <MaterialIcon name="close" size={16} />
             </button>
           </div>
         )}

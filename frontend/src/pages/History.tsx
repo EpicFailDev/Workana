@@ -4,6 +4,7 @@ import { api } from '../services/api';
 import { useToast } from '../context/ToastContext';
 import Loader from '../components/Loader';
 import CyberHeader from '../components/CyberHeader';
+import { MaterialIcon } from '../components/ui/MaterialIcon';
 
 interface ProposalHistory {
   id: number;
@@ -192,17 +193,11 @@ export default function History() {
                     </div>
                     <div className={styles.cardMeta}>
                       <span className={styles.budget}>{formatCurrency(item.budget)}</span>
-                      <span className={styles.date}>
-                        <svg
-                          width="12"
-                          height="12"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                        >
-                          <path d="M12 6c0-3.3-2.7-6-6-6S0 2.7 0 6s2.7 6 6 6 6-2.7 6-6z" />
-                          <path d="M6 3v3l2 2" />
-                        </svg>
+                      <span
+                        className={styles.date}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                      >
+                        <MaterialIcon name="schedule" size={13} />
                         {formatDate(item.sent_at)}
                       </span>
                     </div>
@@ -220,19 +215,7 @@ export default function History() {
             <div className={styles.modalHeader}>
               <span className={styles.modalTitle}>{selectedProposal.project_title}</span>
               <button className={styles.modalClose} onClick={() => setSelectedProposal(null)}>
-                <svg
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="18" y1="6" x2="6" y2="18"></line>
-                  <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
+                <MaterialIcon name="close" size={20} />
               </button>
             </div>
             <div className={styles.modalContent}>
@@ -258,12 +241,9 @@ export default function History() {
                 className={`${styles.button} ${styles.secondaryButton}`}
                 onClick={() => handleRegenerate(selectedProposal)}
                 disabled={isRegenerating}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               >
-                <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M23 4v6h-6"></path>
-                  <path d="M1 20v-6h6"></path>
-                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 1 20.49 15"></path>
-                </svg>
+                <MaterialIcon name="sync" size={16} />
                 Regenerar
               </button>
               <button
@@ -274,11 +254,9 @@ export default function History() {
                     toast.success('Proposta copiada!');
                   }
                 }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               >
-                <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                </svg>
+                <MaterialIcon name="content_copy" size={16} />
                 Copiar Texto
               </button>
               {selectedProposal.project_url && (
@@ -287,12 +265,9 @@ export default function History() {
                   target="_blank"
                   rel="noopener noreferrer"
                   className={`${styles.button} ${styles.ctaButton}`}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 >
-                  <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                    <polyline points="15 3 21 3 21 9"></polyline>
-                    <line x1="10" y1="14" x2="21" y2="3"></line>
-                  </svg>
+                  <MaterialIcon name="open_in_new" size={16} />
                   Ver no Workana
                 </a>
               )}

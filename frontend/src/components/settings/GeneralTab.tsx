@@ -1,5 +1,6 @@
 import React from 'react';
 import styles from '../../pages/Settings.module.css';
+import { MaterialIcon } from '../ui/MaterialIcon';
 
 interface GeneralTabProps {
   currentTheme: string;
@@ -20,8 +21,24 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ currentTheme, changeThem
               className={`${styles.themeBtn} ${currentTheme === theme ? styles.active : ''}`}
               onClick={() => changeTheme(theme)}
             >
-              <div style={{ fontSize: '24px' }}>
-                {theme === 'default' ? '🌙' : theme === 'cyberpunk' ? '👾' : '☀️'}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  height: '32px',
+                }}
+              >
+                <MaterialIcon
+                  name={
+                    theme === 'default'
+                      ? 'dark_mode'
+                      : theme === 'cyberpunk'
+                        ? 'sports_esports'
+                        : 'light_mode'
+                  }
+                  size={26}
+                />
               </div>
               <span>{theme.charAt(0).toUpperCase() + theme.slice(1)}</span>
             </div>

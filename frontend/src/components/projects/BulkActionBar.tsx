@@ -1,5 +1,6 @@
 import React from 'react';
 import styles from '../../pages/Projects.module.css';
+import { MaterialIcon } from '../ui/MaterialIcon';
 
 interface BulkActionBarProps {
   selectedCount: number;
@@ -50,7 +51,13 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
           onClick={onBulkFavorite}
           title="Favoritar projetos selecionados"
         >
-          ⭐ Favoritar
+          <MaterialIcon
+            name="star"
+            fill
+            size={15}
+            style={{ color: '#fbbf24', marginRight: '4px' }}
+          />
+          Favoritar
         </button>
         <button
           type="button"
@@ -59,7 +66,8 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
           onClick={onBulkHide}
           title="Ocultar projetos selecionados"
         >
-          👁️ Ocultar
+          <MaterialIcon name="visibility_off" size={15} style={{ marginRight: '4px' }} />
+          Ocultar
         </button>
         <button
           type="button"
@@ -68,7 +76,8 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
           onClick={onBulkAnalyze}
           title="Executar análise IA de compatibilidade em lote"
         >
-          ⚡ Analisar com IA
+          <MaterialIcon name="auto_awesome" size={15} style={{ marginRight: '4px' }} />
+          Analisar com IA
         </button>
         <button
           type="button"
@@ -77,7 +86,8 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
           onClick={onOpenBatchModal}
           title="Criar lote de envio de propostas para os selecionados"
         >
-          🚀 Criar Lote de Propostas
+          <MaterialIcon name="rocket_launch" size={15} style={{ marginRight: '4px' }} />
+          Criar Lote de Propostas
         </button>
         <button
           type="button"

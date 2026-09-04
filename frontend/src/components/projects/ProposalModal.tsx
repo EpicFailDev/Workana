@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Loader from '../Loader';
 import { ProposalTemplate, InvestmentBreakdown, ProposalVersion } from '../../services/api';
+import { MaterialIcon } from '../ui/MaterialIcon';
 
 export type PriceLevel = 'budget' | 'standard' | 'premium';
 
@@ -16,21 +17,21 @@ export const PRICE_LEVELS: PriceLevelOption[] = [
   {
     value: 'budget',
     label: 'Barato',
-    icon: '💰',
+    icon: 'payments',
     description: 'Foco no essencial (MVP)',
     color: 'rgba(34, 197, 94, 0.15)',
   },
   {
     value: 'standard',
     label: 'Médio',
-    icon: '💎',
+    icon: 'diamond',
     description: 'Equilíbrio ideal (Padrão)',
     color: 'rgba(59, 130, 246, 0.15)',
   },
   {
     value: 'premium',
     label: 'Caro',
-    icon: '👑',
+    icon: 'workspace_premium',
     description: 'Máxima qualidade (High-Ticket)',
     color: 'rgba(168, 85, 247, 0.15)',
   },
@@ -49,16 +50,55 @@ export interface ProposalData {
   template_slug?: string;
 }
 
+export type ProposalTone = 'consultivo' | 'persuasivo' | 'direto' | 'tecnico';
+
+export interface ProposalToneOption {
+  value: ProposalTone;
+  label: string;
+  icon: string;
+  description: string;
+}
+
+export const PROPOSAL_TONES: ProposalToneOption[] = [
+  {
+    value: 'consultivo',
+    label: 'Consultivo',
+    icon: 'work',
+    description: 'Arquiteto sênior, governança e alinhamento',
+  },
+  {
+    value: 'persuasivo',
+    label: 'Persuasivo',
+    icon: 'auto_awesome',
+    description: 'Foco em ROI, autoridade e fechamento rápido',
+  },
+  {
+    value: 'direto',
+    label: 'Direto (Ágil)',
+    icon: 'bolt',
+    description: 'Proposta enxuta, entrega rápida e sem rodeios',
+  },
+  {
+    value: 'tecnico',
+    label: 'Técnico',
+    icon: 'handyman',
+    description: 'Stack moderna, padrões limpos e testes',
+  },
+];
+
 interface ProposalModalProps {
   isOpen: boolean;
   templates: ProposalTemplate[];
   selectedTemplateId: string | null;
   priceLevel: PriceLevel;
+  tone?: ProposalTone;
   versions: ProposalVersion[];
   activeVersionId: number | null;
   isGenerating: boolean;
   isSubmitting: boolean;
   isSaving?: boolean;
+  isExtensionActive?: boolean;
+  isSendingViaExtension?: boolean;
   error: string | null;
   proposalData: ProposalData | null;
   budget: string;
@@ -66,6 +106,7 @@ interface ProposalModalProps {
   onClose: () => void;
   onTemplateChange: (templateRef: string | null) => void;
   onPriceLevelChange: (level: PriceLevel) => void;
+  onToneChange?: (tone: ProposalTone) => void;
   onSelectVersion: (version: ProposalVersion) => void;
   onDeleteVersion?: (versionId: number) => void;
   onGenerateNewVersion: () => void;
@@ -75,6 +116,7 @@ interface ProposalModalProps {
   onDeadlineChange: (val: string) => void;
   onCopy: () => void;
   onSubmit: () => void;
+  onSendViaExtension?: () => void;
   onSaveDraft?: () => void;
 }
 
@@ -83,11 +125,14 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
   templates,
   selectedTemplateId,
   priceLevel = 'standard',
+  tone = 'consultivo',
   versions = [],
   activeVersionId,
   isGenerating,
   isSubmitting,
   isSaving = false,
+  isExtensionActive = false,
+  isSendingViaExtension = false,
   error,
   proposalData,
   budget,
@@ -95,6 +140,7 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
   onClose,
   onTemplateChange,
   onPriceLevelChange,
+  onToneChange,
   onSelectVersion,
   onDeleteVersion,
   onGenerateNewVersion,
@@ -104,6 +150,7 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
   onDeadlineChange,
   onCopy,
   onSubmit,
+  onSendViaExtension,
   onSaveDraft,
 }) => {
   const [copied, setCopied] = useState(false);
@@ -124,6 +171,11 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
   const fullProposal = investmentText ? `${text}\n\n${investmentText}` : text;
   const charCount = fullProposal.length;
   const wordCount = fullProposal.trim() ? fullProposal.trim().split(/\s+/).length : 0;
+
+  const hasPhone = /(?:\+?55\s?)?(?:\(?\d{2}\)?\s?)?9?\d{4}[-.\s]?\d{4}/g.test(fullProposal);
+  const hasEmail = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g.test(fullProposal);
+  const hasLink = /(?:wa\.me|api\.whatsapp\.com|t\.me|telegram\.me|bit\.ly)/i.test(fullProposal);
+  const isSanitizedClean = !hasPhone && !hasEmail && !hasLink;
 
   const formatVersionTime = (isoString?: string) => {
     if (!isoString) return '';
@@ -160,17 +212,21 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
             <h3
-              className="modal-title"
               style={{
                 margin: 0,
-                fontSize: '1.25rem',
+                fontSize: '1.15rem',
                 fontWeight: 700,
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
               }}
             >
-              <span>✨</span> Estratégia Comercial & Proposta IA
+              <MaterialIcon
+                name="auto_awesome"
+                size={20}
+                style={{ color: 'var(--color-primary-light)' }}
+              />
+              Estratégia Comercial & Proposta IA
             </h3>
 
             {isSent ? (
@@ -183,9 +239,12 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
                   color: '#10b981',
                   border: '1px solid rgba(16, 185, 129, 0.4)',
                   fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
                 }}
               >
-                🚀 Proposta Enviada
+                <MaterialIcon name="rocket_launch" size={13} /> Proposta Enviada
               </span>
             ) : proposalData?.is_cached ? (
               <span
@@ -197,9 +256,12 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
                   color: '#60a5fa',
                   border: '1px solid rgba(59, 130, 246, 0.4)',
                   fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
                 }}
               >
-                📝 Rascunho Salvo
+                <MaterialIcon name="edit_note" size={14} /> Rascunho Salvo
               </span>
             ) : null}
 
@@ -213,9 +275,13 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
                   color: '#c7d2fe',
                   border: '1px solid rgba(99, 102, 241, 0.35)',
                   fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
                 }}
               >
-                🗂️ {versions.length} {versions.length === 1 ? 'Versão' : 'Versões'}
+                <MaterialIcon name="history" size={13} /> {versions.length}{' '}
+                {versions.length === 1 ? 'Versão' : 'Versões'}
               </span>
             )}
           </div>
@@ -228,6 +294,50 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
           className="modal-body"
           style={{ padding: '1.25rem 1.5rem', overflowY: 'auto', flex: 1 }}
         >
+          {/* Banner de Conexão com a Extensão Workana */}
+          {isExtensionActive && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '0.65rem 1rem',
+                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+                borderRadius: 'var(--radius-md)',
+                marginBottom: '1.25rem',
+                fontSize: '0.85rem',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.6rem',
+                  color: '#10b981',
+                  fontWeight: 600,
+                }}
+              >
+                <MaterialIcon name="verified_user" size={18} />
+                <span>
+                  Extensão Workana Conectada — Envio Ultra-Rápido & Modo Anti-Ban 0% Risco Ativo
+                </span>
+              </div>
+              <span
+                style={{
+                  color: '#6ee7b7',
+                  fontSize: '0.75rem',
+                  backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                  padding: '2px 8px',
+                  borderRadius: '10px',
+                  fontWeight: 600,
+                }}
+              >
+                Pronto para envio
+              </span>
+            </div>
+          )}
+
           {/* Barra de Navegação de Versões */}
           {versions.length > 0 && (
             <div style={{ marginBottom: '1.25rem' }}>
@@ -291,7 +401,11 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
                       onClick={() => onSelectVersion(ver)}
                       title={`Versão ${versionNumber} - ${ver.status || 'gerada'}`}
                     >
-                      <span style={{ fontSize: '0.85rem' }}>{isSentStatus ? '🚀' : '⚡'}</span>
+                      <MaterialIcon
+                        name={isSentStatus ? 'rocket_launch' : 'bolt'}
+                        size={15}
+                        style={{ color: isSelected ? '#fff' : '#94a3b8' }}
+                      />
                       <span
                         style={{
                           fontSize: '0.8rem',
@@ -361,7 +475,7 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
                     flexShrink: 0,
                   }}
                 >
-                  <span>{showConfigDrawer ? '▲' : '➕'}</span>
+                  <MaterialIcon name={showConfigDrawer ? 'expand_less' : 'add'} size={16} />
                   <span>{showConfigDrawer ? 'Ocultar Painel IA' : 'Nova Geração'}</span>
                 </button>
               </div>
@@ -399,7 +513,7 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
                     gap: '6px',
                   }}
                 >
-                  <span>🎯</span> Parâmetros da IA para{' '}
+                  <MaterialIcon name="tune" size={18} /> Parâmetros da IA para{' '}
                   {hasProposalLoaded ? 'Nova Versão' : 'Gerar Proposta'}
                 </h4>
                 {hasProposalLoaded && (
@@ -412,9 +526,12 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
                       color: '#94a3b8',
                       cursor: 'pointer',
                       fontSize: '0.8rem',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
                     }}
                   >
-                    Fechar Painel ✕
+                    Fechar Painel <MaterialIcon name="close" size={14} />
                   </button>
                 )}
               </div>
@@ -461,8 +578,7 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
                     <option value="">Padrão do Sistema (Proposta Master MVP)</option>
                     {templates.map((t) => (
                       <option key={t.template_ref || t.id} value={t.template_ref || String(t.id)}>
-                        {t.name} {t.is_system ? '🛡️ (Oficial)' : ''}{' '}
-                        {t.is_default ? '⭐ (Padrão)' : ''}
+                        {t.name} {t.is_system ? '• Oficial' : ''} {t.is_default ? '• Padrão' : ''}
                       </option>
                     ))}
                   </select>
@@ -507,7 +623,7 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
                             gap: '2px',
                           }}
                         >
-                          <span style={{ fontSize: '1.1rem' }}>{level.icon}</span>
+                          <MaterialIcon name={level.icon} size={20} />
                           <span
                             style={{
                               fontWeight: 700,
@@ -521,6 +637,76 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
                       );
                     })}
                   </div>
+                </div>
+              </div>
+
+              {/* Seletor de Tom da Proposta */}
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label
+                  className="form-label"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: '0.4rem',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                  }}
+                >
+                  <span>Tom da Proposta</span>
+                  <span
+                    style={{
+                      fontSize: '0.75rem',
+                      fontWeight: 400,
+                      color: 'var(--color-text-muted)',
+                    }}
+                  >
+                    {PROPOSAL_TONES.find((t) => t.value === tone)?.description}
+                  </span>
+                </label>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(4, 1fr)',
+                    gap: '0.5rem',
+                  }}
+                >
+                  {PROPOSAL_TONES.map((tOption) => {
+                    const isSelected = (tone || 'consultivo') === tOption.value;
+                    return (
+                      <button
+                        key={tOption.value}
+                        type="button"
+                        onClick={() => onToneChange?.(tOption.value)}
+                        disabled={isGenerating}
+                        style={{
+                          padding: '0.55rem 0.35rem',
+                          borderRadius: '8px',
+                          border: `1.5px solid ${isSelected ? 'rgba(99, 102, 241, 0.9)' : 'rgba(255,255,255,0.08)'}`,
+                          backgroundColor: isSelected
+                            ? 'rgba(99, 102, 241, 0.25)'
+                            : 'rgba(0,0,0,0.25)',
+                          cursor: isGenerating ? 'not-allowed' : 'pointer',
+                          transition: 'all 0.2s ease',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '2px',
+                        }}
+                      >
+                        <MaterialIcon name={tOption.icon} size={18} />
+                        <span
+                          style={{
+                            fontWeight: 700,
+                            fontSize: '0.75rem',
+                            color: isSelected ? '#fff' : '#cbd5e1',
+                          }}
+                        >
+                          {tOption.label}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -543,7 +729,7 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
                   boxShadow: '0 4px 15px rgba(99, 102, 241, 0.4)',
                 }}
               >
-                <span>⚡</span>
+                <MaterialIcon name="bolt" size={20} />
                 <span>
                   {hasProposalLoaded
                     ? `Gerar Nova Versão (v${versions.length + 1}) com IA`
@@ -693,6 +879,44 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
                     {charCount.toLocaleString('pt-BR')} caracteres • {wordCount} palavras
                   </span>
                 </div>
+                {/* Indicador de Conformidade e Anti-Violação de Termos */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '0.45rem 0.85rem',
+                    borderRadius: '8px',
+                    backgroundColor: isSanitizedClean
+                      ? 'rgba(16, 185, 129, 0.08)'
+                      : 'rgba(239, 68, 68, 0.12)',
+                    border: `1px solid ${
+                      isSanitizedClean ? 'rgba(16, 185, 129, 0.25)' : 'rgba(239, 68, 68, 0.35)'
+                    }`,
+                    marginBottom: '0.5rem',
+                    fontSize: '0.78rem',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      color: isSanitizedClean ? '#10b981' : '#ef4444',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <MaterialIcon name={isSanitizedClean ? 'verified_user' : 'warning'} size={18} />
+                    <span>
+                      {isSanitizedClean
+                        ? '100% Conforme com as Diretrizes do Workana (Zero Violações Detectadas)'
+                        : 'Alerta: A proposta contém dados de contato externo proibidos (telefone, e-mail ou link)!'}
+                    </span>
+                  </div>
+                  <span style={{ color: 'var(--color-text-muted)', fontSize: '0.72rem' }}>
+                    Anti-Ban Ativo
+                  </span>
+                </div>
                 <textarea
                   className="form-input"
                   rows={15}
@@ -749,7 +973,17 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
                   }}
                   onClick={handleCopyClick}
                 >
-                  {copied ? '✓ Copiado!' : '📋 Copiar Proposta'}
+                  {copied ? (
+                    <>
+                      <MaterialIcon name="check" size={16} style={{ marginRight: '4px' }} />{' '}
+                      Copiado!
+                    </>
+                  ) : (
+                    <>
+                      <MaterialIcon name="content_copy" size={16} style={{ marginRight: '4px' }} />{' '}
+                      Copiar Proposta
+                    </>
+                  )}
                 </button>
 
                 {onSaveDraft && (
@@ -767,7 +1001,43 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
                     onClick={onSaveDraft}
                     disabled={isSaving || !proposalData?.proposal}
                   >
-                    {isSaving ? 'Salvando...' : '💾 Salvar Rascunho'}
+                    {isSaving ? (
+                      'Salvando...'
+                    ) : (
+                      <>
+                        <MaterialIcon name="save" size={16} style={{ marginRight: '4px' }} /> Salvar
+                        Rascunho
+                      </>
+                    )}
+                  </button>
+                )}
+
+                {isExtensionActive && onSendViaExtension && (
+                  <button
+                    type="button"
+                    className="btn"
+                    style={{
+                      flex: 1.8,
+                      minWidth: '220px',
+                      backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                      border: '1.5px solid #10b981',
+                      color: '#34d399',
+                      fontWeight: 700,
+                      boxShadow: '0 0 16px rgba(16, 185, 129, 0.25)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.5rem',
+                    }}
+                    onClick={onSendViaExtension}
+                    disabled={isSendingViaExtension || isSubmitting || !proposalData?.proposal}
+                  >
+                    <MaterialIcon name="bolt" size={18} />
+                    <span>
+                      {isSendingViaExtension
+                        ? 'Enviando com Extensão...'
+                        : 'Enviar com Extensão (0% Risco)'}
+                    </span>
                   </button>
                 )}
 
@@ -776,18 +1046,21 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
                   className="btn btn-primary"
                   style={{
                     flex: 1.6,
-                    minWidth: '220px',
+                    minWidth: '200px',
                     fontWeight: 700,
                     boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)',
                   }}
                   onClick={onSubmit}
-                  disabled={isSubmitting || !proposalData?.proposal}
+                  disabled={isSubmitting || isSendingViaExtension || !proposalData?.proposal}
                 >
-                  {isSubmitting
-                    ? 'Enviando...'
-                    : isSent
-                      ? '🚀 Reenviar Proposta'
-                      : '🚀 Enviar Proposta'}
+                  {isSubmitting ? (
+                    'Enviando...'
+                  ) : (
+                    <>
+                      <MaterialIcon name="rocket_launch" size={18} style={{ marginRight: '6px' }} />
+                      {isSent ? 'Reenviar via Servidor' : 'Enviar via Servidor'}
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -795,7 +1068,9 @@ export const ProposalModal: React.FC<ProposalModalProps> = ({
             <div
               style={{ padding: '30px 0', textAlign: 'center', color: 'var(--color-text-muted)' }}
             >
-              <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>🤖</div>
+              <div style={{ marginBottom: '0.5rem', color: 'var(--color-primary-light)' }}>
+                <MaterialIcon name="smart_toy" size={48} />
+              </div>
               <h4 style={{ color: '#fff', marginBottom: '0.5rem' }}>
                 Nenhuma proposta gerada ainda
               </h4>

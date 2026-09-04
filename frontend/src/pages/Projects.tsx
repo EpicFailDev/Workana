@@ -27,6 +27,7 @@ import {
   type SearchFilters,
   type BatchReviewItem,
 } from '../components/projects';
+import { MaterialIcon } from '../components/ui/MaterialIcon';
 
 interface Project {
   id: string;
@@ -164,6 +165,10 @@ export default function Projects() {
     isGeneratingAi,
     isSavingDraft,
     isSubmittingProposal,
+    isExtensionActive,
+    isSendingViaExtension,
+    proposalTone,
+    setProposalTone,
     aiError,
     modalBudget,
     setModalBudget,
@@ -625,7 +630,9 @@ export default function Projects() {
             </div>
           ) : hasSearched && projects.length === 0 ? (
             <div className="empty-state">
-              <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🛰️</div>
+              <div style={{ marginBottom: '1rem', color: 'var(--color-primary-light)' }}>
+                <MaterialIcon name="radar" size={64} />
+              </div>
               <h3 className="empty-state-title">Nenhum sinal detectado</h3>
               <p className="empty-state-description">
                 Ajuste os parâmetros dos sensores e tente novamente.
@@ -656,7 +663,12 @@ export default function Projects() {
                         loadBatches();
                       }}
                     >
-                      📊 Fila de Envios
+                      <MaterialIcon
+                        name="format_list_bulleted"
+                        size={16}
+                        style={{ marginRight: '6px' }}
+                      />
+                      Fila de Envios
                     </button>
                     <button
                       type="button"
@@ -664,7 +676,8 @@ export default function Projects() {
                       title="Salvar esta busca como preset"
                       onClick={() => setShowSaveModal(true)}
                     >
-                      💾 Salvar Filtro
+                      <MaterialIcon name="bookmark_add" size={16} style={{ marginRight: '6px' }} />
+                      Salvar Filtro
                     </button>
                     <button
                       type="button"
@@ -679,7 +692,8 @@ export default function Projects() {
                         }
                       }}
                     >
-                      ⬇️ Exportar CSV
+                      <MaterialIcon name="download" size={16} style={{ marginRight: '6px' }} />
+                      Exportar CSV
                     </button>
                   </div>
                   <select
@@ -773,11 +787,14 @@ export default function Projects() {
         templates={templates}
         selectedTemplateId={selectedTemplateId}
         priceLevel={priceLevel}
+        tone={proposalTone}
         versions={proposalVersions}
         activeVersionId={activeVersionId}
         isGenerating={isGeneratingAi}
         isSubmitting={isSubmittingProposal}
         isSaving={isSavingDraft}
+        isExtensionActive={isExtensionActive}
+        isSendingViaExtension={isSendingViaExtension}
         error={aiError}
         proposalData={aiProposal}
         budget={modalBudget}
@@ -791,6 +808,9 @@ export default function Projects() {
         onPriceLevelChange={(level) => {
           setPriceLevel(level);
         }}
+        onToneChange={(t) => {
+          setProposalTone(t);
+        }}
         onSelectVersion={handleSelectProposalVersion}
         onDeleteVersion={handleDeleteProposalVersion}
         onGenerateNewVersion={() => {
@@ -799,7 +819,8 @@ export default function Projects() {
               currentGeneratingProjectId,
               selectedTemplateId,
               priceLevel,
-              true
+              true,
+              proposalTone
             );
           }
         }}
@@ -810,7 +831,8 @@ export default function Projects() {
         onDeadlineChange={setModalDeadline}
         onCopy={handleCopyProposal}
         onSaveDraft={handleSaveProposalDraft}
-        onSubmit={handleSubmitProposal}
+        onSubmit={() => handleSubmitProposal()}
+        onSendViaExtension={() => handleSubmitProposal('extension')}
       />
 
       <BatchCreateModal

@@ -2,6 +2,7 @@ import React from 'react';
 import Loader from '../Loader';
 import { ProposalBatch } from '../../services/api';
 import styles from '../../pages/Projects.module.css';
+import { MaterialIcon } from '../ui/MaterialIcon';
 
 interface QueueDrawerModalProps {
   isOpen: boolean;
@@ -31,8 +32,18 @@ export const QueueDrawerModal: React.FC<QueueDrawerModalProps> = ({
       <div className={styles.queueDrawerContainer} onClick={(e) => e.stopPropagation()}>
         <div className={styles.queueDrawerHeader}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#f1f5f9' }}>
-              📊 Fila de Envios & Lotes
+            <h3
+              style={{
+                margin: 0,
+                fontSize: '1.2rem',
+                color: '#f1f5f9',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              <MaterialIcon name="format_list_bulleted" size={22} />
+              Fila de Envios & Lotes
             </h3>
           </div>
           <button className="btn-close" onClick={onClose} aria-label="Fechar">
@@ -47,7 +58,9 @@ export const QueueDrawerModal: React.FC<QueueDrawerModalProps> = ({
             </div>
           ) : batches.length === 0 ? (
             <div className="empty-state" style={{ padding: '40px 20px', textAlign: 'center' }}>
-              <div style={{ fontSize: '3rem', marginBottom: '12px' }}>📭</div>
+              <div style={{ marginBottom: '12px', color: '#94a3b8' }}>
+                <MaterialIcon name="inbox" size={48} />
+              </div>
               <h4 style={{ color: '#94a3b8', margin: '0 0 8px' }}>Nenhum lote na fila</h4>
               <p style={{ fontSize: '0.85rem', color: '#64748b' }}>
                 Selecione projetos no catálogo e clique em "Gerar e Revisar em Lote" ou "Enfileirar
@@ -97,7 +110,7 @@ export const QueueDrawerModal: React.FC<QueueDrawerModalProps> = ({
                       {batch.status === 'completed'
                         ? 'Concluído'
                         : batch.status === 'running'
-                          ? 'Em Envio 🚀'
+                          ? 'Em Envio'
                           : batch.status === 'cancelled'
                             ? 'Cancelado'
                             : batch.status === 'failed'
@@ -118,8 +131,18 @@ export const QueueDrawerModal: React.FC<QueueDrawerModalProps> = ({
                   </div>
 
                   {batch.failed_count > 0 && (
-                    <div style={{ fontSize: '0.78rem', color: '#f87171', marginTop: '6px' }}>
-                      ⚠️ {batch.failed_count} proposta(s) falharam
+                    <div
+                      style={{
+                        fontSize: '0.78rem',
+                        color: '#f87171',
+                        marginTop: '6px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      <MaterialIcon name="warning" size={14} />
+                      {batch.failed_count} proposta(s) falharam
                     </div>
                   )}
 
@@ -133,13 +156,17 @@ export const QueueDrawerModal: React.FC<QueueDrawerModalProps> = ({
                           border: '1px solid rgba(239, 68, 68, 0.3)',
                           padding: '4px 10px',
                           fontSize: '0.75rem',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
                         }}
                         onClick={(e) => {
                           e.stopPropagation();
                           onCancelBatch(batch.id);
                         }}
                       >
-                        🛑 Cancelar
+                        <MaterialIcon name="cancel" size={14} />
+                        Cancelar
                       </button>
                     ) : null}
 
@@ -149,13 +176,20 @@ export const QueueDrawerModal: React.FC<QueueDrawerModalProps> = ({
                       <button
                         type="button"
                         className="btn btn-secondary btn-sm"
-                        style={{ padding: '4px 10px', fontSize: '0.75rem' }}
+                        style={{
+                          padding: '4px 10px',
+                          fontSize: '0.75rem',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
                         onClick={(e) => {
                           e.stopPropagation();
                           onRetryBatch(batch.id);
                         }}
                       >
-                        🔁 Reenviar Falhas
+                        <MaterialIcon name="replay" size={14} />
+                        Reenviar Falhas
                       </button>
                     ) : null}
 

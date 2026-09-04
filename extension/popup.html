@@ -2,81 +2,424 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>Workana Accelerator Companion</title>
+  <title>Workana Accelerator • AI Copilot Pro</title>
+  <link rel="icon" type="image/png" href="icons/icon32.png">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      width: 320px;
-      padding: 16px;
-      background: #0f172a;
-      color: #f8fafc;
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Inter, Helvetica, Arial, sans-serif;
+      width: 380px;
+      padding: 16px;
+      background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0c1222 55%, #060913 100%);
+      color: #f1f5f9;
+      user-select: none;
+    }
+
+    /* Material Icons Utility */
+    .mat-icon {
+      width: 16px;
+      height: 16px;
+      fill: currentColor;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      vertical-align: middle;
+    }
+
+    .mat-icon-sm {
+      width: 13px;
+      height: 13px;
+      fill: currentColor;
+    }
+
+    .mat-icon-lg {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
+    }
+
+    /* ==================== Header ==================== */
     .header {
       display: flex;
       align-items: center;
-      gap: 10px;
-      margin-bottom: 14px;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      padding-bottom: 12px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-      padding-bottom: 10px;
     }
-    .logo-badge {
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
-      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .logo-container {
+      position: relative;
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(168, 85, 247, 0.25));
+      border: 1px solid rgba(129, 140, 248, 0.4);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-weight: bold;
-      font-size: 16px;
+      box-shadow: 0 0 16px rgba(99, 102, 241, 0.35);
+      flex-shrink: 0;
     }
-    h1 { font-size: 14px; font-weight: 600; color: #f1f5f9; }
-    .subtitle { font-size: 11px; color: #94a3b8; }
-    .status-card {
-      background: rgba(30, 41, 59, 0.7);
-      border: 1px solid rgba(255, 255, 255, 0.08);
+
+    .logo-img {
+      width: 26px;
+      height: 26px;
+      object-fit: contain;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+    }
+
+    .title-group {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .app-title {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      background: linear-gradient(180deg, #ffffff 0%, #cbd5e1 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .app-subtitle {
+      font-size: 11px;
+      color: #94a3b8;
+      font-weight: 500;
+      margin-top: 1px;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .version-badge {
+      background: rgba(99, 102, 241, 0.15);
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      color: #a5b4fc;
+      font-size: 10px;
+      padding: 3px 7px;
+      border-radius: 6px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .icon-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #94a3b8;
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    }
+
+    .icon-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: #ffffff;
+      transform: scale(1.05);
+    }
+
+    .icon-btn.spinning svg {
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin {
+      100% { transform: rotate(360deg); }
+    }
+
+    /* ==================== VPS Settings Drawer ==================== */
+    .vps-drawer {
+      display: none;
+      background: rgba(30, 41, 59, 0.75);
+      border: 1px solid rgba(99, 102, 241, 0.35);
       border-radius: 10px;
-      padding: 12px;
+      padding: 10px;
+      margin-bottom: 12px;
+      backdrop-filter: blur(12px);
+      animation: fadeIn 0.2s ease;
+    }
+
+    .vps-drawer.open {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .vps-drawer-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #e2e8f0;
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .vps-input-group {
+      display: flex;
+      gap: 6px;
+    }
+
+    .vps-input {
+      flex: 1;
+      background: #090d16;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 6px;
+      padding: 6px 8px;
+      color: #f8fafc;
+      font-size: 11px;
+      font-family: monospace;
+      outline: none;
+    }
+
+    .vps-input:focus {
+      border-color: #818cf8;
+      box-shadow: 0 0 8px rgba(99, 102, 241, 0.3);
+    }
+
+    .vps-save-btn {
+      background: #4f46e5;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .vps-save-btn:hover {
+      background: #4338ca;
+    }
+
+    /* ==================== Top Stats HUD ==================== */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
       margin-bottom: 12px;
     }
-    .status-row {
+
+    .stat-card {
+      background: rgba(30, 41, 59, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 10px 12px;
+      backdrop-filter: blur(10px);
+      transition: border-color 0.2s ease;
+    }
+
+    .stat-card:hover {
+      border-color: rgba(99, 102, 241, 0.3);
+    }
+
+    .stat-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+
+    .stat-label {
+      font-size: 10px;
+      color: #94a3b8;
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+
+    .stat-val {
+      font-size: 20px;
+      font-weight: 800;
+      color: #f8fafc;
+      line-height: 1.2;
+    }
+
+    .stat-val.stat-green {
+      color: #34d399;
+      text-shadow: 0 0 12px rgba(52, 211, 153, 0.3);
+    }
+
+    .stat-val.stat-yellow {
+      color: #fbbf24;
+    }
+
+    .stat-sub {
+      font-size: 10px;
+      color: #64748b;
+      margin-top: 3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ==================== Telemetry Glass Card ==================== */
+    .card {
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-bottom: 12px;
+      backdrop-filter: blur(12px);
+    }
+
+    .telemetry-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 8px;
+      padding: 7px 0;
       font-size: 12px;
     }
-    .status-badge {
+
+    .telemetry-row:not(:last-child) {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .row-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .row-title {
+      color: #cbd5e1;
+      font-weight: 500;
+    }
+
+    .row-sub {
+      font-size: 10px;
+      color: #64748b;
+    }
+
+    .row-link {
+      color: #818cf8;
+      text-decoration: none;
+      font-size: 11px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      transition: color 0.2s;
+    }
+
+    .row-link:hover {
+      color: #a5b4fc;
+    }
+
+    .badge-pill {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 3px 8px;
+      padding: 3px 9px;
       border-radius: 9999px;
       font-size: 11px;
-      font-weight: 500;
-      background: rgba(16, 185, 129, 0.15);
+      font-weight: 600;
+    }
+
+    .badge-pill.badge-green {
+      background: rgba(16, 185, 129, 0.12);
       color: #34d399;
       border: 1px solid rgba(16, 185, 129, 0.3);
     }
-    .dot {
+
+    .badge-pill.badge-yellow {
+      background: rgba(245, 158, 11, 0.12);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .pulse-dot {
       width: 6px;
       height: 6px;
       border-radius: 50%;
       background: currentColor;
       box-shadow: 0 0 6px currentColor;
+      animation: pulse 2s infinite;
     }
-    .metric {
-      font-size: 11px;
-      color: #94a3b8;
-      line-height: 1.4;
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.2); }
     }
+
+    /* Switch iOS-Style */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 38px;
+      height: 22px;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #334155;
+      transition: .25s ease;
+      border-radius: 22px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 2px;
+      bottom: 2px;
+      background-color: #f8fafc;
+      transition: .25s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+
+    input:checked + .slider {
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      border-color: rgba(129, 140, 248, 0.5);
+      box-shadow: 0 0 10px rgba(99, 102, 241, 0.4);
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(16px);
+    }
+
+    /* ==================== Action Buttons ==================== */
     .btn {
       width: 100%;
-      background: linear-gradient(135deg, #2563eb, #1d4ed8);
-      color: white;
       border: none;
-      border-radius: 8px;
+      border-radius: 10px;
       padding: 10px 14px;
       font-size: 12px;
       font-weight: 600;
@@ -85,50 +428,360 @@
       align-items: center;
       justify-content: center;
       gap: 8px;
-      transition: all 0.2s ease;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      outline: none;
     }
-    .btn:hover {
-      background: linear-gradient(135deg, #1d4ed8, #1e40af);
-      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+
+    .btn:active {
+      transform: scale(0.98);
     }
+
     .btn:disabled {
       opacity: 0.6;
       cursor: not-allowed;
+      transform: none !important;
     }
-    .footer {
-      margin-top: 10px;
-      text-align: center;
+
+    .btn-primary {
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+      color: #ffffff;
+      box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      margin-bottom: 8px;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: linear-gradient(135deg, #4338ca 0%, #6d28d9 100%);
+      box-shadow: 0 6px 18px rgba(79, 70, 229, 0.5);
+      transform: translateY(-1px);
+    }
+
+    .btn-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #cbd5e1;
+      padding: 9px 10px;
+      font-size: 11px;
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.1);
+      color: #ffffff;
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .btn-spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-top-color: #ffffff;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+
+    /* ==================== Logs Console ==================== */
+    .logs-header {
       font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #94a3b8;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logs-header-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .logs-header-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .clear-btn {
+      background: transparent;
+      border: none;
       color: #64748b;
+      font-size: 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0;
+      transition: color 0.2s;
+    }
+
+    .clear-btn:hover {
+      color: #94a3b8;
+    }
+
+    .logs-box {
+      background: #030712;
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 10px;
+      padding: 8px 10px;
+      max-height: 105px;
+      min-height: 60px;
+      overflow-y: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 10px;
+      line-height: 1.5;
+      color: #cbd5e1;
+    }
+
+    .logs-box::-webkit-scrollbar {
+      width: 4px;
+    }
+    .logs-box::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+    }
+
+    .log-item {
+      padding: 2px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      word-break: break-word;
+    }
+
+    .log-item:last-child {
+      border-bottom: none;
+    }
+
+    .log-time {
+      color: #64748b;
+      font-size: 9px;
+      flex-shrink: 0;
+    }
+
+    .log-tag {
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-size: 8px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .log-tag.tag-ok {
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+    }
+
+    .log-tag.tag-err {
+      background: rgba(239, 68, 68, 0.2);
+      color: #f87171;
+    }
+
+    .log-tag.tag-info {
+      background: rgba(99, 102, 241, 0.2);
+      color: #a5b4fc;
+    }
+
+    .log-msg {
+      color: #e2e8f0;
+      flex: 1;
+    }
+
+    /* ==================== Footer ==================== */
+    /* ==================== Auto-Sync HUD ==================== */
+    .auto-sync-card {
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(5, 150, 105, 0.08) 100%);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 2px 10px rgba(16, 185, 129, 0.1);
+    }
+
+    .auto-sync-left {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+
+    .auto-sync-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #34d399;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .auto-sync-sub {
+      font-size: 10px;
+      color: #94a3b8;
+      margin-top: 1px;
     }
   </style>
 </head>
 <body>
+  <!-- Header -->
   <div class="header">
-    <div class="logo-badge">⚡</div>
-    <div>
-      <h1>Workana Companion</h1>
-      <div class="subtitle">Zero-Click Session Bridge</div>
+    <div class="header-left">
+      <div class="logo-container">
+        <img src="icons/icon32.png" alt="Logo" class="logo-img" />
+      </div>
+      <div class="title-group">
+        <span class="app-title">Workana Accelerator</span>
+        <span class="app-subtitle">AI Copilot & Auto-Bid Pro</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span class="version-badge">PRO v2.0</span>
+      <!-- Material Icon: Refresh -->
+      <button class="icon-btn" id="refreshBtn" title="Atualizar dados agora">
+        <svg class="mat-icon" viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+      </button>
     </div>
   </div>
 
-  <div class="status-card">
-    <div class="status-row">
-      <span>Modo de Operação</span>
-      <span class="status-badge" id="modeBadge">
-        <span class="dot"></span> Zero-Click Ativo
+  <!-- Top Stats HUD -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-header">
+        <!-- Material Icon: Analytics -->
+        <svg class="mat-icon" viewBox="0 0 24 24" style="fill: #818cf8;"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-5h2v5zm4 0h-2v-9h2v9zm4 0h-2v-4h2v4z"/></svg>
+        <span class="stat-label">Enviadas Hoje</span>
+      </div>
+      <div class="stat-val" id="sentTodayCount">0</div>
+      <div class="stat-sub">Servidor VPS 24/7 Ativo</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-header">
+        <!-- Material Icon: Shield -->
+        <svg class="mat-icon" viewBox="0 0 24 24" style="fill: #34d399;"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
+        <span class="stat-label">Escudo Anti-Ban</span>
+      </div>
+      <div class="stat-val stat-green" id="cooldownText">Pronto</div>
+      <div class="stat-sub" id="cooldownSub">Burst 1.8s • 0% Risco</div>
+    </div>
+  </div>
+
+  <!-- Telemetry HUD -->
+  <div class="card">
+    <div class="telemetry-row">
+      <div class="row-left">
+        <!-- Material Icon: Language / Web -->
+        <svg class="mat-icon" viewBox="0 0 24 24" style="fill: #60a5fa;"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zm6.93 6h-2.95c-.32-1.25-.78-2.45-1.38-3.56 1.84.63 3.37 1.91 4.33 3.56zM12 4.04c.83 1.2 1.48 2.53 1.91 3.96h-3.82c.43-1.43 1.08-2.76 1.91-3.96zM4.26 14C4.1 13.36 4 12.69 4 12s.1-1.36.26-2h3.38c-.08.66-.14 1.32-.14 2 0 .68.06 1.34.14 2H4.26zm.82 2h2.95c.32 1.25.78 2.45 1.38 3.56-1.84-.63-3.37-1.9-4.33-3.56zm2.95-8H5.08c.96-1.66 2.49-2.93 4.33-3.56C8.81 5.55 8.35 6.75 8.03 8zM12 19.96c-.83-1.2-1.48-2.53-1.91-3.96h3.82c-.43 1.43-1.08 2.76-1.91 3.96zM14.34 14H9.66c-.09-.66-.16-1.32-.16-2 0-.68.07-1.35.16-2h4.68c.09.65.16 1.32.16 2 0 .68-.07 1.34-.16 2zm.25 5.56c.6-1.11 1.06-2.31 1.38-3.56h2.95c-.96 1.65-2.49 2.93-4.33 3.56zM16.36 14c.08-.66.14-1.32.14-2 0-.68-.06-1.34-.14-2h3.38c.16.64.26 1.31.26 2s-.1 1.36-.26 2h-3.38z"/></svg>
+        <span class="row-title">Sessão Workana</span>
+        <a href="#" id="openWorkanaLink" class="row-link" title="Abrir Workana no Navegador">
+          <svg class="mat-icon-sm" viewBox="0 0 24 24"><path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>
+        </a>
+      </div>
+      <span id="sessionBadge" class="badge-pill badge-green">
+        <span class="pulse-dot"></span>
+        <span id="sessionStatusText">Verificando...</span>
       </span>
     </div>
-    <div class="metric" id="lastSyncText">Última sincronização: verificando...</div>
-    <div class="metric" id="cookieCountText">Cookies monitorados: --</div>
+
+    <div class="telemetry-row">
+      <div class="row-left">
+        <!-- Material Icon: Cloud Done / Server -->
+        <svg class="mat-icon" viewBox="0 0 24 24" style="fill: #a78bfa;"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM10 17l-3.5-3.5 1.41-1.41L10 14.17 15.09 9.09l1.41 1.41L10 17z"/></svg>
+        <div>
+          <div class="row-title">Motor de IA & Automação</div>
+          <div class="row-sub" id="apiEndpointSub">VPS: workana.duckdns.org</div>
+        </div>
+      </div>
+      <span id="apiBadge" class="badge-pill badge-green">
+        <span class="pulse-dot"></span>
+        <span id="apiStatusText">Online 24/7</span>
+      </span>
+    </div>
+
+    <div class="telemetry-row" style="padding-top: 8px;">
+      <div class="row-left">
+        <!-- Material Icon: Smart Toy / Robot -->
+        <svg class="mat-icon" viewBox="0 0 24 24" style="fill: #38bdf8;"><path d="M20 9V7c0-1.1-.9-2-2-2h-3c0-1.66-1.34-3-3-3S9 3.34 9 5H6c-1.1 0-2 .9-2 2v2c-1.66 0-3 1.34-3 3s1.34 3 3 3v4c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-4c1.66 0 3-1.34 3-3s-1.34-3-3-3zm-2 10H6V7h12v12zm-9-6c-.83 0-1.5-.67-1.5-1.5S8.17 10 9 10s1.5.67 1.5 1.5S9.83 13 9 13zm6 0c-.83 0-1.5-.67-1.5-1.5S14.17 10 15 10s1.5.67 1.5 1.5S15.83 13 15 13zm-6 3h6v1.5H9V16z"/></svg>
+        <div>
+          <div class="row-title">Piloto Automático (Fila)</div>
+          <div class="row-sub">Disparo automático em 2º plano</div>
+        </div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="autopilotToggle">
+        <span class="slider"></span>
+      </label>
+    </div>
   </div>
 
-  <button class="btn" id="syncBtn">
-    <span>⚡ Sincronizar Agora</span>
-  </button>
+  <!-- Sincronização 100% Automática -->
+  <div class="auto-sync-card">
+    <div class="auto-sync-left">
+      <span class="pulse-dot" style="color: #34d399;"></span>
+      <div>
+        <div class="auto-sync-title">
+          <svg class="mat-icon-sm" viewBox="0 0 24 24" style="fill: #34d399;"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+          Sincronização 100% Automática
+        </div>
+        <div class="auto-sync-sub" id="autoSyncSub">Sessão e cookies sincronizados com a VPS em tempo real</div>
+      </div>
+    </div>
+    <span class="badge-pill badge-green">Ativo</span>
+  </div>
 
+  <!-- Secondary Actions -->
+  <div class="btn-row">
+    <button class="btn btn-secondary" id="openDashboardBtn">
+      <!-- Material Icon: Dashboard -->
+      <svg class="mat-icon" viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
+      <span>Painel Accelerator</span>
+    </button>
+    <button class="btn btn-secondary" id="openWorkanaBtn">
+      <!-- Material Icon: Work -->
+      <svg class="mat-icon" viewBox="0 0 24 24"><path d="M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2z"/></svg>
+      <span>Vagas Workana</span>
+    </button>
+  </div>
+
+  <!-- Live Logs Console -->
+  <div class="logs-header">
+    <div class="logs-header-left">
+      <!-- Material Icon: Terminal -->
+      <svg class="mat-icon-sm" viewBox="0 0 24 24" style="fill: #94a3b8;"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8h16v10zm-2-1h-6v-2h6v2zM7.5 17l-1.41-1.41L8.67 13l-2.58-2.59L7.5 9l4 4-4 4z"/></svg>
+      <span>Atividade em Tempo Real</span>
+    </div>
+    <div class="logs-header-right">
+      <span id="lastTimeText">--:--:--</span>
+      <button class="clear-btn" id="clearLogsBtn">
+        <!-- Material Icon: Delete Sweep -->
+        <svg class="mat-icon-sm" viewBox="0 0 24 24"><path d="M15 16h4v2h-4zm0-8h7v2h-7zm0 4h6v2h-6zM3 18c0 1.1.9 2 2 2h6c1.1 0 2-.9 2-2V8H3v10zm2-8h6v8H5v-8zm5-6H6L5 5H2v2h12V5h-3z"/></svg>
+        <span>Limpar</span>
+      </button>
+    </div>
+  </div>
+  <div class="logs-box" id="logsBox">
+    <div class="log-item">
+      <span class="log-time">--:--</span>
+      <span class="log-tag tag-info">INFO</span>
+      <span class="log-msg">Extensão inicializada. Monitorando VPS...</span>
+    </div>
+  </div>
+
+  <!-- Footer -->
   <div class="footer">
-    Workana Accelerator Enterprise Suite
+    <span class="pulse-dot" style="color: #34d399;"></span>
+    <span>Workana Accelerator • Servidor VPS 24/7 Ativo</span>
   </div>
 
   <script src="popup.js"></script>

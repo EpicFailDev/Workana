@@ -77,10 +77,39 @@ class ProposalPromptBuilder:
         return name
 
     @staticmethod
-    def build(project: dict, user_name: str) -> str:
+    def get_tone_directive(tone: str = "consultivo") -> str:
+        tones = {
+            "persuasivo": """
+=== DIRETIVA DE TOM: PERSUASIVO & ALTA CONVERSÃO ===
+- Foco incisivo na resolução dos problemas críticos do cliente e no retorno de investimento (ROI).
+- Apresente domínio técnico com confiança, autoridade e senso de urgência respeitoso.
+- Feche com um Call-to-Action (CTA) proativo convidando para iniciar os alinhamentos técnicos hoje mesmo no chat.
+""",
+            "consultivo": """
+=== DIRETIVA DE TOM: CONSULTIVO & EXECUTIVO ===
+- Foco em governança, arquitetura sólida, mitigação de riscos de escopo e roadmap de evolução segura.
+- Posicione-se como um parceiro técnico sênior e consultor estratégico.
+- Linguagem executiva, refinada e orientada a padrões consolidados de engenharia.
+""",
+            "direto": """
+=== DIRETIVA DE TOM: DIRETO & ÁGIL (LEAN MVP) ===
+- Proposta enxuta, pragmática e sem rodeios, destacando velocidade de entrega e foco no essencial.
+- Comunicação transparente, rápida e disponibilidade imediata para início.
+""",
+            "tecnico": """
+=== DIRETIVA DE TOM: TÉCNICO & ENGENHARIA ===
+- Foco em detalhamento técnico aprofundado: stack moderna, arquitetura desacoplada, cobertura de testes e segurança.
+- Demonstração analítica dos fluxos de dados, componentes e performance.
+""",
+        }
+        return tones.get((tone or "consultivo").lower(), tones["consultivo"])
+
+    @staticmethod
+    def build(project: dict, user_name: str, tone: str = "consultivo") -> str:
         clean_name = ProposalPromptBuilder.clean_user_name(user_name)
         greeting = ProposalPromptBuilder.clean_client_greeting(project.get("client_name"))
         signature = f"Atenciosamente,\n{clean_name}"
+        tone_instruction = ProposalPromptBuilder.get_tone_directive(tone)
 
         skills_str = (
             ", ".join(project.get("skills", []))
@@ -94,6 +123,8 @@ class ProposalPromptBuilder:
         return f"""
 Você é um Arquiteto de Software e Consultor Técnico Sênior de Elite no Workana.
 Seu objetivo é redigir uma proposta comercial técnica IRRECUSÁVEL, PROFUNDAMENTE PERSONALIZADA, ESTRUTURADA E DE ALTA CONVERSÃO para o projeto abaixo, com foco em fechar o negócio com autoridade, clareza executiva e total segurança.
+
+{tone_instruction}
 
 === DADOS DO PROJETO ===
 Título: {title_str}
@@ -291,7 +322,9 @@ Retorne EXATAMENTE no formato JSON:
         return resolved
 
     @staticmethod
-    def build_with_blueprint(project: dict, user_name: str, blueprint: list) -> str:
+    def build_with_blueprint(
+        project: dict, user_name: str, blueprint: list, tone: str = "consultivo"
+    ) -> str:
         """
         Gera o prompt para o Gemini integrando harmoniosamente as peças do blueprint
         com o Padrão Master MVP de Alta Conversão.
@@ -299,11 +332,12 @@ Retorne EXATAMENTE no formato JSON:
         enabled_blocks = [b for b in blueprint if b.get("enabled", True)]
 
         if not enabled_blocks:
-            return ProposalPromptBuilder.build(project, user_name)
+            return ProposalPromptBuilder.build(project, user_name, tone=tone)
 
         clean_name = ProposalPromptBuilder.clean_user_name(user_name)
         greeting = ProposalPromptBuilder.clean_client_greeting(project.get("client_name"))
         signature = f"Atenciosamente,\n{clean_name}"
+        tone_instruction = ProposalPromptBuilder.get_tone_directive(tone)
 
         pieces_instructions = []
 
@@ -341,6 +375,8 @@ Retorne EXATAMENTE no formato JSON:
         return f"""
 Você é um Arquiteto de Software e Consultor Técnico Sênior de Elite no Workana.
 Seu objetivo é escrever uma proposta comercial técnica IRRECUSÁVEL, PERSUASIVA, TÉCNICA, ALTAMENTE PERSONALIZADA e ESTRUTURADA para o projeto abaixo, integrando harmoniosamente as diretrizes estratégicas no Padrão Master MVP.
+
+{tone_instruction}
 
 === DADOS DO PROJETO ===
 Título: {title_str}

@@ -1,6 +1,7 @@
 import React from 'react';
 import styles from '../../pages/Settings.module.css';
 import type { AutomationConfig } from '../../services/api';
+import { MaterialIcon } from '../ui/MaterialIcon';
 
 interface AutomationTabProps {
   config: AutomationConfig;
@@ -27,7 +28,7 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
       {/* Gemini Config */}
       <div className={styles.card}>
         <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-          <span className="text-primary">✨</span> Google Gemini AI
+          <MaterialIcon name="auto_awesome" className="text-primary" size={20} /> Google Gemini AI
         </h3>
         <div className={styles.formGroup}>
           <label className={styles.label}>API Key</label>

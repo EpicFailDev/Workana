@@ -1,6 +1,7 @@
 import React from 'react';
 import { AnalysisResult } from '../../services/api';
 import styles from '../../pages/Projects.module.css';
+import { MaterialIcon } from '../ui/MaterialIcon';
 
 const CONTRACT_LABELS: Record<string, string> = {
   project_fixed: 'Preço Fixo',
@@ -198,7 +199,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
             onSelectProject(project);
           }}
         >
-          <span>👁️</span> BRIEFING
+          <MaterialIcon name="visibility" size={14} /> BRIEFING
         </button>
         <button
           type="button"
@@ -208,7 +209,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
             onGenerateAiProposal(project.id);
           }}
         >
-          <span>⚡</span> IA STRATEGY
+          <MaterialIcon name="auto_awesome" size={14} /> IA STRATEGY
         </button>
         <a
           href={project.url}
@@ -217,7 +218,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
           className={styles.actionBtn}
           onClick={(e) => e.stopPropagation()}
         >
-          <span>🔗</span> LINK
+          <MaterialIcon name="open_in_new" size={14} /> LINK
         </a>
       </div>
     </div>

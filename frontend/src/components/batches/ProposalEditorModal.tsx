@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import styles from '../../pages/Batches.module.css';
+import { MaterialIcon } from '../ui/MaterialIcon';
 
 export interface ProposalEditorTarget {
   id: number;
@@ -112,8 +113,9 @@ export function ProposalEditorModal({
 
         <div className="modal-body" style={{ padding: '1.25rem 1.5rem' }}>
           <div className={styles.editorMeta}>
-            <span>
-              📋 Projeto: <strong>{item.project_id}</strong>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <MaterialIcon name="folder" size={15} style={{ marginRight: '4px' }} />
+              Projeto: <strong>{item.project_id}</strong>
             </span>
             {item.project_url && (
               <a
@@ -126,8 +128,9 @@ export function ProposalEditorModal({
               </a>
             )}
             {item.template_slug && (
-              <span>
-                🧩 Template: <code>{item.template_slug}</code>
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                <MaterialIcon name="extension" size={15} style={{ marginRight: '4px' }} />
+                Template: <code>{item.template_slug}</code>
               </span>
             )}
           </div>
@@ -244,7 +247,16 @@ export function ProposalEditorModal({
               }}
               onClick={handleCopy}
             >
-              {copied ? '✓ Copiado!' : '📋 Copiar Texto'}
+              {copied ? (
+                <>
+                  <MaterialIcon name="check" size={15} style={{ marginRight: '4px' }} /> Copiado!
+                </>
+              ) : (
+                <>
+                  <MaterialIcon name="content_copy" size={15} style={{ marginRight: '4px' }} />{' '}
+                  Copiar Texto
+                </>
+              )}
             </button>
 
             {isDraft && (
@@ -259,9 +271,19 @@ export function ProposalEditorModal({
                   border: '1px solid rgba(59, 130, 246, 0.4)',
                   color: '#60a5fa',
                   fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
               >
-                {isSaving ? 'Salvando...' : '💾 Salvar Rascunho'}
+                {isSaving ? (
+                  'Salvando...'
+                ) : (
+                  <>
+                    <MaterialIcon name="save" size={15} style={{ marginRight: '4px' }} /> Salvar
+                    Rascunho
+                  </>
+                )}
               </button>
             )}
 
@@ -277,9 +299,19 @@ export function ProposalEditorModal({
                   border: '1px solid rgba(16, 185, 129, 0.4)',
                   color: '#10b981',
                   fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
               >
-                {isSending ? 'Enviando...' : '🚀 Enviar Proposta'}
+                {isSending ? (
+                  'Enviando...'
+                ) : (
+                  <>
+                    <MaterialIcon name="send" size={15} style={{ marginRight: '4px' }} /> Enviar
+                    Proposta
+                  </>
+                )}
               </button>
             )}
 
@@ -289,9 +321,15 @@ export function ProposalEditorModal({
                 className={styles.editorActionBtn}
                 onClick={onDelete}
                 disabled={isSaving || isSending}
-                style={{ flex: '0 0 auto', color: '#f87171' }}
+                style={{
+                  flex: '0 0 auto',
+                  color: '#f87171',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
               >
-                🗑 Excluir
+                <MaterialIcon name="delete" size={15} style={{ marginRight: '4px' }} /> Excluir
               </button>
             )}
           </div>

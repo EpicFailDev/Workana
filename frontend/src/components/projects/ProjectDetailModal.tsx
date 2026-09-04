@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styles from '../../pages/Projects.module.css';
 import { ProposalTemplate } from '../../services/api';
+import { MaterialIcon } from '../ui/MaterialIcon';
 
 const CONTRACT_LABELS: Record<string, string> = {
   project_fixed: 'Preço Fixo',
@@ -106,7 +107,7 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
             aria-label="Fechar Detalhes"
             style={{ position: 'absolute', top: '24px', right: '24px' }}
           >
-            ×
+            <MaterialIcon name="close" size={20} />
           </button>
 
           <div>
@@ -131,7 +132,8 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                     letterSpacing: '1px',
                   }}
                 >
-                  ⚡ URGENTE
+                  <MaterialIcon name="bolt" size={14} style={{ marginRight: '3px' }} />
+                  URGENTE
                 </span>
               )}
               {project.is_featured && (
@@ -144,9 +146,12 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                     padding: '2px 8px',
                     borderRadius: '4px',
                     letterSpacing: '1px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
                   }}
                 >
-                  ⭐ DESTAQUE
+                  <MaterialIcon name="star" fill size={13} style={{ marginRight: '3px' }} />
+                  DESTAQUE
                 </span>
               )}
               {project.client_plan && (
@@ -159,9 +164,12 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                     fontWeight: 'bold',
                     padding: '2px 8px',
                     borderRadius: '4px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
                   }}
                 >
-                  👑 {project.client_plan.toUpperCase()}
+                  <MaterialIcon name="workspace_premium" size={13} style={{ marginRight: '3px' }} />
+                  {project.client_plan.toUpperCase()}
                 </span>
               )}
               {project.category && (
@@ -172,9 +180,12 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                     fontSize: '0.7rem',
                     padding: '2px 8px',
                     borderRadius: '4px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
                   }}
                 >
-                  📁 {project.category}
+                  <MaterialIcon name="folder" size={13} style={{ marginRight: '3px' }} />
+                  {project.category}
                   {project.subcategory ? ` / ${project.subcategory}` : ''}
                 </span>
               )}
@@ -249,7 +260,8 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                         marginBottom: '6px',
                       }}
                     >
-                      ℹ️ NENHUM TEXTO LIVRE INFORMADO
+                      <MaterialIcon name="info" size={16} style={{ marginRight: '4px' }} />
+                      NENHUM TEXTO LIVRE INFORMADO
                     </span>
                     O contratante não incluiu uma descrição textual avulsa. Verifique o{' '}
                     <strong>Arsenal (Skills)</strong> e o <strong>Briefing Estruturado</strong> no
@@ -432,13 +444,36 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                     >
                       CONFIABILIDADE
                     </span>
-                    <span style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
-                      {project.payment_verified
-                        ? '✓ Pagamento verificado'
-                        : 'Pagamento não verificado'}
-                      {project.client_rating != null
-                        ? ` · ★ ${project.client_rating.toFixed(1)}`
-                        : ''}
+                    <span
+                      style={{
+                        fontFamily: 'monospace',
+                        fontWeight: 'bold',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      {project.payment_verified ? (
+                        <>
+                          <MaterialIcon name="verified" size={14} style={{ color: '#10b981' }} />
+                          <span>Pagamento verificado</span>
+                        </>
+                      ) : (
+                        <span>Pagamento não verificado</span>
+                      )}
+                      {project.client_rating != null && (
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '2px',
+                            marginLeft: '4px',
+                          }}
+                        >
+                          · <MaterialIcon name="star" fill size={14} style={{ color: '#fbbf24' }} />
+                          {project.client_rating.toFixed(1)}
+                        </span>
+                      )}
                     </span>
                   </div>
                   {(project.project_type || project.deadline || project.contract_type) && (
@@ -544,7 +579,7 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                     gap: '6px',
                   }}
                 >
-                  <span>⚙️</span> Estratégia da Proposta
+                  <MaterialIcon name="tune" size={16} /> Estratégia da Proposta
                 </h4>
 
                 <div style={{ marginBottom: '0.6rem' }}>
@@ -574,7 +609,7 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                     <option value="">Padrão (Master MVP)</option>
                     {templates.map((t) => (
                       <option key={t.template_ref || t.id} value={t.template_ref || String(t.id)}>
-                        {t.name} {t.is_system ? '🛡️' : ''}
+                        {t.name} {t.is_system ? '• Oficial' : ''}
                       </option>
                     ))}
                   </select>
@@ -594,9 +629,9 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '4px' }}>
                     {(['budget', 'standard', 'premium'] as PriceLevel[]).map((lvl) => {
                       const labels: Record<PriceLevel, { icon: string; title: string }> = {
-                        budget: { icon: '💰', title: 'Barato' },
-                        standard: { icon: '💎', title: 'Médio' },
-                        premium: { icon: '👑', title: 'Caro' },
+                        budget: { icon: 'payments', title: 'Barato' },
+                        standard: { icon: 'diamond', title: 'Médio' },
+                        premium: { icon: 'workspace_premium', title: 'Caro' },
                       };
                       const isSelected = localPriceLevel === lvl;
                       return (
@@ -618,7 +653,7 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                             gap: '3px',
                           }}
                         >
-                          <span>{labels[lvl].icon}</span>
+                          <MaterialIcon name={labels[lvl].icon} size={14} />
                           <span>{labels[lvl].title}</span>
                         </button>
                       );
@@ -647,7 +682,7 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                     fontWeight: 700,
                   }}
                 >
-                  <span>⚡</span> Abrir & Gerar Proposta
+                  <MaterialIcon name="auto_awesome" size={18} /> Abrir & Gerar Proposta
                 </button>
                 <a
                   href={project.url}
@@ -660,9 +695,11 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
+                    gap: '4px',
                   }}
                 >
-                  Abrir no Workana ↗
+                  Abrir no Workana
+                  <MaterialIcon name="open_in_new" size={16} />
                 </a>
               </div>
             </div>

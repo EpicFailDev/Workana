@@ -1,24 +1,68 @@
 {
   "manifest_version": 3,
-  "name": "Workana Accelerator Sync Companion",
-  "version": "1.0.0",
-  "description": "Sincronização autônoma e Zero-Click de sessão e cookies entre o Workana e o Workana Accelerator.",
+  "name": "Workana Accelerator • AI Copilot & Auto-Bid Pro",
+  "short_name": "Workana AI Pro",
+  "version": "2.0.0",
+  "description": "Copilot autônomo com IA para Workana: propostas personalizadas de alto fechamento, envio seguro anti-ban em 1.8s e sincronização contínua de sessão.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "permissions": [
     "cookies",
-    "storage"
+    "storage",
+    "tabs",
+    "scripting",
+    "alarms",
+    "notifications"
   ],
   "host_permissions": [
     "*://*.workana.com/*",
-    "http://localhost:8000/*",
-    "http://127.0.0.1:8000/*",
-    "https://localhost:8000/*",
-    "https://localhost:8080/*"
+    "http://*/*",
+    "https://*/*"
   ],
   "background": {
     "service_worker": "background.js"
   },
+  "content_scripts": [
+    {
+      "matches": ["*://*.workana.com/*"],
+      "js": ["content_workana.js"],
+      "css": ["copilot.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://localhost:5173/*",
+        "http://127.0.0.1:5173/*",
+        "https://localhost:5173/*",
+        "http://localhost/*",
+        "https://localhost/*",
+        "http://127.0.0.1/*",
+        "https://127.0.0.1/*",
+        "http://workana.duckdns.org/*",
+        "https://workana.duckdns.org/*"
+      ],
+      "js": ["content_accelerator.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["copilot.css", "icons/*"],
+      "matches": ["*://*.workana.com/*"]
+    }
+  ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Workana Accelerator Companion"
+    "default_title": "Workana Accelerator • AI Copilot Pro",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   }
 }

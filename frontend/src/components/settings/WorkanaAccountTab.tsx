@@ -17,8 +17,11 @@ import {
   Cpu,
   Bookmark,
   ShieldCheck,
+  Zap,
 } from 'lucide-react';
 import styles from '../../pages/Settings.module.css';
+import { MaterialIcon } from '../ui/MaterialIcon';
+import { useExtensionBridge } from '../../hooks/useExtensionBridge';
 import {
   automationApi,
   type CredentialsStatus,
@@ -80,14 +83,43 @@ export const WorkanaAccountTab: React.FC<WorkanaAccountTabProps> = ({
   isCheckingHealth = false,
 }) => {
   const { toast } = useToast();
+  const { isExtensionActive, extensionVersion, isSyncingCookies, syncCookiesViaExtension } =
+    useExtensionBridge();
 
   const [showSessionUpdater, setShowSessionUpdater] = useState<boolean>(() => {
     return (
       importMode ||
-      (sessionHealth !== undefined && sessionHealth !== null && sessionHealth.status !== 'healthy')
+      (sessionHealth !== undefined &&
+        sessionHealth !== null &&
+        sessionHealth.status !== 'healthy' &&
+        !isExtensionActive)
     );
   });
-  const [activeMode, setActiveMode] = useState<'paste' | 'auto' | 'file' | 'companion'>('paste');
+  const [activeMode, setActiveMode] = useState<'paste' | 'auto' | 'file' | 'companion'>(
+    isExtensionActive ? 'companion' : 'paste'
+  );
+
+  const handleTriggerExtensionSync = async () => {
+    try {
+      toast.info('Solicitando sincronização imediata de cookies à extensão...', 'Extensão');
+      const res = await syncCookiesViaExtension();
+      if (res.success) {
+        toast.success(
+          res.count
+            ? `${res.count} cookies sincronizados com sucesso!`
+            : res.message || 'Cookies sincronizados com sucesso!',
+          'Extensão Sincronizada'
+        );
+        if (handleTestSessionHealth) {
+          handleTestSessionHealth();
+        }
+      } else {
+        toast.warning(res.message || 'Extensão não encontrou cookies ou não respondeu.', 'Aviso');
+      }
+    } catch {
+      toast.error('Erro ao comunicar com a extensão oficial.', 'Erro');
+    }
+  };
 
   const [showDiagnostics, setShowDiagnostics] = useState<boolean>(false);
   const [diagnosticsData, setDiagnosticsData] = useState<SessionDiagnosticsResponse | null>(null);
@@ -361,7 +393,7 @@ export const WorkanaAccountTab: React.FC<WorkanaAccountTabProps> = ({
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (healthScore / 100) * circumference;
 
-  const bookmarkletCode = `javascript:(function(){try{const c=document.cookie;if(!c){alert('Nenhum cookie encontrado.');return;}fetch('http://localhost:8000/api/v1/automation/workana/stream-sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cookies:c})}).then(r=>r.json()).then(d=>alert(d.message||'Sincronizado!')).catch(e=>alert('Erro:'+e));}catch(err){alert('Falha:'+err);}})();`;
+  const bookmarkletCode = `javascript:(function(){try{const c=document.cookie;if(!c){alert('Nenhum cookie encontrado.');return;}fetch('https://workana.duckdns.org/api/v1/automation/workana/stream-sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cookies:c})}).then(r=>r.json()).then(d=>alert(d.message||'Sincronizado!')).catch(e=>alert('Erro:'+e));}catch(err){alert('Falha:'+err);}})();`;
 
   // Renderizador do Updater Box unificado
   const renderUpdaterBox = (titlePrefix: string = 'Atualização e Renovação de Cookies') => (
@@ -369,7 +401,7 @@ export const WorkanaAccountTab: React.FC<WorkanaAccountTabProps> = ({
       <div className={styles.updaterHeader}>
         <span className={styles.updaterTitle}>
           <Sparkles size={16} color="var(--color-primary, #6366f1)" />
-          {titlePrefix}
+          {isExtensionActive ? 'Opções de Contingência Manual de Sessão' : titlePrefix}
         </span>
         {isConnected && (
           <button
@@ -386,7 +418,38 @@ export const WorkanaAccountTab: React.FC<WorkanaAccountTabProps> = ({
         )}
       </div>
 
+      {isExtensionActive && (
+        <div
+          style={{
+            background: 'rgba(16, 185, 129, 0.08)',
+            border: '1px solid rgba(16, 185, 129, 0.25)',
+            borderRadius: '8px',
+            padding: '10px 12px',
+            fontSize: '0.78rem',
+            color: '#34d399',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <Zap size={16} style={{ flexShrink: 0 }} />
+          <div>
+            <strong>Extensão Oficial Ativa:</strong> Sua sessão já está conectada e sincronizada
+            automaticamente. As opções abaixo destinam-se a contingência manual ou ambientes
+            headless (Docker).
+          </div>
+        </div>
+      )}
+
       <div className={styles.updaterModes}>
+        <button
+          type="button"
+          className={`${styles.modeTab} ${activeMode === 'companion' ? styles.modeTabActive : ''}`}
+          onClick={() => setActiveMode('companion')}
+        >
+          <Zap size={14} />
+          <span>Extensão Oficial</span>
+        </button>
         <button
           type="button"
           className={`${styles.modeTab} ${activeMode === 'paste' ? styles.modeTabActive : ''}`}
@@ -411,14 +474,6 @@ export const WorkanaAccountTab: React.FC<WorkanaAccountTabProps> = ({
           <Upload size={14} />
           <span>Importar Arquivo</span>
         </button>
-        <button
-          type="button"
-          className={`${styles.modeTab} ${activeMode === 'companion' ? styles.modeTabActive : ''}`}
-          onClick={() => setActiveMode('companion')}
-        >
-          <Bookmark size={14} />
-          <span>Zero-Click Companion</span>
-        </button>
       </div>
 
       {/* Modo 1: Colar Cookies / Clipboard */}
@@ -426,7 +481,7 @@ export const WorkanaAccountTab: React.FC<WorkanaAccountTabProps> = ({
         <div className={styles.modeContent}>
           <div className={styles.pasteActionBar}>
             <p className={styles.modeHelp}>
-              Aceita <strong>JSON</strong> (extensão Cookie-Editor), <strong>HAR</strong> ou{' '}
+              Aceita <strong>JSON</strong> de cookies, arquivo <strong>HAR</strong> ou{' '}
               <strong>string direta de cookies</strong> (ex:{' '}
               <code>cf_clearance=...; workana_session=...</code>).
             </p>
@@ -481,10 +536,21 @@ export const WorkanaAccountTab: React.FC<WorkanaAccountTabProps> = ({
             )}
           </button>
 
-          <div className={styles.quickTip}>
-            💡 <strong>Dica rápida:</strong> Abra o Workana no seu Chrome ou Edge, abra a extensão{' '}
-            <em>Cookie-Editor</em>, clique em <strong>Export &gt; Export as JSON</strong> e depois
-            clique no botão <strong>Colar do Clipboard</strong> acima.
+          <div
+            className={styles.quickTip}
+            style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}
+          >
+            <MaterialIcon
+              name="lightbulb"
+              size={18}
+              style={{ color: '#f59e0b', flexShrink: 0, marginTop: '2px' }}
+            />
+            <div>
+              <strong>Dica:</strong> Para não precisar copiar e colar cookies manualmente, utilize a{' '}
+              <strong>Extensão Oficial do Workana Accelerator</strong> (pasta{' '}
+              <code>extension/</code>). Ela sincroniza a sessão automaticamente sem intervenção
+              manual.
+            </div>
           </div>
         </div>
       )}
@@ -494,13 +560,26 @@ export const WorkanaAccountTab: React.FC<WorkanaAccountTabProps> = ({
         <div className={styles.modeContent}>
           <div
             className={styles.quickTip}
-            style={{ marginBottom: '12px', borderLeftColor: '#f59e0b' }}
+            style={{
+              marginBottom: '12px',
+              borderLeftColor: '#f59e0b',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '6px',
+            }}
           >
-            ℹ️ <strong>Ambiente Docker:</strong> Se o sistema estiver rodando via Docker (
-            <code>INICIAR.bat</code> opção 1), o container não possui interface gráfica (XServer)
-            para abrir uma janela na tela do seu computador. Nesse caso, utilize a aba{' '}
-            <strong>Colar Cookies</strong> ou execute a opção <strong>[4] Login no Workana</strong>{' '}
-            no <code>INICIAR.bat</code> no Windows.
+            <MaterialIcon
+              name="info"
+              size={18}
+              style={{ color: '#3b82f6', flexShrink: 0, marginTop: '2px' }}
+            />
+            <div>
+              <strong>Ambiente Docker:</strong> Se o sistema estiver rodando via Docker (
+              <code>INICIAR.bat</code> opção 1), o container não possui interface gráfica (XServer)
+              para abrir uma janela na tela do seu computador. Nesse caso, utilize a aba{' '}
+              <strong>Colar Cookies</strong> ou execute a opção{' '}
+              <strong>[4] Login no Workana</strong> no <code>INICIAR.bat</code> no Windows.
+            </div>
           </div>
           <p className={styles.modeHelp}>
             Abre uma janela real do Chrome ou Edge na sua máquina para você fazer login no Workana
@@ -553,9 +632,19 @@ export const WorkanaAccountTab: React.FC<WorkanaAccountTabProps> = ({
 
           {sessionJson.trim() && (
             <div style={{ marginTop: '16px' }}>
-              <div className={styles.quickTip} style={{ marginBottom: '12px' }}>
-                📄 <strong>Arquivo pronto para sincronização.</strong> Clique abaixo para confirmar
-                e conectar a conta:
+              <div
+                className={styles.quickTip}
+                style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <MaterialIcon
+                  name="description"
+                  size={18}
+                  style={{ color: '#818cf8', flexShrink: 0 }}
+                />
+                <div>
+                  <strong>Arquivo pronto para sincronização.</strong> Clique abaixo para confirmar e
+                  conectar a conta:
+                </div>
               </div>
               <button
                 type="button"
@@ -583,6 +672,95 @@ export const WorkanaAccountTab: React.FC<WorkanaAccountTabProps> = ({
       {/* Modo 4: Zero-Click Companion & Bookmarklet */}
       {activeMode === 'companion' && (
         <div className={styles.modeContent}>
+          {/* Card Principal: Extensão MV3 v2.0 */}
+          <div
+            style={{
+              background: isExtensionActive
+                ? 'linear-gradient(135deg, rgba(79, 70, 229, 0.1) 0%, rgba(124, 58, 237, 0.05) 100%)'
+                : 'rgba(255, 255, 255, 0.02)',
+              border: isExtensionActive
+                ? '1px solid rgba(99, 102, 241, 0.3)'
+                : '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: '12px',
+              padding: '16px',
+              marginBottom: '16px',
+            }}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="font-bold text-sm text-white flex items-center gap-2">
+                <Zap size={16} color={isExtensionActive ? '#818cf8' : '#94a3b8'} />
+                Extensão Web MV3 (Auto-Bid & Sync Companion)
+              </div>
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '2px 8px',
+                  borderRadius: '9999px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  background: isExtensionActive
+                    ? 'rgba(16, 185, 129, 0.15)'
+                    : 'rgba(255, 255, 255, 0.06)',
+                  color: isExtensionActive ? '#34d399' : '#94a3b8',
+                  border: isExtensionActive
+                    ? '1px solid rgba(16, 185, 129, 0.3)'
+                    : '1px solid rgba(255, 255, 255, 0.1)',
+                }}
+              >
+                <span
+                  style={{
+                    width: '6px',
+                    height: '6px',
+                    borderRadius: '50%',
+                    background: isExtensionActive ? '#34d399' : '#94a3b8',
+                  }}
+                />
+                {isExtensionActive ? `Ativa v${extensionVersion || '2.0.0'}` : 'Não Detectada'}
+              </span>
+            </div>
+
+            <p className="text-xs text-muted mb-3" style={{ lineHeight: 1.5 }}>
+              {isExtensionActive ? (
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <MaterialIcon name="verified" size={15} style={{ color: '#10b981' }} />
+                  <strong>Sessão Real Vinculada com Sucesso!</strong> Suas propostas são preenchidas
+                  em alta velocidade (1.8s) com resolução transparente do Cloudflare Turnstile,
+                  simulação humanizada e <strong>risco zero de banimento</strong>.
+                </span>
+              ) : (
+                <span>
+                  Instale ou recarregue a pasta <code>extension/</code> deste projeto em{' '}
+                  <code>chrome://extensions</code> com o <strong>Modo do desenvolvedor</strong>{' '}
+                  ativo para habilitar o envio com velocidade máxima e risco zero.
+                </span>
+              )}
+            </p>
+
+            {isExtensionActive && (
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="btn btn-primary text-xs"
+                  onClick={handleTriggerExtensionSync}
+                  disabled={isSyncingCookies}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <RefreshCw size={13} className={isSyncingCookies ? 'animate-spin' : ''} />
+                  <span>{isSyncingCookies ? 'Sincronizando...' : 'Sincronizar Cookies Agora'}</span>
+                </button>
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div
               style={{
@@ -605,9 +783,16 @@ export const WorkanaAccountTab: React.FC<WorkanaAccountTabProps> = ({
                   toast.info('Arraste este botão para a sua Barra de Favoritos do Navegador!');
                 }}
                 className="btn btn-primary w-full text-xs font-bold"
-                style={{ cursor: 'grab', textAlign: 'center', display: 'block' }}
+                style={{
+                  cursor: 'grab',
+                  textAlign: 'center',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '4px',
+                }}
               >
-                ⚡ Sincronizar Workana
+                <MaterialIcon name="sync" size={14} /> Sincronizar Workana
               </a>
             </div>
 
@@ -747,8 +932,15 @@ export const WorkanaAccountTab: React.FC<WorkanaAccountTabProps> = ({
             className="btn btn-primary btn-sm"
             onClick={handleSyncLocal}
             disabled={isSyncingLocal}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
           >
-            {isSyncingLocal ? 'Sincronizando...' : '⚡ Sincronizar Sessão Local'}
+            {isSyncingLocal ? (
+              'Sincronizando...'
+            ) : (
+              <>
+                <MaterialIcon name="sync" size={14} /> Sincronizar Sessão Local
+              </>
+            )}
           </button>
         </div>
       )}
@@ -920,23 +1112,56 @@ export const WorkanaAccountTab: React.FC<WorkanaAccountTabProps> = ({
 
               {/* Barra de Ações Rápidas */}
               <div className={styles.actionRow}>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => {
-                    setShowSessionUpdater(!showSessionUpdater);
-                    setImportMode(!showSessionUpdater);
-                  }}
-                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                >
-                  <KeyRound size={14} />
-                  <span>
-                    {showSessionUpdater
-                      ? 'Ocultar Atualizador de Cookies'
-                      : 'Renovar / Injetar Cookies'}
-                  </span>
-                  {showSessionUpdater ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                </button>
+                {isExtensionActive ? (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={handleTriggerExtensionSync}
+                      disabled={isSyncingCookies}
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                      title="Sincronizar cookies diretamente pelo navegador com a extensão oficial"
+                    >
+                      <RefreshCw size={14} className={isSyncingCookies ? 'animate-spin' : ''} />
+                      <span>
+                        {isSyncingCookies ? 'Sincronizando...' : 'Sincronizar via Extensão'}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setShowSessionUpdater(!showSessionUpdater);
+                        setImportMode(!showSessionUpdater);
+                      }}
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                      title="Opções manuais de contingência para Docker ou servidores remotos"
+                    >
+                      <KeyRound size={14} />
+                      <span>{showSessionUpdater ? 'Ocultar Opções' : 'Contingência Manual'}</span>
+                      {showSessionUpdater ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => {
+                      setShowSessionUpdater(!showSessionUpdater);
+                      setImportMode(!showSessionUpdater);
+                    }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <KeyRound size={14} />
+                    <span>
+                      {showSessionUpdater
+                        ? 'Ocultar Atualizador de Cookies'
+                        : 'Renovar / Injetar Cookies'}
+                    </span>
+                    {showSessionUpdater ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
+                )}
 
                 <button
                   type="button"
@@ -1079,8 +1304,20 @@ export const WorkanaAccountTab: React.FC<WorkanaAccountTabProps> = ({
                   onClick={handleAutonomousLogin}
                   disabled={!newCredentials.email || !newCredentials.password || isAutoLogging}
                   title="Autenticar em modo headless com Playwright Stealth"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '4px',
+                  }}
                 >
-                  {isAutoLogging ? 'Autenticando...' : '⚡ Login Autônomo'}
+                  {isAutoLogging ? (
+                    'Autenticando...'
+                  ) : (
+                    <>
+                      <MaterialIcon name="smart_toy" size={14} /> Login Autônomo
+                    </>
+                  )}
                 </button>
               </div>
 

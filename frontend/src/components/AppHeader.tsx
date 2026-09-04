@@ -16,8 +16,10 @@ import {
   FileText,
   History,
   Settings,
+  Zap,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useExtensionBridge } from '../hooks/useExtensionBridge';
 import { api, type SessionHealthResponse, type AntibanStatus } from '../services/api';
 import styles from './AppHeader.module.css';
 
@@ -50,6 +52,7 @@ export default function AppHeader({
 }: AppHeaderProps) {
   const location = useLocation();
   const { user, signOut } = useAuth();
+  const { isExtensionActive, extensionVersion } = useExtensionBridge();
   const [sessionHealth, setSessionHealth] = useState<SessionHealthResponse | null>(null);
   const [antiban, setAntiban] = useState<AntibanStatus | null>(null);
 
@@ -121,6 +124,26 @@ export default function AppHeader({
 
       {/* Lado Direito: Ações Globais + Status + Usuário */}
       <div className={styles.rightSection}>
+        {/* Pílula de Detecção da Extensão */}
+        <button
+          className={`${styles.extensionPill} ${
+            isExtensionActive ? styles.extensionPillActive : styles.extensionPillInactive
+          }`}
+          onClick={onOpenHealth}
+          title={
+            isExtensionActive
+              ? `Extensão Copilot Pro conectada e ativa (v${extensionVersion || '2.0.0'}). Sincronização 100% automática ativa.`
+              : 'Extensão não detectada. Instale ou recarregue a extensão no Chrome para sincronização e envio automático.'
+          }
+        >
+          <Zap size={14} className={isExtensionActive ? 'text-emerald-400' : 'text-slate-400'} />
+          <span>
+            {isExtensionActive
+              ? `Extensão Ativa (v${extensionVersion || '2.0.0'})`
+              : 'Extensão Ausente'}
+          </span>
+        </button>
+
         {/* Pílula de Status / Telemetria */}
         <button
           className={pillClass}

@@ -24,6 +24,7 @@ from app.api.routers import (
     export,
     investment,
     workana_api,
+    extension,
 )
 from app.database.models import init_db
 
@@ -103,6 +104,8 @@ app.include_router(dashboard.router, prefix="/api", tags=["Dashboard"])
 app.include_router(profile.router, prefix="/api", tags=["Profile"])
 app.include_router(investment.router, prefix="/api", tags=["Investment"])
 app.include_router(workana_api.router, prefix="/api", tags=["Workana API"])
+app.include_router(extension.router, prefix="/api", tags=["Extension"])
+app.include_router(extension.router, prefix="/api/v1", tags=["Extension"])
 
 
 @app.get("/")

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api, type ProposalVersion } from '../services/api';
 import { useToast } from '../context/ToastContext';
+import { useExtensionBridge } from './useExtensionBridge';
 
 export interface AiProposalState {
   id?: number;
@@ -29,6 +30,8 @@ export function useProposalGeneration({
   setPriceLevel,
 }: UseProposalGenerationOptions) {
   const { toast } = useToast();
+  const { isExtensionActive, extensionVersion, isSendingViaExtension, sendViaExtension } =
+    useExtensionBridge();
 
   const [showAiModal, setShowAiModal] = useState(false);
   const [aiProposal, setAiProposal] = useState<AiProposalState | null>(null);
@@ -40,6 +43,9 @@ export function useProposalGeneration({
   const [aiError, setAiError] = useState<string | null>(null);
   const [modalBudget, setModalBudget] = useState<string>('500');
   const [modalDeadline, setModalDeadline] = useState<string>('7');
+  const [proposalTone, setProposalTone] = useState<
+    'consultivo' | 'persuasivo' | 'direto' | 'tecnico'
+  >('consultivo');
   const [currentGeneratingProjectId, setCurrentGeneratingProjectId] = useState<string | null>(null);
 
   const openAiModal = async (
@@ -114,7 +120,8 @@ export function useProposalGeneration({
     projectId: string,
     templateRef?: string | null,
     level?: 'budget' | 'standard' | 'premium',
-    saveAsNewVersion = true
+    saveAsNewVersion = true,
+    tone?: 'consultivo' | 'persuasivo' | 'direto' | 'tecnico'
   ) => {
     setCurrentGeneratingProjectId(projectId);
     setShowAiModal(true);
@@ -123,6 +130,7 @@ export function useProposalGeneration({
 
     const activeRef = templateRef !== undefined ? templateRef : selectedTemplateId;
     const activeLevel = level || priceLevel;
+    const activeTone = tone || proposalTone;
 
     try {
       const res = await api.generateProposal(
@@ -130,7 +138,8 @@ export function useProposalGeneration({
         activeRef || undefined,
         true,
         activeLevel,
-        saveAsNewVersion
+        saveAsNewVersion,
+        activeTone
       );
 
       if (res.success) {
@@ -146,7 +155,7 @@ export function useProposalGeneration({
         const suggestedNum = res.suggested_price ? res.suggested_price.replace(/[^0-9]/g, '') : '';
         setModalBudget(suggestedNum || '500');
         setModalDeadline(res.suggested_deadline_days ? String(res.suggested_deadline_days) : '7');
-        toast.success('✨ Nova versão gerada com sucesso!');
+        toast.success('Nova versão gerada com sucesso!');
       } else {
         setAiError(res.error || 'Não foi possível gerar a proposta.');
       }
@@ -215,7 +224,7 @@ export function useProposalGeneration({
         add_to_batch: true,
       });
       if (res.success) {
-        toast.success('✨ Proposta salva com sucesso! Visível em Lotes / Batches.');
+        toast.success('Proposta salva com sucesso! Visível em Lotes / Batches.');
         if (res.versions) setProposalVersions(res.versions);
         if (res.proposal_id) setActiveVersionId(res.proposal_id);
         setAiProposal((prev) => (prev ? { ...prev, is_cached: true } : null));
@@ -227,7 +236,7 @@ export function useProposalGeneration({
     }
   };
 
-  const submitProposal = async () => {
+  const submitProposal = async (forceMode?: 'extension' | 'playwright') => {
     if (!currentGeneratingProjectId || !aiProposal?.proposal) return;
     setIsSubmittingProposal(true);
     try {
@@ -237,15 +246,40 @@ export function useProposalGeneration({
           ? `${aiProposal.proposal}\n\n${investmentText}`
           : aiProposal.proposal;
 
+      const budgetVal = Number(modalBudget) || 500;
+      const deadlineVal = Number(modalDeadline) || 7;
+
+      // 1. Priorizar envio direto via extensão (0% risco anti-ban e preenchimento rápido)
+      if ((isExtensionActive && forceMode !== 'playwright') || forceMode === 'extension') {
+        toast.info('Enviando via Extensão (Modo Seguro Anti-Ban)...');
+        const extResult = await sendViaExtension({
+          project_id: currentGeneratingProjectId,
+          custom_message: messageToSend,
+          budget: budgetVal,
+          deadline_days: deadlineVal,
+          template_id: selectedTemplateId || undefined,
+        });
+
+        if (extResult.success) {
+          toast.success('Proposta enviada com sucesso no Workana via Extensão (0% Risco)!');
+          setShowAiModal(false);
+          return;
+        } else {
+          toast.warning(`Extensão: ${extResult.message}. Tentando via API...`);
+        }
+      }
+
+      // 2. Fallback ou envio pelo backend
       const res = await api.submitProposal(currentGeneratingProjectId, {
         project_id: currentGeneratingProjectId,
         custom_message: messageToSend,
-        budget: Number(modalBudget) || 500,
-        deadline_days: Number(modalDeadline) || 7,
+        budget: budgetVal,
+        deadline_days: deadlineVal,
         template_id: selectedTemplateId || undefined,
+        dispatch_mode: isExtensionActive ? 'extension' : 'auto',
       });
       if (res.success) {
-        toast.success('🚀 Proposta enviada com sucesso ao Workana! Status: Aguardando resposta');
+        toast.success(res.message || 'Proposta processada com sucesso!');
         setShowAiModal(false);
       } else {
         toast.error(res.message || 'Erro ao enviar proposta.');
@@ -278,11 +312,16 @@ export function useProposalGeneration({
     isGeneratingAi,
     isSavingDraft,
     isSubmittingProposal,
+    isExtensionActive,
+    extensionVersion,
+    isSendingViaExtension,
     aiError,
     modalBudget,
     setModalBudget,
     modalDeadline,
     setModalDeadline,
+    proposalTone,
+    setProposalTone,
     currentGeneratingProjectId,
     openAiModal,
     generateAiProposal,

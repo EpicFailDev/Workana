@@ -278,15 +278,18 @@ export const projectsApi = {
     templateId?: any,
     forceRegenerate = false,
     priceLevel: 'budget' | 'standard' | 'premium' = 'standard',
-    saveAsNewVersion = true
+    saveAsNewVersion = true,
+    tone: 'consultivo' | 'persuasivo' | 'direto' | 'tecnico' = 'consultivo'
   ) {
     const query = templateId ? `?template_id=${encodeURIComponent(templateId)}` : '';
     return apiRequest<{
       success: boolean;
       proposal?: string;
       suggested_price?: string;
+      suggested_price_numeric?: number;
       suggested_deadline_days?: number;
       justification?: string;
+      tone_used?: string;
       error?: string;
       template_id_used?: any;
       investment_breakdown?: InvestmentBreakdown;
@@ -299,7 +302,39 @@ export const projectsApi = {
         force_regenerate: forceRegenerate,
         price_level: priceLevel,
         save_as_new_version: saveAsNewVersion,
+        tone: tone,
       },
+    });
+  },
+
+  async generateQuickProposal(data: {
+    project_id?: string;
+    title?: string;
+    description?: string;
+    skills?: string[];
+    budget?: string | number;
+    client_name?: string;
+    deadline?: string;
+    template_id?: any;
+    price_level?: 'budget' | 'standard' | 'premium';
+    tone?: 'consultivo' | 'persuasivo' | 'direto' | 'tecnico';
+  }) {
+    return apiRequest<{
+      success: boolean;
+      proposal?: string;
+      suggested_price?: string;
+      suggested_price_numeric?: number;
+      suggested_deadline_days?: number;
+      justification?: string;
+      tone_used?: string;
+      error?: string;
+      template_id_used?: any;
+      investment_breakdown?: InvestmentBreakdown;
+      proposal_id?: number;
+      versions?: ProposalVersion[];
+    }>('/proposals/generate-quick', {
+      method: 'POST',
+      body: data,
     });
   },
 
@@ -311,6 +346,7 @@ export const projectsApi = {
       budget: number;
       deadline_days: number;
       template_id?: any;
+      dispatch_mode?: 'extension' | 'playwright' | 'auto';
     }
   ) {
     return apiRequest<{

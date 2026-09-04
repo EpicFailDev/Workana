@@ -161,6 +161,8 @@ async def workana_session_import(payload: dict, user: dict = Depends(get_current
                 state["origins"] = existing_state["origins"]
 
     await _session_manager.save_storage_state(user["user_id"], state, account_email=account_email)
+    automation._last_error = None
+    automation._is_logged_in = True
     logger.info(
         f"Sessão importada com sucesso para o usuário {user['user_id']} ({len(state['cookies'])} cookies)"
     )
@@ -264,6 +266,8 @@ async def workana_stream_sync(payload: dict, user: dict = Depends(get_current_us
         state["cookies"] = list(cookie_map.values())
 
     await _session_manager.save_storage_state(user["user_id"], state, account_email=account_email)
+    automation._last_error = None
+    automation._is_logged_in = True
     logger.info(
         f"Stream-sync recebido com sucesso do Companion para {user['user_id']} ({len(state['cookies'])} cookies)"
     )

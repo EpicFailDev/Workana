@@ -9,6 +9,7 @@ import {
   STATUS_LABELS as PROPOSAL_STATUS_LABELS,
   type ProposalEditorTarget,
 } from '../components/batches/ProposalEditorModal';
+import { MaterialIcon } from '../components/ui/MaterialIcon';
 
 type Batch = any;
 type BatchItem = any;
@@ -305,14 +306,16 @@ export default function Batches() {
           className={`${styles.tabButton} ${activeTab === 'proposals' ? styles.activeTab : ''}`}
           onClick={() => handleSwitchTab('proposals')}
         >
-          📝 Propostas
+          <MaterialIcon name="description" size={18} style={{ marginRight: '6px' }} />
+          Propostas
           {proposalsTotal > 0 && <span className={styles.tabBadge}>{proposalsTotal}</span>}
         </button>
         <button
           className={`${styles.tabButton} ${activeTab === 'batches' ? styles.activeTab : ''}`}
           onClick={() => handleSwitchTab('batches')}
         >
-          📦 Lotes
+          <MaterialIcon name="inventory_2" size={18} style={{ marginRight: '6px' }} />
+          Lotes
           {batches.length > 0 && <span className={styles.tabBadge}>{batches.length}</span>}
         </button>
       </div>
@@ -350,11 +353,13 @@ export default function Batches() {
                   setProposalsQuery(searchInput.trim());
                 }}
               >
-                🔍 Buscar
+                <MaterialIcon name="search" size={16} style={{ marginRight: '4px' }} />
+                Buscar
               </button>
             </div>
             <button className={styles.refreshButton} onClick={fetchProposals}>
-              🔄 Atualizar
+              <MaterialIcon name="sync" size={16} style={{ marginRight: '4px' }} />
+              Atualizar
             </button>
           </div>
 
@@ -362,7 +367,9 @@ export default function Batches() {
             <Loader type="overlay" message="Carregando propostas..." />
           ) : proposals.length === 0 ? (
             <div className={styles.emptyState}>
-              <div className={styles.emptyIcon}>📝</div>
+              <div className={styles.emptyIcon}>
+                <MaterialIcon name="description" size={48} />
+              </div>
               <h3>Nenhuma proposta salva</h3>
               <p>
                 Gere ou salve uma proposta a partir dos projetos, ou aguarde o processamento de um
@@ -426,14 +433,29 @@ export default function Batches() {
 
                     <div className={styles.proposalCardActions}>
                       <button className={styles.btnAction} onClick={() => openEditor(proposal)}>
-                        {isDraftStatus(proposal.status) ? '✏️ Ver / Editar' : '👁 Visualizar'}
+                        {isDraftStatus(proposal.status) ? (
+                          <>
+                            <MaterialIcon name="edit" size={15} style={{ marginRight: '4px' }} />
+                            Ver / Editar
+                          </>
+                        ) : (
+                          <>
+                            <MaterialIcon
+                              name="visibility"
+                              size={15}
+                              style={{ marginRight: '4px' }}
+                            />
+                            Visualizar
+                          </>
+                        )}
                       </button>
                       {isDraftStatus(proposal.status) && proposal.message && (
                         <button
                           className={`${styles.btnAction} ${styles.btnActionPrimary}`}
                           onClick={() => handleQuickSend(proposal)}
                         >
-                          🚀 Enviar
+                          <MaterialIcon name="send" size={15} style={{ marginRight: '4px' }} />
+                          Enviar
                         </button>
                       )}
                     </div>
@@ -466,14 +488,17 @@ export default function Batches() {
             </div>
 
             <button className={styles.refreshButton} onClick={fetchBatches}>
-              🔄 Atualizar
+              <MaterialIcon name="sync" size={16} style={{ marginRight: '4px' }} />
+              Atualizar
             </button>
           </div>
 
           {/* Lista de lotes */}
           {batches.length === 0 ? (
             <div className={styles.emptyState}>
-              <div className={styles.emptyIcon}>📦</div>
+              <div className={styles.emptyIcon}>
+                <MaterialIcon name="inventory_2" size={48} />
+              </div>
               <h3>Nenhum lote encontrado</h3>
               <p>Crie um lote a partir dos projetos da página de projetos.</p>
             </div>
@@ -487,7 +512,9 @@ export default function Batches() {
                 >
                   <div className={styles.batchHeader}>
                     <div className={styles.batchId}>
-                      <span className={styles.batchIcon}>📦</span>
+                      <span className={styles.batchIcon}>
+                        <MaterialIcon name="inventory_2" size={16} />
+                      </span>
                       <span className={styles.batchLabel}>Lote #{batch.id}</span>
                     </div>
                     <span
@@ -558,8 +585,12 @@ export default function Batches() {
             <div className={styles.detailPanel}>
               <div className={styles.detailHeader}>
                 <h3>Detalhes do Lote #{selectedBatch.id}</h3>
-                <button className={styles.closeButton} onClick={() => setSelectedBatch(null)}>
-                  ✕
+                <button
+                  className={styles.closeButton}
+                  onClick={() => setSelectedBatch(null)}
+                  aria-label="Fechar detalhes"
+                >
+                  <MaterialIcon name="close" size={16} />
                 </button>
               </div>
 
