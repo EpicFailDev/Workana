@@ -551,6 +551,24 @@ class AntibanSystem:
         can_search_now, search_msg = await self.can_search(user_id)
         can_login_now, login_msg = await self.can_login(user_id)
 
+        # Calcular cooldown e tempo restante
+        in_cooldown = not can_proposal or not can_search_now
+        cooldown_remaining_seconds = 0
+        now_utc = datetime.now(timezone.utc)
+        if not can_search_now and stats.searches_this_hour >= self.config.max_searches_per_hour:
+            cooldown_remaining_seconds = max(0, 3600 - (now_utc.minute * 60 + now_utc.second))
+        elif not can_proposal and stats.last_proposal_time:
+            last_p = (
+                stats.last_proposal_time
+                if stats.last_proposal_time.tzinfo
+                else stats.last_proposal_time.replace(tzinfo=timezone.utc)
+            )
+            elapsed = (now_utc - last_p).total_seconds()
+            required = self.config.min_pause_between_proposals_minutes * 60
+            if elapsed < required:
+                cooldown_remaining_seconds = int(required - elapsed)
+                in_cooldown = True
+
         return {
             "proposals_today": stats.proposals_sent_today,
             "max_proposals_today": self.config.max_proposals_per_day,
@@ -558,6 +576,10 @@ class AntibanSystem:
             "max_proposals_hour": self.config.max_proposals_per_hour,
             "searches_this_hour": stats.searches_this_hour,
             "max_searches_hour": self.config.max_searches_per_hour,
+            "max_per_hour": self.config.max_searches_per_hour,
+            "in_cooldown": in_cooldown,
+            "cooldown_remaining_seconds": cooldown_remaining_seconds,
+            "safe_mode_enabled": True,
             "consecutive_proposals": stats.consecutive_proposals,
             "logins_today": stats.logins_today,
             "can_send_proposal": can_proposal,

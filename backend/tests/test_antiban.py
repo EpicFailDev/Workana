@@ -96,3 +96,19 @@ async def test_antiban_proposal_limits():
     can_prop, msg = await system.can_send_proposal()
     assert can_prop is False
     assert "Aguarde" in msg
+
+
+@pytest.mark.asyncio
+async def test_antiban_get_status_contract():
+    config = AntibanConfig(max_searches_per_hour=15, respect_working_hours=False)
+    system = AntibanSystem(config=config)
+    status = await system.get_status()
+
+    assert "max_per_hour" in status
+    assert status["max_per_hour"] == 15
+    assert status["max_searches_hour"] == 15
+    assert "in_cooldown" in status
+    assert isinstance(status["in_cooldown"], bool)
+    assert "cooldown_remaining_seconds" in status
+    assert isinstance(status["cooldown_remaining_seconds"], int)
+    assert status["safe_mode_enabled"] is True

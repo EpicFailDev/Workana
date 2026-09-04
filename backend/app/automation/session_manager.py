@@ -279,6 +279,18 @@ async def check_session_health(user_id: Any) -> Dict[str, Any]:
     import time
     import httpx
 
+    account_email = None
+    try:
+        session_row = await crud.get_workana_session(user_id)
+        if session_row and session_row.get("account_email"):
+            account_email = session_row["account_email"]
+        else:
+            creds = await crud.get_credentials(user_id)
+            if creds and creds.get("email"):
+                account_email = creds["email"]
+    except Exception as exc:
+        logger.debug(f"Não foi possível buscar email da conta para {user_id}: {exc}")
+
     state = await load_storage_state(user_id)
     if not state or not isinstance(state, dict):
         return {
@@ -287,6 +299,7 @@ async def check_session_health(user_id: Any) -> Dict[str, Any]:
             "message": "Nenhuma sessão do Workana encontrada. Conecte sua conta para habilitar o envio.",
             "cookies_count": 0,
             "has_cloudflare_clearance": False,
+            "account_email": account_email,
         }
 
     cookies_list = state.get("cookies", [])
@@ -297,6 +310,7 @@ async def check_session_health(user_id: Any) -> Dict[str, Any]:
             "message": "Sessão encontrada mas sem cookies registrados.",
             "cookies_count": 0,
             "has_cloudflare_clearance": False,
+            "account_email": account_email,
         }
 
     now = time.time()
@@ -309,22 +323,34 @@ async def check_session_health(user_id: Any) -> Dict[str, Any]:
         name = c.get("name", "")
         val = c.get("value", "")
         exp = c.get("expires", -1)
+        domain = str(c.get("domain") or "").lower()
         if exp and exp > 0 and exp < now:
             expired_count += 1
         if name in ("cf_clearance", "__cf_bm"):
             has_cf = True
         if name in ("PHPSESSID", "workana_session"):
             has_session_id = True
-        cookies_dict[name] = val
+        # Filtra apenas cookies relevantes para o domínio do Workana
+        if not domain or "workana.com" in domain or "wkncdn.com" in domain:
+            cookies_dict[name] = val
 
-    # Testar conectividade real com endpoint autenticado leve
+    # Testar conectividade real com endpoint autenticado leve usando headers realistas de navegador
     try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+            "sec-ch-ua": '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Upgrade-Insecure-Requests": "1",
+        }
         async with httpx.AsyncClient(
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "Accept": "application/json, text/plain, */*",
-                "X-Requested-With": "XMLHttpRequest",
-            },
+            headers=headers,
             cookies=cookies_dict,
             timeout=8.0,
             follow_redirects=False,
@@ -337,6 +363,7 @@ async def check_session_health(user_id: Any) -> Dict[str, Any]:
                     "message": "Sessão ativa e autenticada com sucesso no Workana.",
                     "cookies_count": len(cookies_list),
                     "has_cloudflare_clearance": has_cf,
+                    "account_email": account_email,
                     "http_status": 200,
                 }
             elif resp.status_code in (301, 302, 303, 307, 308):
@@ -348,15 +375,17 @@ async def check_session_health(user_id: Any) -> Dict[str, Any]:
                         "message": "Cookies expirados no Workana. Renove seu login nas configurações.",
                         "cookies_count": len(cookies_list),
                         "has_cloudflare_clearance": has_cf,
+                        "account_email": account_email,
                         "http_status": resp.status_code,
                     }
             elif resp.status_code == 403:
                 return {
                     "status": "blocked_waf",
                     "valid": False,
-                    "message": "Cloudflare WAF bloqueou a requisição. Abra uma nova sessão pelo navegador.",
+                    "message": "Cloudflare WAF bloqueou a sondagem HTTP direta. A automação usa o navegador Playwright com emulação humana.",
                     "cookies_count": len(cookies_list),
-                    "has_cloudflare_clearance": False,
+                    "has_cloudflare_clearance": has_cf,
+                    "account_email": account_email,
                     "http_status": 403,
                 }
     except Exception as e:
@@ -373,4 +402,5 @@ async def check_session_health(user_id: Any) -> Dict[str, Any]:
         "cookies_count": len(cookies_list),
         "expired_cookies_count": expired_count,
         "has_cloudflare_clearance": has_cf,
+        "account_email": account_email,
     }

@@ -250,6 +250,237 @@
   border-color: var(--color-primary, #6366f1);
 }
 
+.sessionActionRow {
+  margin-top: 4px;
+}
+
+.quickActionBtn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  color: var(--color-primary-light, #818cf8);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.quickActionBtn:hover {
+  background: rgba(99, 102, 241, 0.22);
+  border-color: var(--color-primary, #6366f1);
+  color: #fff;
+}
+
+.updaterBox {
+  grid-column: 1 / -1;
+  background: linear-gradient(180deg, rgba(18, 18, 28, 0.95) 0%, rgba(12, 12, 20, 0.98) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  animation: fadeIn 0.2s ease;
+}
+
+.updaterHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.updaterTitle {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--color-text-primary, #f8fafc);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.updaterModes {
+  display: flex;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.modeTab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary, #94a3b8);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.modeTab:hover {
+  color: var(--color-text-primary, #f8fafc);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.modeTabActive {
+  background: var(--color-primary, #6366f1);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
+.modeTabActive:hover {
+  background: var(--color-primary, #6366f1);
+  color: #fff;
+}
+
+.modeContent {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.modeHelp {
+  font-size: 0.78rem;
+  color: var(--color-text-muted, #94a3b8);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.modeHelp strong {
+  color: var(--color-text-primary, #f8fafc);
+}
+
+.modeHelp code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.72rem;
+  color: #818cf8;
+}
+
+.primaryActionBtn {
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 16px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.25);
+}
+
+.primaryActionBtn:hover:not(:disabled) {
+  opacity: 0.95;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+}
+
+.primaryActionBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.pasteActionBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.clipboardQuickBtn {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #10b981;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.clipboardQuickBtn:hover {
+  background: rgba(16, 185, 129, 0.22);
+  border-color: #10b981;
+}
+
+.sessionTextarea {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 10px;
+  font-family: monospace;
+  font-size: 0.74rem;
+  color: var(--color-text-primary, #f8fafc);
+  resize: vertical;
+  min-height: 70px;
+  transition: border-color 0.2s;
+}
+
+.sessionTextarea:focus {
+  outline: none;
+  border-color: var(--color-primary, #6366f1);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+.fileDropZone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px;
+  border: 1px dashed rgba(99, 102, 241, 0.4);
+  background: rgba(99, 102, 241, 0.04);
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--color-text-secondary, #94a3b8);
+  font-size: 0.78rem;
+  transition: all 0.2s;
+}
+
+.fileDropZone:hover {
+  background: rgba(99, 102, 241, 0.08);
+  border-color: var(--color-primary, #6366f1);
+  color: #fff;
+}
+
+.quickTip {
+  font-size: 0.73rem;
+  color: var(--color-text-muted, #64748b);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 8px 10px;
+  border-radius: 6px;
+  border-left: 2px solid var(--color-primary, #6366f1);
+  margin-top: 2px;
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;

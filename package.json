@@ -18,6 +18,7 @@
     "test:backend": "node scripts/py.js -m pytest",
     "test:all": "npm run test:frontend && npm run test:backend",
     "typecheck": "npm --prefix frontend run build",
+    "workana:login": "node scripts/py.js scripts/export_workana_session.py",
     "jules": "jules",
     "jules:new": "jules new",
     "jules:list": "jules remote list --session",

@@ -6,6 +6,7 @@ import { apiRequest } from './client';
 export interface AntibanStatus {
   searches_this_hour: number;
   max_per_hour: number;
+  max_searches_hour?: number;
   in_cooldown: boolean;
   cooldown_remaining_seconds: number;
   last_search_time?: string | null;

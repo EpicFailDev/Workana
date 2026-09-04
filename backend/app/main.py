@@ -53,7 +53,20 @@ async def lifespan(app: FastAPI):
         )
         sys.exit(1)
 
+    # Iniciar listener Pusher Realtime (se aplicável no processo da API)
+    from app.services.realtime_pusher import pusher_realtime_instance
+
+    try:
+        pusher_realtime_instance.start()
+    except Exception as e:
+        logger.warning(f"Não foi possível iniciar Pusher Realtime na API: {e}")
+
     yield
+
+    try:
+        pusher_realtime_instance.stop()
+    except Exception:
+        pass
 
     logger.bind(event="api.stopping").info("Encerrando aplicação...")
 

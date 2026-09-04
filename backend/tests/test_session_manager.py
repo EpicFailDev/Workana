@@ -117,3 +117,47 @@ async def test_check_session_health_disconnected(monkeypatch):
     res = await check_session_health("user-offline")
     assert res["status"] == "disconnected"
     assert res["valid"] is False
+
+
+@pytest.mark.asyncio
+async def test_check_session_health_blocked_waf_preserves_clearance_and_email(monkeypatch):
+    import httpx
+    from app.automation import session_manager
+    from app.database import crud
+
+    mock_state = {
+        "cookies": [
+            {"name": "PHPSESSID", "value": "val123", "domain": ".workana.com"},
+            {"name": "cf_clearance", "value": "cf123", "domain": ".workana.com"},
+        ]
+    }
+
+    async def mock_load(uid, as_path=False):
+        return mock_state
+
+    async def mock_session(uid):
+        return {"account_email": "tester@example.com"}
+
+    class MockClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def get(self, url):
+            return httpx.Response(status_code=403, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(session_manager, "load_storage_state", mock_load)
+    monkeypatch.setattr(crud, "get_workana_session", mock_session)
+    monkeypatch.setattr(httpx, "AsyncClient", MockClient)
+
+    res = await check_session_health("user-test")
+    assert res["status"] == "blocked_waf"
+    assert res["valid"] is False
+    assert res["has_cloudflare_clearance"] is True
+    assert res["account_email"] == "tester@example.com"
+    assert res["cookies_count"] == 2

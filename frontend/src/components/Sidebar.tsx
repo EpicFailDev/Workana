@@ -183,14 +183,15 @@ export default function Sidebar({ isOpen, onClose, onOpenSearch }: SidebarProps)
               className={`${styles.antibanBadge} ${
                 antiban.in_cooldown ? styles.antibanBadgeWarning : ''
               }`}
-              title={`Limite de segurança: ${antiban.searches_this_hour} de ${antiban.max_per_hour} buscas nesta hora`}
+              title={`Limite de segurança: ${antiban.searches_this_hour} de ${antiban.max_per_hour || antiban.max_searches_hour || 10} buscas nesta hora`}
             >
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Shield size={13} />
                 <span>Anti-Ban</span>
               </span>
               <span>
-                {antiban.searches_this_hour}/{antiban.max_per_hour}
+                {antiban.searches_this_hour}/
+                {antiban.max_per_hour || antiban.max_searches_hour || 10}
               </span>
             </div>
           )}

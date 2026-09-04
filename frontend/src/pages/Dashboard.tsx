@@ -364,12 +364,14 @@ export default function Dashboard() {
               style={{
                 background:
                   antibanStatus &&
-                  antibanStatus.searches_this_hour >= antibanStatus.max_per_hour * 0.8
+                  antibanStatus.searches_this_hour >=
+                    (antibanStatus.max_per_hour || antibanStatus.max_searches_hour || 30) * 0.8
                     ? 'var(--color-warning)'
                     : '#10b981',
                 width: `${Math.min(
                   100,
-                  ((antibanStatus?.searches_this_hour || 0) / (antibanStatus?.max_per_hour || 30)) *
+                  ((antibanStatus?.searches_this_hour || 0) /
+                    (antibanStatus?.max_per_hour || antibanStatus?.max_searches_hour || 30)) *
                     100
                 )}%`,
               }}

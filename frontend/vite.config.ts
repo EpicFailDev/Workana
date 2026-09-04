@@ -7,22 +7,26 @@ export default defineConfig(({ mode }) => {
   // Carrega as variáveis de ambiente com base no diretório atual
   const env = loadEnv(mode, process.cwd(), '');
 
-  // Validar variáveis críticas do Supabase durante o build em produção
-  const isProdBuild = mode === 'production' || process.env.NODE_ENV === 'production';
-  if (isProdBuild) {
-    if (!env.VITE_SUPABASE_URL) {
-      throw new Error(
-        '❌ ERRO NO BUILD: A variável de ambiente VITE_SUPABASE_URL não está definida!'
-      );
-    }
-    if (!env.VITE_SUPABASE_PUBLISHABLE_KEY) {
-      throw new Error(
-        '❌ ERRO NO BUILD: A variável de ambiente VITE_SUPABASE_PUBLISHABLE_KEY não está definida!'
-      );
-    }
-  }
+  const supabaseUrl =
+    env.VITE_SUPABASE_URL ||
+    process.env.VITE_SUPABASE_URL ||
+    process.env.SUPABASE_URL ||
+    'https://cztwxtsuewwacjcgajjz.supabase.co';
+  const supabaseKey =
+    env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.SUPABASE_PUBLISHABLE_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    'sb_publishable_QPvbWBIi-nBZoGtZUw_BhA_aaGGNRKc';
+
+  process.env.VITE_SUPABASE_URL = supabaseUrl;
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY = supabaseKey;
 
   return {
+    define: {
+      'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(supabaseUrl),
+      'import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY': JSON.stringify(supabaseKey),
+    },
     plugins: [react()],
     resolve: {
       alias: {

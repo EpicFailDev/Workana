@@ -11,8 +11,8 @@ RUN npm ci
 COPY . .
 
 # Recebe chaves públicas do Supabase necessárias durante a compilação do Vite
-ARG VITE_SUPABASE_URL
-ARG VITE_SUPABASE_PUBLISHABLE_KEY
+ARG VITE_SUPABASE_URL=https://cztwxtsuewwacjcgajjz.supabase.co
+ARG VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_QPvbWBIi-nBZoGtZUw_BhA_aaGGNRKc
 
 ENV VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
 ENV VITE_SUPABASE_PUBLISHABLE_KEY=${VITE_SUPABASE_PUBLISHABLE_KEY}

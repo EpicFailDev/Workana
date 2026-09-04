@@ -194,6 +194,7 @@ export default function Settings() {
           response.email ? `Conectado como ${response.email}` : 'Login via Google concluído!'
         );
         await reloadCredentials();
+        await handleTestSessionHealth();
       } else {
         toast.error(response.message || 'Não foi possível abrir o login via Google.');
         if (
@@ -221,7 +222,7 @@ export default function Settings() {
       const content = ev.target?.result as string;
       if (content) {
         setSessionJson(content);
-        toast.info(`Arquivo "${file.name}" carregado! Clique em "Salvar e Conectar Sessão".`);
+        toast.info(`Arquivo "${file.name}" carregado! Clique em "Salvar e Sincronizar Cookies".`);
       }
     };
     reader.readAsText(file);
@@ -229,7 +230,7 @@ export default function Settings() {
 
   const handleImportSession = async () => {
     if (!sessionJson.trim()) {
-      toast.error('Cole o JSON da sessão para importar.');
+      toast.error('Cole o JSON ou cookies da sessão para importar.');
       return;
     }
     setIsImporting(true);
@@ -239,10 +240,11 @@ export default function Settings() {
         accountEmail.trim() || undefined
       );
       if (response.success) {
-        toast.success(response.message || 'Sessão importada!');
+        toast.success(response.message || 'Sessão e cookies importados com sucesso!');
         setSessionJson('');
         setImportMode(false);
         await reloadCredentials();
+        await handleTestSessionHealth();
       } else {
         toast.error(response.message || 'Erro ao importar a sessão.');
       }
@@ -259,6 +261,7 @@ export default function Settings() {
       if (response.success) {
         toast.success('Conexão com o Workana removida.');
         await reloadCredentials();
+        await handleTestSessionHealth();
       } else {
         toast.error(response.message || 'Erro ao desconectar.');
       }
@@ -446,6 +449,9 @@ export default function Settings() {
               handleFileUpload={handleFileUpload}
               handleDisconnect={handleDisconnect}
               setCredentials={setCredentials}
+              sessionHealth={sessionHealth}
+              handleTestSessionHealth={handleTestSessionHealth}
+              isCheckingHealth={isCheckingHealth}
             />
           )}
 

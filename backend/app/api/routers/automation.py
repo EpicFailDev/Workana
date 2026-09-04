@@ -141,6 +141,23 @@ async def workana_session_import(payload: dict, user: dict = Depends(get_current
             "message": "Formato de sessão inválido. Cole o JSON do Playwright, lista de cookies ou arquivo HAR contendo cookies válidos do Workana.",
         }
 
+    # Mesclar com cookies existentes caso seja uma atualização parcial (ex: renovação de cf_clearance ou workana_session)
+    existing_state = await _session_manager.load_storage_state(user["user_id"])
+    if existing_state and isinstance(existing_state, dict) and "cookies" in existing_state:
+        existing_cookies_list = existing_state.get("cookies", [])
+        if len(state["cookies"]) < len(existing_cookies_list):
+            cookie_map = {
+                (str(c.get("name")), str(c.get("domain", "")).lower()): c
+                for c in existing_cookies_list
+                if isinstance(c, dict) and "name" in c
+            }
+            for c in state["cookies"]:
+                if isinstance(c, dict) and "name" in c:
+                    cookie_map[(str(c.get("name")), str(c.get("domain", "")).lower())] = c
+            state["cookies"] = list(cookie_map.values())
+            if not state.get("origins") and existing_state.get("origins"):
+                state["origins"] = existing_state["origins"]
+
     await _session_manager.save_storage_state(user["user_id"], state, account_email=account_email)
     logger.info(
         f"Sessão importada com sucesso para o usuário {user['user_id']} ({len(state['cookies'])} cookies)"
@@ -440,6 +457,21 @@ async def get_realtime_status(user: dict = Depends(get_current_user)):
     from app.services.realtime_pusher import pusher_realtime_instance
 
     return {
+        "is_active": pusher_realtime_instance.is_running,
+        "channels": ["projects-pt", "projects-en"],
+        "gateway": "ws-mt1.pusher.com",
+    }
+
+
+@router.post("/automation/realtime/start")
+async def start_realtime_status(user: dict = Depends(get_current_user)):
+    """Inicia o listener WebSocket Pusher sob demanda."""
+    from app.services.realtime_pusher import pusher_realtime_instance
+
+    if not pusher_realtime_instance.is_running:
+        pusher_realtime_instance.start()
+    return {
+        "success": True,
         "is_active": pusher_realtime_instance.is_running,
         "channels": ["projects-pt", "projects-en"],
         "gateway": "ws-mt1.pusher.com",

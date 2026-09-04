@@ -38,7 +38,15 @@ export interface CredentialsStatus {
 }
 
 export interface SessionHealthResponse {
-  status: 'healthy' | 'warning' | 'expired' | 'disconnected' | 'empty';
+  status:
+    | 'healthy'
+    | 'warning'
+    | 'expired'
+    | 'disconnected'
+    | 'empty'
+    | 'blocked_waf'
+    | 'saved_offline'
+    | 'potentially_expired';
   valid: boolean;
   message: string;
   cookies_count: number;
@@ -106,6 +114,12 @@ export const automationApi = {
 
   async getRealtimeStatus() {
     return apiRequest<RealtimeStatusResponse>('/automation/realtime-status');
+  },
+
+  async startRealtime() {
+    return apiRequest<RealtimeStatusResponse>('/automation/realtime/start', {
+      method: 'POST',
+    });
   },
 
   async refreshCatalog(filters?: Record<string, any>) {
