@@ -113,10 +113,12 @@ async def workana_google_login(user: dict = Depends(get_current_user)):
     if not result.get("success"):
         # Mensagem orientativa quando o login interativo não é possível (ex: container)
         hint = result.get("message", "")
-        if any(k in hint.lower() for k in ("headless", "display", "sandbox", "closed")):
+        if "docker" not in hint.lower() and any(
+            k in hint.lower() for k in ("headless", "display", "sandbox", "closed", "xserver")
+        ):
             result["message"] = (
-                f"{hint} | Dica: em ambiente sem janela (Docker), use a opção "
-                f"'Importar sessão' nas configurações."
+                f"{hint} | Dica: em ambiente sem janela gráfica (Docker), use a opção "
+                "'Colar Cookies' ou execute a opção [4] no INICIAR.bat."
             )
     return result
 
@@ -176,6 +178,171 @@ async def workana_disconnect(user: dict = Depends(get_current_user)):
 
     await _session_manager.clear_storage_state(user["user_id"])
     return {"success": True, "message": "Conexão com o Workana removida."}
+
+
+@router.get("/automation/session/diagnostics")
+async def get_session_diagnostics(user: dict = Depends(get_current_user)):
+    """Retorna diagnóstico detalhado em 5 pontos do Session Vault e Gateway Workana."""
+    from app.automation import session_manager as _session_manager
+
+    return await _session_manager.get_session_diagnostics(user["user_id"])
+
+
+@router.post("/automation/workana/auto-login")
+async def workana_auto_login(payload: dict = None, user: dict = Depends(get_current_user)):
+    """
+    Executa login autônomo e headless com Playwright Stealth usando credenciais fornecidas
+    ou pré-existentes no banco de dados.
+    """
+    payload = payload or {}
+    email = payload.get("email")
+    password = payload.get("password")
+
+    if email and password:
+        await crud.save_credentials(user["user_id"], email, password)
+
+    creds = await crud.get_credentials(user["user_id"])
+    if not creds or not creds.get("email") or not creds.get("password"):
+        return {
+            "success": False,
+            "message": "Credenciais não configuradas. Informe email e senha para realizar o login automático.",
+        }
+
+    success = await automation.login(user["user_id"])
+    if success:
+        from app.automation import session_manager as _session_manager
+
+        state = await _session_manager.load_storage_state(user["user_id"])
+        cookie_count = len(state.get("cookies", [])) if state else 0
+        return {
+            "success": True,
+            "message": f"Autenticação autônoma realizada com sucesso! ({cookie_count} cookies capturados)",
+            "cookies_count": cookie_count,
+            "email": creds.get("email"),
+        }
+    else:
+        err = getattr(automation, "_last_error", None) or "Falha ao autenticar no Workana."
+        return {"success": False, "message": err}
+
+
+@router.post("/automation/workana/stream-sync")
+async def workana_stream_sync(payload: dict, user: dict = Depends(get_current_user)):
+    """
+    Endpoint de recepção do Zero-Click Companion (Extensão MV3 / Bookmarklet).
+    Recebe os cookies ativos da aba do Workana em tempo real e atualiza o Session Vault.
+    """
+    from app.automation import session_manager as _session_manager
+
+    raw_cookies = payload.get("cookies") or payload.get("session_json")
+    account_email = payload.get("account_email")
+
+    if not raw_cookies:
+        return {
+            "success": False,
+            "message": "Nenhum dado de cookie recebido no payload de sincronização.",
+        }
+
+    state = _session_manager.normalize_storage_state(raw_cookies)
+    if not state or not state.get("cookies"):
+        return {
+            "success": False,
+            "message": "Não foi possível normalizar os cookies recebidos da extensão.",
+        }
+
+    # Mesclar com estado existente para garantir que cookies parciais preservem tokens anteriores
+    existing_state = await _session_manager.load_storage_state(user["user_id"])
+    if existing_state and isinstance(existing_state, dict) and "cookies" in existing_state:
+        existing_cookies = existing_state.get("cookies", [])
+        cookie_map = {
+            (str(c.get("name")), str(c.get("domain", "")).lower()): c
+            for c in existing_cookies
+            if isinstance(c, dict) and "name" in c
+        }
+        for c in state["cookies"]:
+            if isinstance(c, dict) and "name" in c:
+                cookie_map[(str(c.get("name")), str(c.get("domain", "")).lower())] = c
+        state["cookies"] = list(cookie_map.values())
+
+    await _session_manager.save_storage_state(user["user_id"], state, account_email=account_email)
+    logger.info(
+        f"Stream-sync recebido com sucesso do Companion para {user['user_id']} ({len(state['cookies'])} cookies)"
+    )
+
+    return {
+        "success": True,
+        "message": f"Zero-Click Sync realizado com sucesso ({len(state['cookies'])} cookies sincronizados)!",
+        "cookies_count": len(state["cookies"]),
+    }
+
+
+@router.get("/automation/workana/detect-local-session")
+async def workana_detect_local_session(user: dict = Depends(get_current_user)):
+    """Detecta se existem arquivos de sessão salvos no host local (workana_storage_state.json)."""
+    from app.automation import session_manager as _session_manager
+
+    return _session_manager.detect_local_session()
+
+
+@router.post("/automation/workana/sync-local-session")
+async def workana_sync_local_session(payload: dict = None, user: dict = Depends(get_current_user)):
+    """Importa o arquivo de sessão local detectado diretamente para a conta do usuário no Supabase."""
+    from app.automation import session_manager as _session_manager
+
+    payload = payload or {}
+    path = payload.get("path")
+    return await _session_manager.sync_local_session(user["user_id"], file_path=path)
+
+
+@router.post("/automation/workana/cdp-connect")
+async def workana_cdp_connect(payload: dict = None, user: dict = Depends(get_current_user)):
+    """
+    Conecta diretamente a uma instância local do Google Chrome via porta de depuração remota (CDP 9222).
+    Extrai a sessão ativa sem necessidade de digitar senhas ou instalar complementos.
+    """
+    from playwright.async_api import async_playwright
+    from app.automation import session_manager as _session_manager
+
+    payload = payload or {}
+    port = int(payload.get("port", 9222))
+    cdp_url = f"http://127.0.0.1:{port}"
+
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.connect_over_cdp(cdp_url, timeout=4000)
+            contexts = browser.contexts
+            if not contexts:
+                return {
+                    "success": False,
+                    "message": "Nenhum contexto de navegação encontrado no Chrome conectado.",
+                }
+            cookies = await contexts[0].cookies(["https://www.workana.com", "https://workana.com"])
+            if not cookies:
+                return {
+                    "success": False,
+                    "message": "Nenhum cookie do Workana encontrado no Chrome aberto na porta 9222. Navegue até workana.com primeiro.",
+                }
+
+            normalized = _session_manager.normalize_storage_state(cookies)
+            if normalized and normalized.get("cookies"):
+                await _session_manager.save_storage_state(user["user_id"], normalized)
+                return {
+                    "success": True,
+                    "message": f"Conexão CDP com Chrome bem-sucedida! {len(normalized['cookies'])} cookies capturados.",
+                    "cookies_count": len(normalized["cookies"]),
+                }
+            return {
+                "success": False,
+                "message": "Cookies do Workana vazios no Chrome conectado.",
+            }
+    except Exception as exc:
+        return {
+            "success": False,
+            "message": (
+                f"Não foi possível conectar ao Chrome na porta {port}. "
+                "Para usar esta opção, inicie o Chrome com o parâmetro: chrome.exe --remote-debugging-port=9222"
+            ),
+            "detail": str(exc),
+        }
 
 
 # ==================== Templates de Proposta ====================

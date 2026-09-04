@@ -48,11 +48,36 @@ export interface SessionHealthResponse {
     | 'saved_offline'
     | 'potentially_expired';
   valid: boolean;
+  health_score?: number;
   message: string;
   cookies_count: number;
   has_cloudflare_clearance: boolean;
   account_email?: string | null;
+  latency_ms?: number | null;
+  decay_hours_remaining?: number;
+  http_status?: number;
   last_tested_at?: string;
+}
+
+export interface DiagnosticItem {
+  id: string;
+  name: string;
+  status: 'ok' | 'warning' | 'error' | 'pending' | 'blocked';
+  detail: string;
+}
+
+export interface SessionDiagnosticsResponse {
+  overall: 'optimal' | 'degraded' | 'disconnected';
+  diagnostics: DiagnosticItem[];
+}
+
+export interface LocalSessionDetectionResponse {
+  detected: boolean;
+  path: string | null;
+  cookies_count: number;
+  has_session_cookie: boolean;
+  has_cloudflare_clearance: boolean;
+  modified_at: string | null;
 }
 
 export interface RealtimeStatusResponse {
@@ -110,6 +135,49 @@ export const automationApi = {
 
   async getSessionHealth() {
     return apiRequest<SessionHealthResponse>('/automation/session/health');
+  },
+
+  async getSessionDiagnostics() {
+    return apiRequest<SessionDiagnosticsResponse>('/automation/session/diagnostics');
+  },
+
+  async autoLogin(creds?: { email?: string; password?: string }) {
+    return apiRequest<{
+      success: boolean;
+      message: string;
+      cookies_count?: number;
+      email?: string;
+    }>('/automation/workana/auto-login', {
+      method: 'POST',
+      body: creds || {},
+    });
+  },
+
+  async detectLocalSession() {
+    return apiRequest<LocalSessionDetectionResponse>('/automation/workana/detect-local-session');
+  },
+
+  async syncLocalSession(path?: string) {
+    return apiRequest<{
+      success: boolean;
+      message: string;
+      cookies_count?: number;
+    }>('/automation/workana/sync-local-session', {
+      method: 'POST',
+      body: { path },
+    });
+  },
+
+  async cdpConnect(port: number = 9222) {
+    return apiRequest<{
+      success: boolean;
+      message: string;
+      cookies_count?: number;
+      detail?: string;
+    }>('/automation/workana/cdp-connect', {
+      method: 'POST',
+      body: { port },
+    });
   },
 
   async getRealtimeStatus() {

@@ -367,7 +367,15 @@ class WorkanaAutomation:
 
         except Exception as e:
             logger.error(f"Erro no login via Google: {e}")
-            self._last_error = f"Erro no Login via Google: {str(e)}"
+            err_msg = str(e)
+            if any(k in err_msg.lower() for k in ("xserver", "headless: true", "headed browser")):
+                self._last_error = (
+                    "Não foi possível abrir o navegador na tela porque o servidor está rodando sem interface gráfica "
+                    "(ambiente Docker sem XServer). Use a opção 'Colar Cookies' na aba de configurações ou execute a opção "
+                    "[4] (Login no Workana) no menu do INICIAR.bat no Windows."
+                )
+            else:
+                self._last_error = f"Erro no Login via Google: {err_msg}"
             return {"success": False, "message": self._last_error}
         finally:
             await driver.close()

@@ -72,10 +72,19 @@ class SearchScheduler:
             replace_existing=True,
         )
 
+        # Job de Keep-Alive: manutenção preditiva de sessão com jitter estocástico (a cada 20 minutos)
+        self.scheduler.add_job(
+            self.execute_session_keep_alive,
+            "interval",
+            minutes=20,
+            id="session_keep_alive",
+            replace_existing=True,
+        )
+
         self.scheduler.start()
         self.is_started = True
         logger.bind(event="scheduler.started").info(
-            "Scheduler inicializado (busca legada: 30 min, catálogo: 15 min, fila de propostas: 30 seg)."
+            "Scheduler inicializado (busca legada: 30 min, catálogo: 15 min, fila de propostas: 30 seg, keep-alive: 20 min)."
         )
 
     def stop(self):
@@ -85,6 +94,44 @@ class SearchScheduler:
         self.scheduler.shutdown()
         self.is_started = False
         logger.bind(event="scheduler.stopped").info("Scheduler de busca Workana desligado.")
+
+    async def execute_session_keep_alive(self):
+        """
+        Rotina periódica de auto-cura e keep-alive de sessão.
+        Aplica jitter estocástico e valida a saúde dos cookies de todos os usuários com sessão ativa.
+        """
+        from app.database.models import WorkanaSession as WorkanaSessionModel
+        from app.automation import session_manager
+
+        # Introduzir jitter estocástico de 1 a 30 segundos para evitar sincronia rígida
+        jitter_s = random.uniform(1.0, 30.0)
+        await asyncio.sleep(jitter_s)
+
+        try:
+            async with async_session() as session:
+                stmt = select(WorkanaSessionModel.user_id)
+                res = await session.execute(stmt)
+                user_ids = [row[0] for row in res.all()]
+
+            if not user_ids:
+                return
+
+            logger.bind(event="session.keep_alive.start").info(
+                f"Iniciando ciclo de keep-alive preditivo para {len(user_ids)} contas..."
+            )
+
+            for uid in user_ids:
+                try:
+                    health = await session_manager.check_session_health(uid)
+                    status = health.get("status")
+                    score = health.get("health_score", 0)
+                    logger.bind(event="session.keep_alive.result").info(
+                        f"Keep-Alive usuário {uid}: status={status}, score={score}%"
+                    )
+                except Exception as user_exc:
+                    logger.warning(f"Erro no keep-alive do usuário {uid}: {user_exc}")
+        except Exception as exc:
+            logger.error(f"Falha no ciclo geral de session keep-alive: {exc}")
 
     async def execute_scheduled_search(self):
         """Busca projetos de todos os usuários com base em seus filtros salvos."""

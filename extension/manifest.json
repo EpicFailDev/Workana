@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Workana Accelerator Sync Companion",
+  "version": "1.0.0",
+  "description": "Sincronização autônoma e Zero-Click de sessão e cookies entre o Workana e o Workana Accelerator.",
+  "permissions": [
+    "cookies",
+    "storage"
+  ],
+  "host_permissions": [
+    "*://*.workana.com/*",
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*",
+    "https://localhost:8000/*",
+    "https://localhost:8080/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Workana Accelerator Companion"
+  }
+}

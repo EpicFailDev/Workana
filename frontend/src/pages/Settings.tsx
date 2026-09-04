@@ -218,11 +218,30 @@ export default function Settings() {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       const content = ev.target?.result as string;
-      if (content) {
-        setSessionJson(content);
-        toast.info(`Arquivo "${file.name}" carregado! Clique em "Salvar e Sincronizar Cookies".`);
+      if (content && content.trim()) {
+        const trimmed = content.trim();
+        setSessionJson(trimmed);
+        setIsImporting(true);
+        try {
+          const response: any = await api.importSession(trimmed, accountEmail.trim() || undefined);
+          if (response.success) {
+            toast.success(
+              response.message || `Arquivo "${file.name}" importado e sincronizado com sucesso!`
+            );
+            setSessionJson('');
+            setImportMode(false);
+            await reloadCredentials();
+            await handleTestSessionHealth();
+          } else {
+            toast.error(response.message || 'Erro ao importar a sessão do arquivo.');
+          }
+        } catch (error: any) {
+          toast.error(error.message || 'Erro ao importar a sessão do arquivo.');
+        } finally {
+          setIsImporting(false);
+        }
       }
     };
     reader.readAsText(file);

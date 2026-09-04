@@ -27,5 +27,6 @@ scratch/
 
 # AI Agent Skills & MCP
 .agents/
+.ag-kit-backups/
 skills-lock.json
 .mcp.json

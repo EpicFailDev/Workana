@@ -93,3 +93,24 @@ npm run typecheck
 
 5. **Testes Regressivos**:
    - Sempre que o Jules corrigir um bug, um novo caso de teste em Pytest ou Vitest DEVE ser adicionado para comprovar a correção e prevenir regressões futuras.
+
+---
+
+## 4. Comunicação Natural, Decisões Autônomas e Modo Ágil
+
+1. **Comunicação em Linguagem Natural/Leiga**:
+   - O usuário pode se comunicar de forma simples e cotidiana, sem jargões de programação.
+   - Interprete a intenção funcional do pedido sem exigir que o usuário especifique termos técnicos, tipos ou arquiteturas.
+
+2. **Autonomia Técnica Total**:
+   - Tome as decisões de implementação (estruturação de código, bibliotecas recomendadas, tipagem, estilização) com base nas melhores práticas do projeto e da indústria.
+   - Evite perguntas de micro-decisões técnicas (ex: *"devemos usar Context ou Zustand?"*). Tome a decisão recomendada de forma autônoma e execute.
+
+3. **Roteamento Inteligente e Ativação de Skills**:
+   - Ative e aplique automaticamente as skills relevantes instaladas em `.agents/skills/` (ex: `intelligent-routing`, `frontend-design`, `systematic-debugging`, `tailwind-patterns`, `python-patterns`, `webapp-testing`) sem exigir comandos manuais ou menções explícitas do usuário.
+
+4. **Verificação Proativa**:
+   - Sempre execute a checagem e os testes necessários para garantir que nada foi quebrado antes de dar a tarefa como concluída.
+
+5. **Explicações Claras e Humanas**:
+   - Ao responder, explique o que foi feito em português claro, direto e sem jargões desnecessários, focando no resultado prático para o usuário.
